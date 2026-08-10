@@ -164,11 +164,11 @@ java --enable-preview -Xms256m -Xmx256m -jar manager_agent-1.0-SNAPSHOT.jar
 
 > `--enable-preview` 必须加（代码用到 Java 21 switch 模式匹配特性）。
 
-### 7. 访问使用
+### 8. 访问使用
 
 浏览器打开 `http://localhost:8081` → 注册/登录 → 输入任务（如"深圳到惠州3日游自驾游计划"）→ 点【生成计划】→ 实时查看思考过程 → 得到完整计划。
 
-### 8. 命令行直跑模式（测试用，不启 Web）
+### 9. 命令行直跑模式（测试用，不启 Web）
 
 ```bash
 java --enable-preview -jar manager_agent-1.0-SNAPSHOT.jar --run-now
