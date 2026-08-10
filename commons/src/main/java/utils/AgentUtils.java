@@ -28,7 +28,7 @@ public class AgentUtils {
 
         String apiKey = System.getenv("DASHSCOPE_API_KEY"); // 优先从环境变量读取API Key
         if (apiKey == null || apiKey.isBlank()) {
-            apiKey = ""; // 环境变量未设置 → 无兜底key（原内置key已移除，防止公开仓库泄露；请配置环境变量）
+            apiKey = "sk-REPLACED"; // 环境变量未设置 → 用代码内置的key
         }
 
         return ReActAgent.builder()

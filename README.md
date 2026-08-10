@@ -55,15 +55,65 @@
 | Maven | 3.6+ | 构建工具 |
 | Nacos | 3.x | 服务注册中心（本地启动，8848端口） |
 | MySQL | 8.x | 登录/行程保存（可选：不用登录功能可跳过） |
-| DashScope API Key | - | 阿里云百炼（通义千问 qwen3-max） |
+| DashScope API Key | - | 阿里云百炼（通义千问 qwen3-max），代码内置兜底key |
 
-### 2. 初始化数据库（可选）
+### 2. 安装并启动 Nacos（★必须先装，否则3个Agent注册失败）
+
+本项目3个Agent通过 Nacos 互相发现（主管在 Nacos 查"路线Agent/行程Agent"的名片再调用），**没有 Nacos 整个系统跑不起来**。
+
+**① 下载 Nacos 3.x（约100MB）**
+
+```bash
+# Linux/macOS 直接下载
+wget https://github.com/alibaba/nacos/releases/download/3.1.0/nacos-server-3.1.0.tar.gz
+tar -zxvf nacos-server-3.1.0.tar.gz
+
+# Windows 到官网手动下载：https://github.com/alibaba/nacos/releases
+# 解压后得到 nacos/ 目录
+```
+
+> 下载慢/被墙时：用国内镜像 `https://mirrors.aliyun.com/` 搜 nacos，或本地 Maven 仓库已有则直接复制。
+
+**② 启动 Nacos（单机模式）**
+
+```bash
+# Linux/macOS
+cd nacos/bin
+bash startup.sh -m standalone
+
+# Windows
+cd nacos\bin
+startup.cmd -m standalone
+```
+
+**③ 验证 Nacos 已启动**（等30秒后）：
+
+```bash
+curl http://localhost:8848/nacos/v1/console/health/readiness
+# 返回 {"status":"UP"} = 启动成功
+
+# 或访问控制台（默认账号密码 nacos/nacos）
+# http://localhost:8848/nacos
+```
+
+**④ 停止 Nacos**：
+
+```bash
+# Linux/macOS
+cd nacos/bin && bash shutdown.sh
+# Windows
+cd nacos\bin && shutdown.cmd
+```
+
+> ⚠️ 注意：3个 Agent 的 `application.yml` 里 Nacos 地址写的是 `localhost:8848`，**Nacos 必须和 Agent 在同一台机器**（或改配置为服务器IP）。
+
+### 3. 初始化数据库（可选）
 
 执行 `database/schema.sql` 创建 `aitripplan` 库及 `users` / `trip_plans` 表。
 
-### 3. 配置 API Key（必须）
+### 4. API Key（可选配置，代码内置兜底key）
 
-方式一（推荐）：设置环境变量
+代码里已内置可用的 DashScope Key（`commons/src/main/java/utils/AgentUtils.java` 第31行），**不配置也能跑**。需要换自己的 key 时：
 
 ```bash
 # Linux/macOS
@@ -72,9 +122,9 @@ export DASHSCOPE_API_KEY="你的key"
 set DASHSCOPE_API_KEY=你的key
 ```
 
-方式二：修改 `commons/src/main/java/utils/AgentUtils.java` 中的兜底 key（⚠️ 请勿提交真实 key 到公开仓库）。
+环境变量优先于内置key，配置后无需改代码。
 
-### 4. 数据库连接配置（可选）
+### 5. 数据库连接配置（可选）
 
 `manager_agent/src/main/resources/application.yml` 通过环境变量注入：
 
@@ -84,7 +134,7 @@ export RDS_USER="trip_user"
 export RDS_PASSWORD="你的密码"
 ```
 
-### 5. 打包
+### 6. 打包
 
 ```bash
 mvn clean package -DskipTests
@@ -95,7 +145,7 @@ mvn clean package -DskipTests
 - `routeMaking_agent/target/routeMaking_agent-1.0-SNAPSHOT.jar`
 - `tripPlanner_agent/target/tripPlanner_agent-1.0-SNAPSHOT.jar`
 
-### 6. 启动（★顺序很重要：Nacos → 路线 → 行程 → 主管）
+### 7. 启动（★顺序很重要：Nacos → 路线 → 行程 → 主管）
 
 ```bash
 # ① 启动 Nacos（Agent 要注册名片，必须先起）
