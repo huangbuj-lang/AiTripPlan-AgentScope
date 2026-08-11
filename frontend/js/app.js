@@ -323,7 +323,37 @@ function buildTable(rows) {
     if (body.length && body[0].every(c => /^:?-{2,}:?$/.test(c.replace(/\s/g, '')))) {
         body = body.slice(1);
     }
-    let html = '<table class="plan-table"><thead><tr>';
+
+    // ★时间轴识别：首列表头是"时间"类关键词时，用时间轴样式渲染（文档"详细时间表区"要求）
+    const isTimeline = /时间|时刻|时段|time/.test(header[0] || '');
+
+    let html = '<table class="plan-table' + (isTimeline ? ' timeline-table' : '') + '">';
+    if (isTimeline) {
+        // 时间轴模式：第一列渲染为时间胶囊，其余列正常
+        html += '<tbody>';
+        body.forEach(row => {
+            const timeCell = row[0] || '';
+            html += '<tr><td class="timeline-time">' + escapeHtml(timeCell) + '</td>';
+            html += '<td>';
+            for (let i = 1; i < header.length; i++) {
+                const label = header[i] || '';
+                const val = row[i] || '';
+                if (label && val) {
+                    html += '<span class="timeline-item"><b>' + applyInline(label) + '</b>' +
+                        withActivityIcon(applyInline(val)) + '</span>';
+                }
+            }
+            if (header.length <= 1) {
+                html += withActivityIcon(applyInline(row.slice(1).join(' ')));
+            }
+            html += '</td></tr>';
+        });
+        html += '</tbody></table>';
+        return html;
+    }
+
+    // 普通表格模式
+    html += '<thead><tr>';
     header.forEach(c => { html += '<th>' + applyInline(c) + '</th>'; });
     html += '</tr></thead><tbody>';
     body.forEach(row => {
@@ -438,8 +468,9 @@ function renderMarkdown(text) {
 }
 
 /* ============================================================
-   A4 打印风格行程规划表（按 md 文档区块渲染）
-   区块分类：概览 / 时间表 / 交通 / 住宿餐饮 / 实用信息
+   A4 旅行规划表（按《旅行规划表设计提示词》区块渲染）
+   区块：标题区 / 概览 / 时间表(时间轴) / 交通 / 住宿餐饮 / 实用信息
+   ★新增：行程概览区（自动从时间表中提取当天活动）+ 时间轴样式
    ============================================================ */
 
 /** 区块分类规则：标题关键词 → 样式类 + 图标 */
@@ -572,6 +603,64 @@ function renderPlanSheet(text) {
         sheet.appendChild(section);
         return section;
     };
+
+    /* ★行程概览区：遍历正文，把"第X天"标题及其下的首个表格/列表提取为
+       概览卡片（目的地+当天要点），符合文档"按日期分区的行程简表"要求 */
+    const overview = document.createElement('div');
+    overview.className = 'plan-section sec-overview';
+    const ovTitle = document.createElement('div');
+    ovTitle.className = 'sec-title';
+    ovTitle.innerHTML = '<span class="sec-icon">🗺️</span><span>行程概览</span>';
+    overview.appendChild(ovTitle);
+
+    const dayHeadings = Array.from(temp.querySelectorAll('h1, h2, h3, h4'))
+        .filter(h => /第\s*[一二三四五六七八九十\d]+\s*[天日]/.test(h.textContent || ''));
+
+    let overviewBuilt = false;
+    if (dayHeadings.length > 0) {
+        const grid = document.createElement('div');
+        grid.className = 'overview-grid';
+        dayHeadings.forEach(h => {
+            const card = document.createElement('div');
+            card.className = 'overview-card';
+            const dayName = document.createElement('b');
+            dayName.textContent = h.textContent.trim();
+            card.appendChild(dayName);
+            // 取该标题后的第一个表格或列表作为当天要点（最多取4条）
+            let nxt = h.nextElementSibling;
+            let items = [];
+            let guard = 0;
+            while (nxt && guard < 6) {
+                guard++;
+                if (nxt.tagName === 'TABLE') {
+                    items = Array.from(nxt.querySelectorAll('tbody tr'))
+                        .slice(0, 4)
+                        .map(tr => tr.textContent.replace(/\s+/g, ' ').trim().slice(0, 40));
+                    break;
+                }
+                if (nxt.tagName === 'UL' || nxt.tagName === 'OL') {
+                    items = Array.from(nxt.querySelectorAll('li'))
+                        .slice(0, 4)
+                        .map(li => li.textContent.replace(/\s+/g, ' ').trim().slice(0, 40));
+                    break;
+                }
+                nxt = nxt.nextElementSibling;
+            }
+            if (items.length) {
+                const ul = document.createElement('ul');
+                items.forEach(it => {
+                    const li = document.createElement('li');
+                    li.textContent = it;
+                    ul.appendChild(li);
+                });
+                card.appendChild(ul);
+            }
+            grid.appendChild(card);
+        });
+        overview.appendChild(grid);
+        sheet.appendChild(overview);
+        overviewBuilt = true;
+    }
 
     Array.from(temp.childNodes).forEach(node => {
         // 忽略纯文本/换行节点

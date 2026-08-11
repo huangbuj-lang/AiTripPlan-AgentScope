@@ -57,7 +57,7 @@
         overflow: visible !important;
     }
 
-    /* A4 行程单铺满打印区域 */
+    /* A4 行程单铺满打印区域；去掉屏幕上的裁剪线/装饰/背景 */
     .plan-sheet {
         width: 100% !important;
         max-width: 100% !important;
@@ -66,7 +66,15 @@
         border: none !important;
         border-radius: 0 !important;
         box-shadow: none !important;
+        background-image: none !important;   /* 去掉虚线裁剪线 */
+        background: #fff !important;
     }
+    .plan-sheet::before { content: "" !important; }  /* 去掉地标装饰条 */
+    .plan-section { background: #fff !important; border: none !important; padding: 2px 0 !important; }
+    .plan-meta span { background: #fff !important; border: none !important; padding: 0 !important; }
+    .overview-card { border: 1px solid #ccc !important; box-shadow: none !important; }
+    .timeline-table .timeline-time { background: #eee !important; color: #333 !important; }
+    .timeline-item { background: #fff !important; border: none !important; padding: 0 !important; }
 
     /* 区块尽量不跨页断裂 */
     .plan-section { page-break-inside: avoid; }
