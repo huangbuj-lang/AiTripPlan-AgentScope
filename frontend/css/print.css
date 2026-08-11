@@ -1,0 +1,84 @@
+/* ============================================================
+   print.css — 打印专用样式（@media print）
+   PDF 导出走 window.print()，本文件负责：
+   1) 页面设为 A4 尺寸（210mm×297mm）+ 10mm 打印边距
+   2) 隐藏按钮/输入框/思考过程等非计划内容，只保留行程规划表
+   3) 去掉屏幕上的卡片阴影/背景色，保证黑白打印清晰
+   ============================================================ */
+
+@media print {
+
+    /* A4 页面 + 打印边距 */
+    @page {
+        size: A4;
+        margin: 10mm;
+    }
+
+    /* 去掉渐变背景与居中布局，还原为纯白打印 */
+    html, body {
+        background: #fff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        display: block !important;
+    }
+
+    .container {
+        max-width: none !important;
+        width: 100% !important;
+    }
+
+    /* 隐藏所有非计划内容：头部/输入框/状态条/思考过程/保存栏/页脚/按钮/弹层 */
+    .header,
+    .input-area,
+    .status,
+    .panel-think,
+    .footer,
+    .user-bar,
+    .save-bar,
+    .no-print,
+    .export-menu,
+    .my-plans-modal {
+        display: none !important;
+    }
+
+    /* 结果面板去掉卡片样式，只露出行程单 */
+    .panel {
+        box-shadow: none !important;
+        border: none !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+        background: #fff !important;
+    }
+    .panel-result { margin: 0 !important; }
+    .panel-result .panel-title { display: none !important; }
+    .panel-body.result-body {
+        padding: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
+    /* A4 行程单铺满打印区域 */
+    .plan-sheet {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+    }
+
+    /* 区块尽量不跨页断裂 */
+    .plan-section { page-break-inside: avoid; }
+    .plan-header { page-break-after: avoid; }
+    .plan-table tr { page-break-inside: avoid; }
+    .plan-table th, .plan-table td { background: #fff !important; }
+
+    /* 链接不显示下划线/颜色，代码块背景降为浅灰保证灰度可读 */
+    a { color: #2d3436 !important; text-decoration: none !important; }
+    .plan-sheet pre,
+    .plan-sheet code {
+        background: #f5f5f5 !important;
+        color: #333 !important;
+    }
+}

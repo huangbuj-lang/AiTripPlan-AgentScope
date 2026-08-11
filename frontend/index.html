@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 旅行规划助手</title>
+<!-- 样式分离：主样式 + 打印专用样式（print.css 只在打印时生效） -->
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/print.css" media="print">
+</head>
+<body>
+<div class="container">
+
+    <!-- 头部 -->
+    <div class="header">
+        <h1>🌏 AI 旅行规划助手</h1>
+        <p>输入你的旅行需求，多 Agent 协作自动生成完整计划</p>
+        <!-- 登录用户信息栏 -->
+        <div class="user-bar">
+            <span id="userName">👤 未登录</span>
+            <button class="mini-btn" id="myPlansBtn" onclick="showMyPlans()" style="display:none">📂 我的行程</button>
+            <button class="mini-btn" id="logoutBtn" onclick="logout()" style="display:none">退出</button>
+        </div>
+    </div>
+
+    <!-- 输入区 -->
+    <div class="input-area">
+        <input id="prompt" type="text"
+               placeholder="例如：帮我制定北京3日游计划 / 广州到珠海2日自驾游..."
+               onkeydown="if(event.key==='Enter') send()">
+        <button id="sendBtn" onclick="send()">生成计划</button>
+    </div>
+
+    <!-- 状态条 -->
+    <div id="status" class="status">⏳ 主管Agent正在规划中，请稍候（约1-3分钟）...</div>
+
+    <!-- 思考过程区 -->
+    <div class="panel panel-think">
+        <div class="panel-title"><span class="dot"></span>🧠 思考过程（实时）</div>
+        <div id="thinkBody" class="panel-body">
+            <div class="empty">发送任务后，这里会实时显示主管Agent的每一步动作</div>
+        </div>
+    </div>
+
+    <!-- 最终答案区 -->
+    <div class="panel panel-result">
+        <div class="panel-title">
+            <span class="dot"></span>📋 最终旅行计划
+            <!-- ★ 打印 / 导出按钮（右上角，打印时隐藏） -->
+            <span class="panel-actions no-print">
+                <button type="button" class="btn-print" id="printBtn" onclick="toggleExportMenu(event)">🖨️ 打印 / 导出</button>
+                <div class="export-menu" id="exportMenu" style="display:none">
+                    <a href="javascript:void(0)" onclick="exportPDF(event)">📄 导出 PDF（打印预览）</a>
+                    <a href="javascript:void(0)" onclick="exportWord(event)">📝 导出 Word 文档</a>
+                </div>
+            </span>
+        </div>
+        <div id="resultBody" class="panel-body result-body">
+            <div class="empty">等待生成...</div>
+        </div>
+        <!-- 保存行程按钮（结果生成后显示） -->
+        <div id="saveBar" class="save-bar" style="display:none">
+            <button class="mini-btn" onclick="savePlan()">💾 保存到我的行程</button>
+            <span id="saveMsg" class="save-msg"></span>
+        </div>
+    </div>
+
+    <!-- 我的行程弹层 -->
+    <div id="myPlansModal" class="my-plans-modal" style="display:none">
+        <div class="modal-card">
+            <div class="modal-head">
+                <b>📂 我的行程</b>
+                <button class="mini-btn" onclick="closeMyPlans()">关闭</button>
+            </div>
+            <div id="myPlansList" class="modal-body"></div>
+        </div>
+    </div>
+
+    <div class="footer">AiTripPlan-AgentScope · 多Agent协作系统 · 实时事件驱动</div>
+</div>
+
+<!-- 逻辑分离：全部 JS 移到 js/app.js -->
+<script src="js/app.js"></script>
+</body>
+</html>

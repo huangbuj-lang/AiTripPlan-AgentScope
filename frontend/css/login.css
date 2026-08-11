@@ -1,0 +1,59 @@
+/* ============================================================
+   login.css — 登录页（login.html）全部样式
+   由原 login.html 内联 <style> 拆分而来，样式与功能完全不变
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: "Microsoft YaHei", -apple-system, sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+}
+
+.login-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 16px;
+    padding: 40px 36px;
+    width: 100%; max-width: 400px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+
+.logo { text-align: center; margin-bottom: 28px; }
+.logo .icon { font-size: 44px; }
+.logo h1 { color: #fff; font-size: 22px; margin-top: 10px; }
+.logo p { color: #94a3b8; font-size: 13px; margin-top: 6px; }
+
+.tabs { display: flex; background: #0f172a; border-radius: 10px; padding: 4px; margin-bottom: 24px; }
+.tab {
+    flex: 1; text-align: center; padding: 10px 0; cursor: pointer;
+    border-radius: 8px; color: #94a3b8; font-size: 15px; transition: all .2s;
+}
+.tab.active { background: #3b82f6; color: #fff; }
+
+.form-group { margin-bottom: 18px; }
+.form-group label { color: #cbd5e1; font-size: 13px; display: block; margin-bottom: 8px; }
+.form-group input {
+    width: 100%; padding: 12px 14px;
+    background: #0f172a; border: 1px solid #334155; border-radius: 10px;
+    color: #fff; font-size: 15px; outline: none; transition: border .2s;
+}
+.form-group input:focus { border-color: #3b82f6; }
+
+.btn-login {
+    width: 100%; padding: 13px; margin-top: 6px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    border: none; border-radius: 10px; color: #fff; font-size: 16px;
+    cursor: pointer; transition: opacity .2s;
+}
+.btn-login:hover { opacity: .9; }
+.btn-login:disabled { opacity: .5; cursor: not-allowed; }
+
+.msg { margin-top: 14px; text-align: center; font-size: 13px; min-height: 20px; }
+.msg.ok { color: #34d399; }
+.msg.err { color: #f87171; }
+
+.footer { text-align: center; margin-top: 20px; color: #475569; font-size: 12px; }

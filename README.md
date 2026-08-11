@@ -36,7 +36,24 @@
         Nacos 注册中心（8848）：Agent 名片注册与发现
 ```
 
-## 📦 模块说明
+## 📦 项目结构
+
+```
+AiTripPlan-AgentScope/
+├── 📦 backend/                # 后端大包（Java/Maven 代码）
+│   ├── commons/               # 公共库（AgentUtils / ToolUtils / NacosUtil / LimitedMemory）
+│   ├── manager_agent/         # 主管 Agent（8081）
+│   ├── routeMaking_agent/     # 路线 Agent（8082）
+│   └── tripPlanner_agent/     # 行程 Agent（8085）
+├── 🎨 frontend/               # 前端大包（静态资源，打包时自动并入主管 jar）
+│   ├── index.html / login.html
+│   ├── css/ (style.css / print.css / login.css)
+│   └── js/ (app.js / login.js)
+├── 🧪 tests/                  # 测试相关（冒烟测试 smoke-test.sh）
+├── 🗄️ database/               # 数据库脚本（schema.sql）
+├── ⚙️ start-local.sh          # 一键启动脚本
+└── pom.xml                    # 顶层聚合 pom（4 个后端模块）
+```
 
 | 模块 | 端口 | 角色 | 职责 |
 |---|---|---|---|
@@ -55,7 +72,7 @@
 | Maven | 3.6+ | 构建工具 |
 | Nacos | 3.x | 服务注册中心（本地启动，8848端口） |
 | MySQL | 8.x | 登录/行程保存（可选：不用登录功能可跳过） |
-| DashScope API Key | - | 阿里云百炼（通义千问 qwen3-max），代码内置兜底key |
+| DashScope API Key | - | 阿里云百炼（通义千问 qwen3-max），**必须配置**（项目根目录 .env 文件，见第4节） |
 
 ### 2. 安装并启动 Nacos（★必须先装，否则3个Agent注册失败）
 
@@ -107,72 +124,111 @@ cd nacos\bin && shutdown.cmd
 
 > ⚠️ 注意：3个 Agent 的 `application.yml` 里 Nacos 地址写的是 `localhost:8848`，**Nacos 必须和 Agent 在同一台机器**（或改配置为服务器IP）。
 
-### 3. 初始化数据库（可选）
+### 3. 本地数据库建立自动脚本及连接配置
 
-执行 `database/schema.sql` 创建 `aitripplan` 库及 `users` / `trip_plans` 表。
-
-### 4. API Key（可选配置，代码内置兜底key）
-
-代码里已内置可用的 DashScope Key（`commons/src/main/java/utils/AgentUtils.java` 第31行），**不配置也能跑**。需要换自己的 key 时：
+**① 建立数据库和表**：在项目根目录执行 `database/schema.sql`，自动创建 `aitripplan` 库及 `users` / `trip_plans` 表：
 
 ```bash
 # Linux/macOS
-export DASHSCOPE_API_KEY="你的key"
-# Windows
-set DASHSCOPE_API_KEY=你的key
+mysql -u root -p < database/schema.sql
+
+# Windows (cmd)
+mysql -u root -p < database/schema.sql
+
+# Windows (git-bash) 或密码不想交互输入：
+export MYSQL_PWD='你的密码'
+mysql -u root -h 127.0.0.1 < database/schema.sql
 ```
 
-环境变量优先于内置key，配置后无需改代码。
-
-### 5. 数据库连接配置（可选）
-
-`manager_agent/src/main/resources/application.yml` 通过环境变量注入：
+验证是否建好：
 
 ```bash
-export RDS_HOST="127.0.0.1:3306"      # 或云RDS内网地址
-export RDS_USER="trip_user"
+mysql -u root -p -e "SHOW TABLES FROM aitripplan;"
+# 应看到 users、trip_plans 两张表
+```
+
+> 脚本使用 `IF NOT EXISTS`，重复执行不会报错、不会覆盖已有数据，可放心多次执行。
+
+**② 连接配置**：`backend/manager_agent/src/main/resources/application.yml` 通过环境变量注入连接信息，默认连本地库（`127.0.0.1:3306`），建好库后直接启动即可自动对接：
+
+```bash
+export RDS_HOST="127.0.0.1:3306"      # 本地库：127.0.0.1:3306
+export RDS_USER="root"
 export RDS_PASSWORD="你的密码"
 ```
 
-### 6. 打包
+### 4. API Key（★必须配置，否则 Agent 启动报错）
+
+API Key **只从项目根目录的 `.env` 文件读取**（不走系统环境变量，代码里无内置 key）：
+
+在项目根目录创建 `.env` 文件（此文件已被 .gitignore 忽略，不会提交到 git）：
+
+```bash
+DASHSCOPE_API_KEY=你的key
+```
+
+一键启动脚本 `bash start-local.sh` 启动时会自动读取该文件；手动启动则需先 `source .env` 再运行 Agent。
+
+### 5. 打包
 
 ```bash
 mvn clean package -DskipTests
 ```
 
-产出 3 个 fat jar（含全部依赖）：
-- `manager_agent/target/manager_agent-1.0-SNAPSHOT.jar`
-- `routeMaking_agent/target/routeMaking_agent-1.0-SNAPSHOT.jar`
-- `tripPlanner_agent/target/tripPlanner_agent-1.0-SNAPSHOT.jar`
+产出 3 个 fat jar（含全部依赖，前端资源自动并入主管 jar）：
+- `backend/manager_agent/target/manager_agent-1.0-SNAPSHOT.jar`
+- `backend/routeMaking_agent/target/routeMaking_agent-1.0-SNAPSHOT.jar`
+- `backend/tripPlanner_agent/target/tripPlanner_agent-1.0-SNAPSHOT.jar`
 
-### 7. 启动（★顺序很重要：Nacos → 路线 → 行程 → 主管）
+### 6. 启动
+
+**方案 A：一键脚本（推荐）**
+
+```bash
+# 需要 Nacos 和 MySQL 已就绪；API Key 从项目根目录 .env 文件读取
+bash start-local.sh          # 启动全部（Nacos → 路线 → 行程 → 主管）
+bash start-local.sh stop     # 停止全部（只杀本项目进程）
+bash start-local.sh status   # 查看运行状态
+```
+
+> 💡 脚本开箱即用：Nacos 自动探测常见路径（也可 `NACOS_HOME=路径` 指定）；MySQL 密码未设置时交互式询问；API Key 只读项目根目录 `.env` 文件。
+
+**方案 B：手动启动（顺序：Nacos → 路线 → 行程 → 主管）**
 
 ```bash
 # ① 启动 Nacos（Agent 要注册名片，必须先起）
 cd nacos/bin && bash startup.sh -m standalone
 
 # ② 路线 Agent（8082）
-java --enable-preview -Xms256m -Xmx256m -jar routeMaking_agent-1.0-SNAPSHOT.jar
+java --enable-preview -Xms256m -Xmx256m -jar backend/routeMaking_agent/target/routeMaking_agent-1.0-SNAPSHOT.jar
 
 # ③ 行程 Agent（8085）（等路线 Agent 起来后再启）
-java --enable-preview -Xms256m -Xmx256m -jar tripPlanner_agent-1.0-SNAPSHOT.jar
+java --enable-preview -Xms256m -Xmx256m -jar backend/tripPlanner_agent/target/tripPlanner_agent-1.0-SNAPSHOT.jar
 
 # ④ 主管 Agent（8081）（等行程 Agent 起来后再启）
 source rds.env   # 如配置了数据库
-java --enable-preview -Xms256m -Xmx256m -jar manager_agent-1.0-SNAPSHOT.jar
+java --enable-preview -Xms256m -Xmx256m -jar backend/manager_agent/target/manager_agent-1.0-SNAPSHOT.jar
 ```
 
 > `--enable-preview` 必须加（代码用到 Java 21 switch 模式匹配特性）。
 
-### 8. 访问使用
+### 7. 访问使用
 
 浏览器打开 `http://localhost:8081` → 注册/登录 → 输入任务（如"深圳到惠州3日游自驾游计划"）→ 点【生成计划】→ 实时查看思考过程 → 得到完整计划。
 
-### 9. 命令行直跑模式（测试用，不启 Web）
+### 8. 命令行直跑模式（测试用，不启 Web）
 
 ```bash
-java --enable-preview -jar manager_agent-1.0-SNAPSHOT.jar --run-now
+java --enable-preview -jar backend/manager_agent/target/manager_agent-1.0-SNAPSHOT.jar --run-now
 ```
+
+### 9. 冒烟测试（改代码后建议跑一遍）
+
+```bash
+bash tests/smoke-test.sh
+```
+
+自动验证 7 项：端口 → 前端资源 → 注册登录 → 提交任务 → 思考过程事件流 → 最终结果 → A2A 子Agent调用。全部 ✅ = 系统正常（约 3-5 分钟）。
 
 ## 🔌 HTTP 接口
 
@@ -198,6 +254,10 @@ java --enable-preview -jar manager_agent-1.0-SNAPSHOT.jar --run-now
 | 保存长行程 500 | `TEXT` 字段 64KB 上限 | `ALTER TABLE trip_plans MODIFY plan_content MEDIUMTEXT;` |
 | 登录/查库接口 500 | 数据库未建表/连不上 | 执行 `database/schema.sql`，检查 RDS_HOST/密码 |
 | 登录接口报参数名错误 | 编译未开 `-parameters` | pom 已配置 `<parameters>true</parameters>` |
+| **Agent 启动报错 "未找到 API Key"** | 代码无内置 key，且项目根目录无 .env 文件 | 在项目根目录创建 `.env`，内容 `DASHSCOPE_API_KEY=你的key`（见第4节） |
+| **行程Agent启动失败 `Skill directory does not exist: Make-A-Table`** | `tripPlanner_agent/src/main/resources/skills/Make-A-Table` 目录缺失 | 从 demo 备份（如 `AiTripPlan-AgentScope-demo3/`）整个复制 `Make-A-Table` 目录到主项目，重新打包 |
+| **Nacos 起不来，报 `module java.base does not "opens java.util"`** | JDK17 模块系统限制 | 启动命令必须带 `--add-opens=java.base/java.util=ALL-UNNAMED`（一键脚本已内置） |
+| **思考过程区空白（/events 只有 Agent结果）** | planHook 的 EventStore 事件被删 | 恢复 gitee 原始版 planHook.java（含 EventStore.add 四处） |
 
 ## 📄 License
 
