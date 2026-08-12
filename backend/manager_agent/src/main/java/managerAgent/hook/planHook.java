@@ -17,6 +17,8 @@ public class planHook implements Hook {
 
     private final String sessionId; // ★会话隔离：事件写入该会话的EventStore（前端localStorage生成）
 
+    private String userInput = null; // ★缓存本次任务的真实用户输入（第1轮USER消息，后续轮次复用——memory滚动后USER可能被挤掉）
+
     // 监控统计字段
     private long startTimeNanos = 0;        // 本次Agent运行开始时间
     private int totalMessageChars = 0;      // 累计消息字符数（估算token用）
@@ -39,17 +41,30 @@ public class planHook implements Hook {
 
             case PreReasoningEvent e -> { // 用户输入事件
 
-                // ★取最后一条 USER 角色的消息作为"用户输入"展示：
-                //  (AgentScope 会把 sysPrompt 作为第一条 system 消息放在最前，
-                //   get(0) 会拿到 sysPrompt 而不是真实用户输入——自定义中文sysPrompt后此问题必现)
+                // ★取真实用户输入：优先用第1轮缓存的USER消息（后续轮次复用）；
+                //  第1轮时遍历找USER角色消息（AgentScope把sysPrompt放最前且memory滚动后USER可能被挤掉）
                 String reason = null;
-                for (io.agentscope.core.message.Msg m : e.getInputMessages()) {
-                    if (m.getRole() == io.agentscope.core.message.MsgRole.USER) {
-                        reason = m.getTextContent(); // 遍历到最后一条USER=真实用户输入
+                if (userInput != null) {
+                    reason = userInput; // 已有缓存：本轮直接复用（显示不变）
+                } else {
+                    for (io.agentscope.core.message.Msg m : e.getInputMessages()) {
+                        if (m.getRole() == io.agentscope.core.message.MsgRole.USER) {
+                            reason = m.getTextContent(); // 遍历到最后一条USER=真实用户输入
+                        }
                     }
-                }
-                if (reason == null || reason.isBlank()) { // 兜底：找不到USER时取第一条
-                    reason = e.getInputMessages().get(0).getTextContent();
+                    if (reason == null || reason.isBlank()) {
+                        // 兜底：跳过SYSTEM(可能是sysPrompt)，找第一条非system消息
+                        for (io.agentscope.core.message.Msg m : e.getInputMessages()) {
+                            if (m.getRole() != io.agentscope.core.message.MsgRole.SYSTEM
+                                    && m.getTextContent() != null && !m.getTextContent().isBlank()) {
+                                reason = m.getTextContent();
+                                break;
+                            }
+                        }
+                    }
+                    if (reason != null) {
+                        userInput = reason; // 缓存本次任务的真实输入（防止后续轮次memory滚动后取到sysPrompt）
+                    }
                 }
                 log.info("#### 用户的Prompt：#######" );
                 log.info(reason);

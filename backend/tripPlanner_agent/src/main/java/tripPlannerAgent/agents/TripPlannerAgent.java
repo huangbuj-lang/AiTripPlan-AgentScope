@@ -14,6 +14,7 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.subagent.SubAgentTool;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import tripPlannerAgent.tool.Calculate;
 import utils.AgentUtils;
@@ -31,6 +32,7 @@ import java.util.List;
 public class TripPlannerAgent {
 
     @Bean
+    @Scope("prototype") // ★并发支持：每次A2A任务从容器取新实例（官方标准方案，避免单例状态机并发冲突）
     public ReActAgent getTripPlannerAgent() throws URISyntaxException, IOException {
 
         Toolkit toolkit = new Toolkit();

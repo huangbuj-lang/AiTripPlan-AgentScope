@@ -60,8 +60,18 @@ function savePlan() {
     // 从结果里提取城市和天数（简单取第一个关键词前的文本，容错处理）
     const prompt = document.getElementById('prompt').value.trim();
     const city = prompt.replace(/帮我制定|制定|计划|规划|3日游|2日游|1日游|自驾游|游/g, '').trim() || '未知城市';
-    const daysMatch = prompt.match(/(\d+)日/);
-    const days = daysMatch ? parseInt(daysMatch[1]) : 3;
+    // ★天数提取：支持阿拉伯数字(7日)和中文数字(七日/七天)——用户常用"七日"汉字写法
+    const daysMatch = prompt.match(/(\d+)日|([一二三四五六七八九十]+)[日天]/);
+    let days = 3; // 默认3天（匹配不到时兜底）
+    if (daysMatch) {
+        if (daysMatch[1]) {
+            days = parseInt(daysMatch[1]);
+        } else {
+            const cn = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+            const str = daysMatch[2];
+            days = str.includes('十') ? (str.length === 1 ? 10 : 10 + (cn[str[1]] || 0)) : (cn[str] || 3);
+        }
+    }
     // 保存的是完整的markdown渲染HTML（保留格式）
     const html = document.getElementById('resultBody').innerHTML;
 
@@ -94,7 +104,7 @@ function showMyPlans() {
                 list.innerHTML = plans.map(p =>
                     '<div class="plan-card">' +
                     '<div class="plan-card-head">' +
-                    '<b>🏙️ ' + (p.city || '未知城市') + ' · ' + (p.days || 3) + '日游</b>' +
+                    '<b>🏙️ ' + (p.city || '未知城市') + '</b>' +
                     '<span class="plan-card-time">' + (p.created_at || '') + '</span>' +
                     '</div>' +
                     '<div class="plan-card-preview">' +
@@ -592,8 +602,10 @@ function renderPlanSheet(text) {
         meta.appendChild(ds);
     }
     // ★行程标题区增强：提取天气摘要（如 **天气**：阴，13°C/7°C，东风1-3级）
-    const weatherMatch = text.match(/天气[\s:：]*([^\n]{2,24})/);
-    if (weatherMatch) {
+    // ★修复：原正则"天气[\s:：]*"会误匹配"天气与注意事项"标题（天气后直接跟"与"没冒号）→ 标签栏出现孤零零的"与注意事项"
+    //  改为要求"天气"后必须紧跟冒号/空白/内容分隔，排除标题误匹配
+    const weatherMatch = text.match(/天气[\s:：]+([^\n]{2,24})/);
+    if (weatherMatch && !weatherMatch[1].startsWith("与") && !weatherMatch[1].startsWith("和")) {
         const w = weatherMatch[1].replace(/^[*\s:：]+/, '').replace(/[，。;；,]\s*$/, '').trim();
         if (w) {
             const ws = document.createElement('span');
@@ -663,35 +675,8 @@ function renderPlanSheet(text) {
             dayName.textContent = h.textContent.trim()
                 .replace(/^Day\s*(\d+)/i, '第$1天');
             card.appendChild(dayName);
-            // 取该标题后的第一个表格或列表作为当天要点（最多取4条）
-            let nxt = h.nextElementSibling;
-            let items = [];
-            let guard = 0;
-            while (nxt && guard < 6) {
-                guard++;
-                if (nxt.tagName === 'TABLE') {
-                    items = Array.from(nxt.querySelectorAll('tbody tr'))
-                        .slice(0, 4)
-                        .map(tr => tr.textContent.replace(/\s+/g, ' ').trim().slice(0, 40));
-                    break;
-                }
-                if (nxt.tagName === 'UL' || nxt.tagName === 'OL') {
-                    items = Array.from(nxt.querySelectorAll('li'))
-                        .slice(0, 4)
-                        .map(li => li.textContent.replace(/\s+/g, ' ').trim().slice(0, 40));
-                    break;
-                }
-                nxt = nxt.nextElementSibling;
-            }
-            if (items.length) {
-                const ul = document.createElement('ul');
-                items.forEach(it => {
-                    const li = document.createElement('li');
-                    li.textContent = it;
-                    ul.appendChild(li);
-                });
-                card.appendChild(ul);
-            }
+            // ★用户要求：概览卡片只显示标题，不提取内容（内容在下面行程详情里完整展示）
+            //  移除原"取标题后表格/列表/段落"逻辑——卡片保持简洁美观
             grid.appendChild(card);
         });
         overview.appendChild(grid);
