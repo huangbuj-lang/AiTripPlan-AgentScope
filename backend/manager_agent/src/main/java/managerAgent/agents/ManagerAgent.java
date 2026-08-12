@@ -112,6 +112,10 @@ public class ManagerAgent {
                 ? reply.getTextContent().trim()
                 : "（主管Agent没有返回内容）";
 
+        // ★DeepSeek兼容修复：PlanNotebook模式下整合阶段可能把<tool_calls>XML泄漏进最终回复，
+        //  导致 /result 返回残缺内容（前端概览卡片无法渲染）。剥离XML块，保留真正的计划文本。
+        finalResult = stripToolCallXml(finalResult);
+
         if (finalResult.isEmpty() || finalResult.equals("（主管Agent没有返回内容）")) { // 兜底：同步调用没拿到内容时改用流式收集（极少发生）
             Flux<Event> stream = AgentUtils.streamResponse(agent, userPrompt);
             StringBuilder result = new StringBuilder();
@@ -124,8 +128,22 @@ public class ManagerAgent {
                     })
                     .blockLast();
             finalResult = result.toString().trim();
+            finalResult = stripToolCallXml(finalResult); // 流式收集同样可能混入XML
         }
         return finalResult;
+    }
+
+    /**
+     * 剥离最终回复中泄漏的 &lt;tool_calls&gt; XML 块（DeepSeek PlanNotebook 兼容问题）
+     * 形式：&lt;tool_calls&gt;\n&lt;invoke name="xxx"&gt;...&lt;/invoke&gt;\n&lt;/tool_calls&gt;
+     * 保留 XML 前后的真正计划文本；若剥离后为空则原样返回（避免误删正常内容）
+     */
+    private String stripToolCallXml(String text) {
+        if (text == null || !text.contains("<tool_calls>")) {
+            return text; // 没有XML块，原样返回
+        }
+        String stripped = text.replaceAll("(?s)<tool_calls>.*?</tool_calls>", "").trim();
+        return stripped.isEmpty() ? text : stripped;
     }
 
 }

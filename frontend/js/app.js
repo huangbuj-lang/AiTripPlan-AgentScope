@@ -614,7 +614,8 @@ function renderPlanSheet(text) {
     overview.appendChild(ovTitle);
 
     const dayHeadings = Array.from(temp.querySelectorAll('h1, h2, h3, h4'))
-        .filter(h => /第\s*[一二三四五六七八九十\d]+\s*[天日]/.test(h.textContent || ''));
+        // 匹配中文"第一天/第1天" 或 英文"Day 1"（DeepSeek 倾向输出 Day N，Qwen 倾向中文）
+        .filter(h => /第\s*[一二三四五六七八九十\d]+\s*[天日]|Day\s*\d+/i.test(h.textContent || ''));
 
     let overviewBuilt = false;
     if (dayHeadings.length > 0) {
@@ -624,7 +625,9 @@ function renderPlanSheet(text) {
             const card = document.createElement('div');
             card.className = 'overview-card';
             const dayName = document.createElement('b');
-            dayName.textContent = h.textContent.trim();
+            // "Day 1：xxx" → "第1天：xxx"（保持概览卡片中文显示一致）
+            dayName.textContent = h.textContent.trim()
+                .replace(/^Day\s*(\d+)/i, '第$1天');
             card.appendChild(dayName);
             // 取该标题后的第一个表格或列表作为当天要点（最多取4条）
             let nxt = h.nextElementSibling;

@@ -85,7 +85,15 @@ public class BaiduMapTool {
             com.fasterxml.jackson.databind.JsonNode content = root.path("result").path("content");
             if (content.isArray() && content.size() > 0) {
                 String text = content.get(0).path("text").asText("");
-                if (text != null && !text.isBlank()) return text;
+                if (text != null && !text.isBlank()) {
+                    // ★截断大响应：百度路线规划JSON可能几十万字符，
+                    //  完整塞进ReAct消息历史 → 单条消息体积爆炸 → DeepSeek 400 context超长(194万tokens)
+                    //  保留前3000字符（关键信息在前部：路线概要、行程距离、耗时），结尾标记截断
+                    if (text.length() > 3000) {
+                        return text.substring(0, 3000) + "\n...[响应过长已截断，后续省略]";
+                    }
+                    return text;
+                }
             }
         } catch (Exception ignored) { }
         return resp.length() > 2000 ? resp.substring(0, 2000) : resp; // 兜底：返回截断的原始响应

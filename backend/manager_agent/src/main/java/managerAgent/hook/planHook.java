@@ -31,7 +31,18 @@ public class planHook implements Hook {
 
             case PreReasoningEvent e -> { // 用户输入事件
 
-                String reason = e.getInputMessages().get(0).getTextContent();
+                // ★取最后一条 USER 角色的消息作为"用户输入"展示：
+                //  (AgentScope 会把 sysPrompt 作为第一条 system 消息放在最前，
+                //   get(0) 会拿到 sysPrompt 而不是真实用户输入——自定义中文sysPrompt后此问题必现)
+                String reason = null;
+                for (io.agentscope.core.message.Msg m : e.getInputMessages()) {
+                    if (m.getRole() == io.agentscope.core.message.MsgRole.USER) {
+                        reason = m.getTextContent(); // 遍历到最后一条USER=真实用户输入
+                    }
+                }
+                if (reason == null || reason.isBlank()) { // 兜底：找不到USER时取第一条
+                    reason = e.getInputMessages().get(0).getTextContent();
+                }
                 log.info("#### 用户的Prompt：#######" );
                 log.info(reason);
 
