@@ -164,10 +164,17 @@ API Key **只从项目根目录的 `.env` 文件读取**（不走系统环境变
 在项目根目录创建 `.env` 文件（此文件已被 .gitignore 忽略，不会提交到 git）：
 
 ```bash
-DASHSCOPE_API_KEY=你的key
+# 主模型：DeepSeek（必填，缺失启动报错）
+DEEPSEEK_API_KEY=你的DeepSeek key
+# 备用模型：Qwen/通义千问（选填，主模型熔断时自动降级用；不填则熔断后任务报错）
+DASHSCOPE_API_KEY=你的DashScope key
 ```
 
 一键启动脚本 `bash start-local.sh` 启动时会自动读取该文件；手动启动则需先 `source .env` 再运行 Agent。
+
+**模型说明**：
+- 主模型 `deepseek-v4-flash`（OpenAI 兼容接口，快、支持工具调用）
+- 备用模型 `qwen3.7-max`：当 DeepSeek **连续失败触发熔断**（如 key 失效/服务端故障）时自动降级，熔断 60 秒后自动试探恢复
 
 ### 5. 打包
 
@@ -238,12 +245,32 @@ bash tests/smoke-test.sh
 | `/api/login` | POST | 登录（写入 Session） | 否 |
 | `/api/check-login` | GET | 检查登录态 | 否 |
 | `/api/logout` | POST | 退出登录 | 是 |
-| `/app` | POST | 提交任务（`?prompt=任务描述`，异步） | 是 |
-| `/events` | GET | 轮询主管思考过程 | 是 |
-| `/result` | GET | 获取最终计划 | 是 |
+| `/app` | POST | 提交任务（`?prompt=任务描述&sessionId=会话ID`，异步） | 是 |
+| `/events` | GET | 轮询主管思考过程（`?sessionId=` 按会话隔离） | 是 |
+| `/result` | GET | 获取最终计划（`?sessionId=` 按会话隔离） | 是 |
+| `/cancel` | POST | 中断当前任务（`?sessionId=`，前端"停止"按钮调用） | 是 |
 | `/api/save-plan` | POST | 保存行程到数据库 | 是 |
 | `/api/my-plans` | GET | 我的行程列表 | 是 |
 | `/api/delete-plan` | POST | 删除行程（`?id=`） | 是 |
+
+## 🔒 稳定性机制（2026-08-12 新增）
+
+系统内置 4 层 API 防护，无需手动干预：
+
+| 机制 | 作用 | 配置 |
+|------|------|------|
+| **限速器** | 每秒最多 3 个 API 请求（令牌桶），防止撞 RPM 限流 | `SafeModel.java` 内 `RateLimiter.create(3)` |
+| **429 重试** | 限流/5xx 指数退避重试（1s→2s→4s，最多3次），抖动自动消化 | `SafeModel.java` `MAX_RETRIES=3` |
+| **熔断降级** | DeepSeek 连续失败（10秒内5次）或认证错误 → 自动切 Qwen；60秒后自动试探恢复 | `CircuitBreaker.java`（阈值/冷却可调） |
+| **会话隔离** | 事件/结果按 sessionId 隔离，多窗口互不污染 | 前端 localStorage 自动生成，无需配置 |
+
+**多线程模式**（默认关闭，保持"一次一个任务"）：
+```bash
+# 开启多线程并发（2=同时最多2个任务；先确认 DeepSeek 账号配额）
+MAX_CONCURRENT_TASKS=2 bash start-local.sh
+```
+
+**任务中断**：任务执行中前端出现红色"⏹ 停止"按钮，点击即中断当前任务（不等排队，马上可提交新任务）。
 
 ## ⚠️ 常见问题
 
@@ -254,7 +281,7 @@ bash tests/smoke-test.sh
 | 保存长行程 500 | `TEXT` 字段 64KB 上限 | `ALTER TABLE trip_plans MODIFY plan_content MEDIUMTEXT;` |
 | 登录/查库接口 500 | 数据库未建表/连不上 | 执行 `database/schema.sql`，检查 RDS_HOST/密码 |
 | 登录接口报参数名错误 | 编译未开 `-parameters` | pom 已配置 `<parameters>true</parameters>` |
-| **Agent 启动报错 "未找到 API Key"** | 代码无内置 key，且项目根目录无 .env 文件 | 在项目根目录创建 `.env`，内容 `DASHSCOPE_API_KEY=你的key`（见第4节） |
+| **Agent 启动报错 "未找到 API Key"** | 代码无内置 key，且项目根目录无 .env 文件 | 在项目根目录创建 `.env`，内容 `DEEPSEEK_API_KEY=你的key`（见第4节） |
 | **行程Agent启动失败 `Skill directory does not exist: Make-A-Table`** | `tripPlanner_agent/src/main/resources/skills/Make-A-Table` 目录缺失 | 从 demo 备份（如 `AiTripPlan-AgentScope-demo3/`）整个复制 `Make-A-Table` 目录到主项目，重新打包 |
 | **Nacos 起不来，报 `module java.base does not "opens java.util"`** | JDK17 模块系统限制 | 启动命令必须带 `--add-opens=java.base/java.util=ALL-UNNAMED`（一键脚本已内置） |
 | **思考过程区空白（/events 只有 Agent结果）** | planHook 的 EventStore 事件被删 | 恢复 gitee 原始版 planHook.java（含 EventStore.add 四处） |

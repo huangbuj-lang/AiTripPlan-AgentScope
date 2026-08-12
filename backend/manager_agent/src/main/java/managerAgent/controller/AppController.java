@@ -15,11 +15,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class AppController {
 
-    // 异步线程池：单线程=同时只处理一个任务，防并发混流
-    private static final java.util.concurrent.ExecutorService TASK_POOL =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
+    // ★全局并发闸门：同时执行的任务数上限（默认1=保持原有"一次一个任务"行为；云端多线程可调大，如2-3）
+    //  ⚠️ 调大前必须确认 DeepSeek/DashScope 账号并发配额（SafeModel 限速器会兜底请求频率，但并发任务数仍受配额约束）
+    private static final int MAX_CONCURRENT_TASKS = Integer.parseInt(
+            System.getenv().getOrDefault("MAX_CONCURRENT_TASKS", "1"));
 
-    private static volatile boolean RUNNING = false; // 并发防护标志：有任务在跑时拒绝新请求
+    // 异步线程池：固定大小=并发上限（不是单线程了；防并发混流由 MAX_CONCURRENT_TASKS 控制）
+    private static final java.util.concurrent.ExecutorService TASK_POOL =
+            java.util.concurrent.Executors.newFixedThreadPool(MAX_CONCURRENT_TASKS);
+
+    // 并发信号量：实时计数"正在执行的任务"，达到上限拒绝新任务（防止线程池排队堆积）
+    private static final java.util.concurrent.Semaphore TASK_SLOTS =
+            new java.util.concurrent.Semaphore(MAX_CONCURRENT_TASKS);
 
     /**
      * HTTP入口：提交任务给主管Agent处理（异步，立即返回）
@@ -29,10 +36,10 @@ public class AppController {
     public String app(@RequestParam(name = "prompt", required = false, defaultValue = "帮我制定2026年元旦,深圳到惠州3日游自驾游计划，请包含吃住行，天气，酒店，餐饮美食。") String prompt,
                       @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId) {
 
-        if (RUNNING) { // 并发防护：有任务在跑时拒绝
-            return "⚠️ 有任务正在执行中，请等当前任务完成后再试！";
+        // ★并发闸门：信号量获取（达到并发上限则拒绝，不排队——保持原有"拒绝"语义，不损坏现有行为）
+        if (!TASK_SLOTS.tryAcquire()) {
+            return "⚠️ 有任务正在执行中（最多同时 " + MAX_CONCURRENT_TASKS + " 个），请等当前任务完成后再试！";
         }
-        RUNNING = true;
 
         EventStore.clear(sessionId); // 新任务开始：清空该会话的旧事件（/events只显示本次任务）
 
@@ -49,7 +56,7 @@ public class AppController {
                 }
                 e.printStackTrace();
             } finally {
-                RUNNING = false;
+                TASK_SLOTS.release(); // 释放并发槽位（任务结束，允许新任务）
             }
         });
 
