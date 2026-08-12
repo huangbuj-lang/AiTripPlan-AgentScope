@@ -38,11 +38,13 @@ public class ManagerAgent {
         }
     }
 
-    public ManagerAgent() {
+    public ManagerAgent(String sessionId) {
 
         TripPlan plan = new TripPlan(); // 计划对象：Agent自主分解任务和步骤执行的核心
         ToolUtils toolUtils = new ToolUtils(); // 工具包：把远程Agent封装为工具
-        Toolkit toolkit = toolUtils.getToolkit(new RemoteAgentTool());
+        RemoteAgentTool remoteAgentTool = new RemoteAgentTool();
+        remoteAgentTool.setSessionId(sessionId); // ★会话隔离：注入sessionId，Agent结果事件写入本会话
+        Toolkit toolkit = toolUtils.getToolkit(remoteAgentTool);
 
         // 挂载操作手册（SkillBox = 工具包 + 技能手册）
         SkillBox skillBox = new SkillBox(toolkit);
@@ -64,7 +66,7 @@ public class ManagerAgent {
 
                 /* PlanNotebook流程：任务分解→生成步骤→状态跟踪→动态调整→完成 */
                 .planNotebook(planNotebook)
-                .hook(new planHook(planNotebook)) // 拦截器：记录事件到EventStore（/events实时展示）
+                .hook(new planHook(planNotebook, sessionId)) // 拦截器：记录事件到EventStore（按会话隔离）/events实时展示 + 中断支持
                 .memory(new LimitedMemory(20))// 限量记忆(20条)：防止上下文无限累积
                 .toolkit(toolkit) // 工具包
                 .skillBox(skillBox) // 操作手册
@@ -112,6 +114,10 @@ public class ManagerAgent {
                 ? reply.getTextContent().trim()
                 : "（主管Agent没有返回内容）";
 
+        // ★DeepSeek兼容修复：PlanNotebook模式下整合阶段可能把<tool_calls>XML泄漏进最终回复，
+        //  导致 /result 返回残缺内容（前端概览卡片无法渲染）。剥离XML块，保留真正的计划文本。
+        finalResult = stripToolCallXml(finalResult);
+
         if (finalResult.isEmpty() || finalResult.equals("（主管Agent没有返回内容）")) { // 兜底：同步调用没拿到内容时改用流式收集（极少发生）
             Flux<Event> stream = AgentUtils.streamResponse(agent, userPrompt);
             StringBuilder result = new StringBuilder();
@@ -124,8 +130,22 @@ public class ManagerAgent {
                     })
                     .blockLast();
             finalResult = result.toString().trim();
+            finalResult = stripToolCallXml(finalResult); // 流式收集同样可能混入XML
         }
         return finalResult;
+    }
+
+    /**
+     * 剥离最终回复中泄漏的 &lt;tool_calls&gt; XML 块（DeepSeek PlanNotebook 兼容问题）
+     * 形式：&lt;tool_calls&gt;\n&lt;invoke name="xxx"&gt;...&lt;/invoke&gt;\n&lt;/tool_calls&gt;
+     * 保留 XML 前后的真正计划文本；若剥离后为空则原样返回（避免误删正常内容）
+     */
+    private String stripToolCallXml(String text) {
+        if (text == null || !text.contains("<tool_calls>")) {
+            return text; // 没有XML块，原样返回
+        }
+        String stripped = text.replaceAll("(?s)<tool_calls>.*?</tool_calls>", "").trim();
+        return stripped.isEmpty() ? text : stripped;
     }
 
 }

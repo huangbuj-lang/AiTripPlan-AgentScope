@@ -14,6 +14,17 @@ let resultTimer = null;    // 结果轮询定时器（/result）
 let knownCount = 0;        // 已显示的事件数（保留，向后兼容）
 let lastEventCount = 0;    // 发送前的事件总数（用于增量显示）
 
+// ★会话隔离：每个浏览器窗口生成独立 sessionId（localStorage 持久），
+//  所有 /app /events /result /cancel 请求都带上它——多窗口互不污染
+const sessionId = (function () {
+    let sid = localStorage.getItem('atp_session_id');
+    if (!sid) {
+        sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        localStorage.setItem('atp_session_id', sid);
+    }
+    return sid;
+})();
+
 // ===== ★ 登录状态检查（页面加载时执行） =====
 function checkLogin() {
     fetch('/api/check-login')
@@ -154,8 +165,8 @@ function send() {
     document.getElementById('status').classList.add('show');
     document.getElementById('sendBtn').disabled = true;
 
-    // ① 提交任务（后端立即返回，不占连接）
-    fetch('/app?prompt=' + encodeURIComponent(prompt), { method: 'POST' })
+    // ① 提交任务（后端立即返回，不占连接）★带sessionId会话隔离
+    fetch('/app?prompt=' + encodeURIComponent(prompt) + '&sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
         .then(r => r.text())
         .then(msg => {
             // 并发防护提示
@@ -169,6 +180,8 @@ function send() {
                 return;
             }
             document.getElementById('status').textContent = '🧠 主管Agent正在规划中，请稍候...';
+            // 显示"停止"按钮（任务执行中可中断）
+            document.getElementById('cancelBtn').style.display = 'inline-block';
             // 服务端已清空事件，从0开始增量显示
             lastEventCount = 0;
             // ② 轮询 /events（唯一连接，实时思考过程）
@@ -187,10 +200,30 @@ function send() {
 }
 
 /**
+ * ★中断任务：调用 /cancel 设置取消标志，主管Agent在下一个事件点停止
+ * 不再等任务排队——中断后 RUNNING 释放，可以马上提交新任务
+ */
+function cancelTask() {
+    if (!confirm('确定要停止当前任务吗？')) return;
+    fetch('/cancel?sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
+        .then(r => r.text())
+        .then(msg => {
+            document.getElementById('status').textContent = '⏹ 正在停止任务...';
+            // 停止轮询（结果会在 /result 显示"任务已中断"）
+            if (polling) { clearInterval(polling); polling = null; }
+            // 结果轮询继续（等后端写入"已中断"结果）
+            if (!resultTimer) {
+                resultTimer = setInterval(fetchResult, 2000);
+            }
+        })
+        .catch(() => { /* 网络抖动，忽略 */ });
+}
+
+/**
  * 拉取最终结果（/result 返回非"执行中" = 完成）
  */
 function fetchResult() {
-    fetch('/result')
+    fetch('/result?sessionId=' + encodeURIComponent(sessionId))
         .then(r => r.text())
         .then(text => {
             if (text.includes('还在执行中')) return;  // 没完成，继续等
@@ -198,6 +231,7 @@ function fetchResult() {
             // 完成！渲染为 A4 行程规划表
             clearInterval(resultTimer); resultTimer = null;
             if (polling) { clearInterval(polling); polling = null; }
+            document.getElementById('cancelBtn').style.display = 'none'; // 隐藏停止按钮
             document.getElementById('resultBody').innerHTML = renderPlanSheet(text);
             document.getElementById('status').textContent = '✅ 计划生成完成！';
             document.getElementById('sendBtn').disabled = false;
@@ -212,7 +246,7 @@ function fetchResult() {
  * 轮询事件接口，增量显示思考过程
  */
 function pollEvents() {
-    fetch('/events')
+    fetch('/events?sessionId=' + encodeURIComponent(sessionId))
         .then(r => r.json())
         .then(evts => {
             // 只取本次运行的新事件
@@ -614,7 +648,8 @@ function renderPlanSheet(text) {
     overview.appendChild(ovTitle);
 
     const dayHeadings = Array.from(temp.querySelectorAll('h1, h2, h3, h4'))
-        .filter(h => /第\s*[一二三四五六七八九十\d]+\s*[天日]/.test(h.textContent || ''));
+        // 匹配中文"第一天/第1天" 或 英文"Day 1"（DeepSeek 倾向输出 Day N，Qwen 倾向中文）
+        .filter(h => /第\s*[一二三四五六七八九十\d]+\s*[天日]|Day\s*\d+/i.test(h.textContent || ''));
 
     let overviewBuilt = false;
     if (dayHeadings.length > 0) {
@@ -624,7 +659,9 @@ function renderPlanSheet(text) {
             const card = document.createElement('div');
             card.className = 'overview-card';
             const dayName = document.createElement('b');
-            dayName.textContent = h.textContent.trim();
+            // "Day 1：xxx" → "第1天：xxx"（保持概览卡片中文显示一致）
+            dayName.textContent = h.textContent.trim()
+                .replace(/^Day\s*(\d+)/i, '第$1天');
             card.appendChild(dayName);
             // 取该标题后的第一个表格或列表作为当天要点（最多取4条）
             let nxt = h.nextElementSibling;

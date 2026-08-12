@@ -19,6 +19,13 @@ import utils.NacosUtil;
 @Slf4j
 public class RemoteAgentTool {
 
+    private String sessionId = "default"; // ★会话隔离：Agent结果事件写入哪个会话（ManagerAgent注入）
+
+    /** 设置会话ID（ManagerAgent构造时注入，使"Agent结果"事件与思考过程同会话） */
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
+    }
+
     /**
      * 调用路线制定Agent，返回规划结果
      */
@@ -55,7 +62,7 @@ public class RemoteAgentTool {
                 ? response.getTextContent()
                 : "路线Agent没有返回内容";
         // ★部署修复：结果事件（前端思考栏显示子Agent调用状态，替代关闭思考模式后缺失的提示）
-        EventStore.add("Agent结果", result == null || result.isBlank() || result.equals("路线Agent没有返回内容")
+        EventStore.add(sessionId, "Agent结果", result == null || result.isBlank() || result.equals("路线Agent没有返回内容")
                 ? "路线Agent ❌ 调用失败(返回空)"
                 : "路线Agent ✅ 调用成功(返回" + result.length() + "字符)");
         log.info("============");
@@ -91,7 +98,7 @@ public class RemoteAgentTool {
                 ? response.getTextContent()
                 : "行程Agent没有返回内容";
         // ★部署修复：结果事件（前端思考栏显示子Agent调用状态）
-        EventStore.add("Agent结果", result == null || result.isBlank() || result.equals("行程Agent没有返回内容")
+        EventStore.add(sessionId, "Agent结果", result == null || result.isBlank() || result.equals("行程Agent没有返回内容")
                 ? "行程Agent ❌ 调用失败(返回空)"
                 : "行程Agent ✅ 调用成功(返回" + result.length() + "字符)");
         log.info("============");

@@ -16,7 +16,7 @@ public class ManagerAgentApplication {
     public static void main(String[] args) throws NacosException {
 
         if (args.length > 0 && "--run-now".equals(args[0])) { // --run-now：直跑默认任务后退出（不启动Web）
-            ManagerAgent managerAgent = new ManagerAgent();
+            ManagerAgent managerAgent = new ManagerAgent("default"); // 命令行直跑模式：默认会话
             managerAgent.run();
             return;
         }

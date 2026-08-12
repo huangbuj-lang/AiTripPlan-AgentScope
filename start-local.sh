@@ -9,7 +9,7 @@
 # 开箱即用（自动探测/交互，无需改脚本）：
 #   1. Nacos：自动探测常见路径；也可用环境变量 NACOS_HOME 指定
 #   2. MySQL 密码：未设置 RDS_PASSWORD 时交互式询问
-#   3. API Key：读项目根目录 .env 或环境变量 DASHSCOPE_API_KEY
+#   3. API Key：读项目根目录 .env 或环境变量 DEEPSEEK_API_KEY
 #
 # 前置要求：
 #   1. 已打包：mvn clean package -DskipTests
@@ -33,9 +33,9 @@ else
     if [ -f "${PROJECT_DIR}/.env" ]; then
         set -a; source "${PROJECT_DIR}/.env"; set +a
     fi
-    if [ -z "${DASHSCOPE_API_KEY:-}" ]; then
+    if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
         echo "❌ 未找到 API Key！请在项目根目录创建 .env 文件，内容："
-        echo "   DASHSCOPE_API_KEY=你的key"
+        echo "   DEEPSEEK_API_KEY=你的key"
         exit 1
     fi
 fi
@@ -157,7 +157,7 @@ start_agent() {  # $1=模块 $2=端口 $3=名称
     wait_port "$2" "$3" 90 || return 1
 }
 
-export DASHSCOPE_API_KEY
+export DEEPSEEK_API_KEY
 start_agent routeMaking_agent 8082 "路线Agent" || exit 1
 start_agent tripPlanner_agent 8085 "行程Agent" || exit 1
 
