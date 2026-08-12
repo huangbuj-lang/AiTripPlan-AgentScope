@@ -15,17 +15,25 @@ public class planHook implements Hook {
 
     private final PlanNotebook plan; // 计划步骤（保留引用）
 
+    private final String sessionId; // ★会话隔离：事件写入该会话的EventStore（前端localStorage生成）
+
     // 监控统计字段
     private long startTimeNanos = 0;        // 本次Agent运行开始时间
     private int totalMessageChars = 0;      // 累计消息字符数（估算token用）
     private int toolCallCount = 0;          // 工具调用次数
 
-    public planHook(PlanNotebook planNotebook) {
+    public planHook(PlanNotebook planNotebook, String sessionId) {
         this.plan = planNotebook;
+        this.sessionId = sessionId;
     }
 
     @Override
     public <T extends HookEvent> Mono<T> onEvent(T event) {
+
+        // ★中断支持：/cancel 设置标志后，在每个事件触发点检查并抛异常终止 ReAct 循环
+        if (EventStore.isCancelRequested(sessionId)) {
+            throw new RuntimeException("任务已被用户中断（/cancel）");
+        }
 
         switch (event) { // 匹配不同的事件类型
 
@@ -46,7 +54,7 @@ public class planHook implements Hook {
                 log.info("#### 用户的Prompt：#######" );
                 log.info(reason);
 
-                EventStore.add("用户输入", reason); // 记录事件（供 /events 接口查询）
+                EventStore.add(sessionId, "用户输入", reason); // 记录事件（供 /events 接口查询）
 
                 if (startTimeNanos == 0) { // 记录开始时间（第一次输入时）
                     startTimeNanos = System.nanoTime();
@@ -62,7 +70,7 @@ public class planHook implements Hook {
                 log.info("#### 思考过程：#######" );
                 log.info(reason);
 
-                EventStore.add("思考", reason); // 记录事件
+                EventStore.add(sessionId, "思考", reason); // 记录事件
 
                 if (reason != null) { // 累计思考字符数
                     totalMessageChars += reason.length();
@@ -75,14 +83,14 @@ public class planHook implements Hook {
                 String toolName = e.getToolUse().getName();
                 log.info("##### 调用工具："+toolName);
 
-                EventStore.add("调用工具", toolName); // 记录事件
+                EventStore.add(sessionId, "调用工具", toolName); // 记录事件
 
                 toolCallCount++; // 工具调用计数
             }
 
             case PostCallEvent e -> { // Agent 运行结束事件（打印监控统计）
                 printMonitorSummary();
-                EventStore.add("完成", "Agent 运行结束"); // 记录完成事件
+                EventStore.add(sessionId, "完成", "Agent 运行结束"); // 记录完成事件
                 startTimeNanos = 0; // 重置统计（下次运行重新计）
                 totalMessageChars = 0;
                 toolCallCount = 0;

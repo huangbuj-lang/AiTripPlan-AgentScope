@@ -38,11 +38,13 @@ public class ManagerAgent {
         }
     }
 
-    public ManagerAgent() {
+    public ManagerAgent(String sessionId) {
 
         TripPlan plan = new TripPlan(); // 计划对象：Agent自主分解任务和步骤执行的核心
         ToolUtils toolUtils = new ToolUtils(); // 工具包：把远程Agent封装为工具
-        Toolkit toolkit = toolUtils.getToolkit(new RemoteAgentTool());
+        RemoteAgentTool remoteAgentTool = new RemoteAgentTool();
+        remoteAgentTool.setSessionId(sessionId); // ★会话隔离：注入sessionId，Agent结果事件写入本会话
+        Toolkit toolkit = toolUtils.getToolkit(remoteAgentTool);
 
         // 挂载操作手册（SkillBox = 工具包 + 技能手册）
         SkillBox skillBox = new SkillBox(toolkit);
@@ -64,7 +66,7 @@ public class ManagerAgent {
 
                 /* PlanNotebook流程：任务分解→生成步骤→状态跟踪→动态调整→完成 */
                 .planNotebook(planNotebook)
-                .hook(new planHook(planNotebook)) // 拦截器：记录事件到EventStore（/events实时展示）
+                .hook(new planHook(planNotebook, sessionId)) // 拦截器：记录事件到EventStore（按会话隔离）/events实时展示 + 中断支持
                 .memory(new LimitedMemory(20))// 限量记忆(20条)：防止上下文无限累积
                 .toolkit(toolkit) // 工具包
                 .skillBox(skillBox) // 操作手册
