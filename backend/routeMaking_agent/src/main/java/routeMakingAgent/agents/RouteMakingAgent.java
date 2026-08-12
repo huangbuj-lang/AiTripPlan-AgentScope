@@ -6,6 +6,7 @@ import io.agentscope.core.tool.mcp.McpClientBuilder;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import routeMakingAgent.mcp.BaiduMapTool;
 import utils.AgentUtils;
@@ -25,6 +26,8 @@ import java.util.Set;
 public class RouteMakingAgent {
 
     @Bean
+    @Scope("prototype") // ★并发支持：每次A2A任务从容器取新实例（ReActAgentWithStarterRunner每次getObject()），
+                        //  避免单例Bean的状态机并发冲突（"Cannot update task status"）——官方标准方案
     public ReActAgent getRouteMakingAgent() {
 
         // 用普通@Tool工具替代MCP客户端注册
