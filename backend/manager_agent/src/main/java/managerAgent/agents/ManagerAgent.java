@@ -41,7 +41,7 @@ public class ManagerAgent {
     public ManagerAgent(String sessionId) {
 
         TripPlan plan = new TripPlan(); // 计划对象：Agent自主分解任务和步骤执行的核心
-        ToolUtils toolUtils = new ToolUtils(); // 工具包：把远程Agent封装为工具
+        ToolUtils toolUtils = new ToolUtils(true); // 工具包：把远程Agent封装为工具（并行=同时调路线+行程Agent）
         RemoteAgentTool remoteAgentTool = new RemoteAgentTool();
         remoteAgentTool.setSessionId(sessionId); // ★会话隔离：注入sessionId，Agent结果事件写入本会话
         Toolkit toolkit = toolUtils.getToolkit(remoteAgentTool);

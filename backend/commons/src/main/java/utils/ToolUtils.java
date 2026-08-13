@@ -10,8 +10,14 @@ public class ToolUtils {
 
     private final Toolkit toolkit ;
 
-    public ToolUtils() {
-        toolkit = new Toolkit(); // 创建工具包
+    /**
+     * @param parallel 工具调用是否并行：
+     *   - true（主管）：同一轮多个tool_calls并行执行（同时调路线+行程Agent，省A2A时间）
+     *   - false（路线Agent）：地图工具串行执行——BaiduMapTool的MCP sessionId是static共享的，
+     *     并行会导致多个请求挤同一MCP会话→魔塔服务端排队→超时（实测踩坑）
+     */
+    public ToolUtils(boolean parallel) {
+        toolkit = new Toolkit(io.agentscope.core.tool.ToolkitConfig.builder().parallel(parallel).build());
     }
 
     /**

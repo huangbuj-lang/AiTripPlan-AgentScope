@@ -34,7 +34,7 @@ public class RouteMakingAgent {
         // （AgentScope 1.0.8的registerMcpClient在魔塔MCP v1.9.4下有转换bug→首轮请求400超长；
         BaiduMapTool baiduMapTool = new BaiduMapTool(); // BaiduMapTool内部直接调魔塔MCP的tools/call，绕开转换层）
 
-        ToolUtils toolUtils = new ToolUtils(); // 工具包（普通工具注册路径，AgentScope对@Tool转换正常）
+        ToolUtils toolUtils = new ToolUtils(false); // 工具包（普通工具注册路径；串行=地图MCP不并发，防session冲突超时）
         Toolkit toolkit = toolUtils.getToolkit(baiduMapTool);
 
         Set<String> toolNames = toolkit.getToolNames(); // 打印挂载的工具
