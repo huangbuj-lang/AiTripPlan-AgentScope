@@ -13,20 +13,16 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 百度地图工具（普通@Tool版，替代MCP客户端注册）
- * 原因：AgentScope 1.0.8的registerMcpClient在魔塔MCP v1.9.4下有转换bug（首轮请求报400超长）
- * 方案：10个@Tool方法内部直接调魔塔MCP的 tools/call，绕开AgentScope的MCP转换层
+ * 百度地图工具：通过普通@Tool方法调用魔塔MCP的百度地图服务
  */
 public class BaiduMapTool {
 
     // 魔塔MCP服务地址（百度地图MCP）
     private static final String MCP_URL = "https://mcp.api-inference.modelscope.net/884c6f052e6546/mcp";
 
-    private static volatile String sessionId = null; // 缓存的MCP会话ID（避免每次调用都重新握手）
+    private static volatile String sessionId = null; // 缓存的MCP会话ID
 
-    // ★★结果缓存（提速）：工具名+参数 → 结果，TTL 24小时。
-    //  百度地图MCP每次调用是远程网络往返（慢），路线Agent常对同一城市重复查询 → 缓存直接命中省网络耗时。
-    //  静态=跨prototype实例共享（同进程内所有任务复用缓存）
+    // 结果缓存：工具名+参数 → 结果，TTL 24小时（静态缓存，跨实例共享）
     private static final long CACHE_TTL_MS = 24 * 60 * 60 * 1000L; // 24小时
     private static final Map<String, CacheEntry> MCP_CACHE = new ConcurrentHashMap<>();
 
@@ -76,17 +72,16 @@ public class BaiduMapTool {
     }
 
     /**
-     * @param retryCount 会话过期重试次数（最多1次，防止死循环：若重试后仍过期则放弃，走兜底）
+     * @param retryCount 会话过期后的重试次数（最多1次）
      */
     private static String callMcp(String toolName, Map<String, Object> args, int retryCount) throws Exception {
-        // ★★结果缓存：同一工具+同参数 24小时内不重复调MCP（百度地图API响应慢是A2A耗时主因，
-        //  路线Agent经常对同一城市重复geocode/search；缓存后第二次直接命中，A2A提速明显）
-        String cacheKey = toolName + "|" + args; // Map.toString() 顺序稳定（HashMap在JDK17稳定）
+        // 结果缓存：同一工具+同参数24小时内直接返回缓存结果
+        String cacheKey = toolName + "|" + args; // 生成缓存键
         long now = System.currentTimeMillis();
-        synchronized (MCP_CACHE) { // 并发安全（prototype多实例共享静态缓存）
+        synchronized (MCP_CACHE) { // 加锁保证缓存读写并发安全
             CacheEntry hit = MCP_CACHE.get(cacheKey);
             if (hit != null && now - hit.time < CACHE_TTL_MS) {
-                return hit.value; // 命中缓存：直接返回（省一次网络往返）
+                return hit.value; // 命中缓存直接返回
             }
         }
         ensureSession();
@@ -108,9 +103,7 @@ public class BaiduMapTool {
                         .POST(HttpRequest.BodyPublishers.ofString(body)).build(),
                 HttpResponse.BodyHandlers.ofString());
         String resp = r.body();
-        // ★★会话过期自愈：魔塔MCP的sessionId有有效期（实测：长期运行后会过期），
-        //  过期后返回的text里含"会话超时/会话已过期"等字样，若继续复用过期sessionId会一直失败。
-        //  检测到 → 重置sessionId重新握手 → 重试一次（自愈，避免路线Agent降级为经验兜底）
+        // 会话过期自愈：检测到会话过期则重置会话并重试一次
         if (resp != null && containsSessionExpired(resp)) {
             synchronized (BaiduMapTool.class) {
                 if (sessionId != null) {
@@ -123,8 +116,7 @@ public class BaiduMapTool {
             // 重试后仍过期：放弃自愈，返回原文（上层兜底）
             return resp;
         }
-        // 用JSON正确解析MCP响应（原字符串截取会被转义符截断成残缺内容，模型看不懂）
-        // 响应格式: {"jsonrpc":"2.0","result":{"content":[{"type":"text","text":"真实内容"}]}}
+        // 解析MCP响应JSON，提取其中的文本内容
         try {
             com.fasterxml.jackson.databind.JsonNode root =
                     new com.fasterxml.jackson.databind.ObjectMapper().readTree(resp);
@@ -132,29 +124,27 @@ public class BaiduMapTool {
             if (content.isArray() && content.size() > 0) {
                 String text = content.get(0).path("text").asText("");
                 if (text != null && !text.isBlank()) {
-                    // ★截断大响应：百度路线规划JSON可能几十万字符，
-                    //  完整塞进ReAct消息历史 → 单条消息体积爆炸 → DeepSeek 400 context超长(194万tokens)
-                    //  保留前3000字符（关键信息在前部：路线概要、行程距离、耗时），结尾标记截断
+                    // 截断大响应：仅保留前3000字符并标记已截断
                     String result;
                     if (text.length() > 3000) {
                         result = text.substring(0, 3000) + "\n...[响应过长已截断，后续省略]";
                     } else {
                         result = text;
                     }
-                    // ★写回缓存（供后续同参数调用直接命中）
+                    // 写回缓存
                     MCP_CACHE.put(cacheKey, new CacheEntry(result, System.currentTimeMillis()));
                     return result;
                 }
             }
         } catch (Exception ignored) { }
         String fallback = resp.length() > 2000 ? resp.substring(0, 2000) : resp; // 兜底：返回截断的原始响应
-        // 兜底响应也缓存（避免解析失败时每次重复网络调用；内容本身是截断原文，可安全复用）
+        // 兜底响应也写入缓存
         MCP_CACHE.put(cacheKey, new CacheEntry(fallback, System.currentTimeMillis()));
         return fallback;
     }
 
     /**
-     * 检测MCP响应是否包含"会话过期/超时"标志（魔塔MCP会话有效期到了的表现）
+     * 检测MCP响应是否包含会话过期标志
      */
     private static boolean containsSessionExpired(String resp) {
         return resp.contains("会话超时") || resp.contains("会话已过期")

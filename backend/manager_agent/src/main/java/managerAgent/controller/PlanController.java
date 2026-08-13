@@ -10,10 +10,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 行程保存接口（把规划结果存入MySQL）
- * 保存：Session取当前用户ID → 插入trip_plans表
- * 查询：按user_id查"我的行程"（只能看自己的）
- * 删除：id + user_id 双重条件（防删别人的）
+/**
+ * 行程保存接口（规划结果存入MySQL）
  */
 @RestController
 @RequestMapping("/api")
@@ -38,7 +36,7 @@ public class PlanController {
             return result;
         }
         long userId = (Long) userIdObj;
-        jdbcTemplate.update( // 插入行程表（user_id 关联当前用户）
+        jdbcTemplate.update( // 插入行程记录（关联当前用户）
                 "INSERT INTO trip_plans(user_id, city, days, plan_content) VALUES (?, ?, ?, ?)",
                 userId, city, days, planContent);
         result.put("success", true);

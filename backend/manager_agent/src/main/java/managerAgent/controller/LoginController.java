@@ -11,10 +11,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
+/**
  * 用户登录注册接口
- * 注册：查重 → BCrypt加密 → 插入users表
- * 登录：查表 → BCrypt比对 → 存入Session
- * Session：浏览器带Cookie(sessionId)，服务端凭它识别登录用户
  */
 @RestController
 @RequestMapping("/api")
@@ -23,7 +21,7 @@ public class LoginController {
     @Resource
     private JdbcTemplate jdbcTemplate;
 
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(); // 密码加密器（BCrypt：单向哈希，数据库泄露也拿不到明文）
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(); // BCrypt密码加密器
 
     /**
      * 注册新用户

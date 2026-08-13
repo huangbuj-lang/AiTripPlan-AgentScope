@@ -7,17 +7,17 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
 /**
- * 计划拦截器：监听Agent事件，记录到EventStore（/events实时展示）+ Token监控
- * PreReasoningEvent：用户输入 | PostReasoningEvent：思考 | PostActingEvent：调用工具
+/**
+ * 计划拦截器：监听Agent事件并记录（事件展示 + Token监控）
  */
 @Slf4j
 public class planHook implements Hook {
 
-    private final PlanNotebook plan; // 计划步骤（保留引用）
+    private final PlanNotebook plan; // 计划步骤引用
 
-    private final String sessionId; // ★会话隔离：事件写入该会话的EventStore（前端localStorage生成）
+    private final String sessionId; // 会话ID（事件按会话隔离）
 
-    private String userInput = null; // ★缓存本次任务的真实用户输入（第1轮USER消息，后续轮次复用——memory滚动后USER可能被挤掉）
+    private String userInput = null; // 缓存的真实用户输入
 
     // 监控统计字段
     private long startTimeNanos = 0;        // 本次Agent运行开始时间
@@ -32,7 +32,7 @@ public class planHook implements Hook {
     @Override
     public <T extends HookEvent> Mono<T> onEvent(T event) {
 
-        // ★中断支持：/cancel 设置标志后，在每个事件触发点检查并抛异常终止 ReAct 循环
+        // 检查中断标志，有则抛异常终止运行
         if (EventStore.isCancelRequested(sessionId)) {
             throw new RuntimeException("任务已被用户中断（/cancel）");
         }
@@ -41,19 +41,18 @@ public class planHook implements Hook {
 
             case PreReasoningEvent e -> { // 用户输入事件
 
-                // ★取真实用户输入：优先用第1轮缓存的USER消息（后续轮次复用）；
-                //  第1轮时遍历找USER角色消息（AgentScope把sysPrompt放最前且memory滚动后USER可能被挤掉）
+                // 取真实用户输入（优先复用缓存，否则遍历找USER消息）
                 String reason = null;
                 if (userInput != null) {
-                    reason = userInput; // 已有缓存：本轮直接复用（显示不变）
+                    reason = userInput; // 复用缓存的输入
                 } else {
                     for (io.agentscope.core.message.Msg m : e.getInputMessages()) {
                         if (m.getRole() == io.agentscope.core.message.MsgRole.USER) {
-                            reason = m.getTextContent(); // 遍历到最后一条USER=真实用户输入
+                            reason = m.getTextContent(); // 取最后一条USER消息作为输入
                         }
                     }
                     if (reason == null || reason.isBlank()) {
-                        // 兜底：跳过SYSTEM(可能是sysPrompt)，找第一条非system消息
+                        // 无USER消息时取第一条非system消息兜底
                         for (io.agentscope.core.message.Msg m : e.getInputMessages()) {
                             if (m.getRole() != io.agentscope.core.message.MsgRole.SYSTEM
                                     && m.getTextContent() != null && !m.getTextContent().isBlank()) {
@@ -63,18 +62,18 @@ public class planHook implements Hook {
                         }
                     }
                     if (reason != null) {
-                        userInput = reason; // 缓存本次任务的真实输入（防止后续轮次memory滚动后取到sysPrompt）
+                        userInput = reason; // 缓存输入供后续轮次复用
                     }
                 }
                 log.info("#### 用户的Prompt：#######" );
                 log.info(reason);
 
-                EventStore.add(sessionId, "用户输入", reason); // 记录事件（供 /events 接口查询）
+                EventStore.add(sessionId, "用户输入", reason); // 记录用户输入事件
 
-                if (startTimeNanos == 0) { // 记录开始时间（第一次输入时）
+                if (startTimeNanos == 0) { // 记录开始时间
                     startTimeNanos = System.nanoTime();
                 }
-                if (reason != null) { // 累计字符数（估算token）
+                if (reason != null) { // 累计字符数
                     totalMessageChars += reason.length();
                 }
             }
@@ -91,7 +90,7 @@ public class planHook implements Hook {
                     totalMessageChars += reason.length();
                 }
 
-            } // 全自动模式：不征求用户意见，Agent 继续执行
+            } // 全自动模式：不征求用户意见，继续执行
 
             case PostActingEvent e -> { // 调用工具事件
 
@@ -106,7 +105,7 @@ public class planHook implements Hook {
             case PostCallEvent e -> { // Agent 运行结束事件（打印监控统计）
                 printMonitorSummary();
                 EventStore.add(sessionId, "完成", "Agent 运行结束"); // 记录完成事件
-                startTimeNanos = 0; // 重置统计（下次运行重新计）
+                startTimeNanos = 0; // 重置统计
                 totalMessageChars = 0;
                 toolCallCount = 0;
             }
@@ -119,7 +118,8 @@ public class planHook implements Hook {
     }
 
     /**
-     * 打印 Token 监控统计（1 token ≈ 4字符，1万token ≈ 0.5元）
+    /**
+     * 打印Token监控统计
      */
     private void printMonitorSummary() {
         try {

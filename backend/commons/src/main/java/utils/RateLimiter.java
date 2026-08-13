@@ -1,16 +1,7 @@
 package utils;
 
 /**
- * 令牌桶限速器：控制 API 请求频率，防止撞 DeepSeek/DashScope 的 RPM（每分钟请求数）限流
- *
- * 原理：桶里每秒补充 rate 个令牌，每次请求取 1 个令牌；桶满（capacity）不再累积，
- *       令牌不足时阻塞等待——把突发请求"削峰填谷"，频率平稳在配额内。
- *
- * ★云端部署注意：本实现是进程内的（单实例有效）。云端多实例时需换成 Redis 分布式令牌桶
- *  （Redisson RRateLimiter），否则各实例各自限速=总请求翻倍。接口保持一致即可替换。
- *
- * 用法：RateLimiter limiter = RateLimiter.create(3); // 每秒最多3个请求
- *       limiter.acquire();  // 取令牌（不足则阻塞等待）
+ * 令牌桶限速器：控制 API 请求频率
  */
 public class RateLimiter {
 
@@ -22,7 +13,7 @@ public class RateLimiter {
     private RateLimiter(double rate, int capacity) {
         this.rate = rate;
         this.capacity = capacity;
-        this.tokens = capacity;       // 初始满桶（允许刚开始的少量突发）
+        this.tokens = capacity;       // 初始满桶
         this.lastRefillNanos = System.nanoTime();
     }
 

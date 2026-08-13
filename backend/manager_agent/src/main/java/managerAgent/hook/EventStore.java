@@ -9,13 +9,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
 /**
- * 内存事件库：保存Agent运行事件（用户输入/思考/工具调用），供 /events 查询
- * 事件只用于"实时查看"，无需持久化，用内存（零依赖零配置）
- *
- * ★会话隔离：2026-08-12 改造
- * 原实现是全局静态单例——多窗口/多用户同时用会互相污染（A的事件显示在B页面）。
- * 现改为 Map&lt;sessionId, SessionState&gt;：每个会话（前端localStorage生成）独立的事件队列+结果+取消标志，
- * 会话之间完全隔离；不传 sessionId 时回退到默认会话 "default"（向后兼容旧调用）。
+/**
+ * 内存事件库：按会话保存Agent运行事件，供 /events 查询
  */
 public class EventStore {
 
@@ -23,7 +18,7 @@ public class EventStore {
     public static class SessionState {
         final ConcurrentLinkedQueue<Map<String, String>> events = new ConcurrentLinkedQueue<>(); // 事件队列（线程安全）
         volatile String result = null;        // 最终结果缓存
-        volatile boolean cancelRequested = false; // 中断请求标志（/cancel 设置，planHook 检查）
+        volatile boolean cancelRequested = false; // 中断请求标志
     }
 
     private static final ConcurrentHashMap<String, SessionState> SESSIONS = new ConcurrentHashMap<>(); // 会话隔离容器
@@ -46,7 +41,8 @@ public class EventStore {
     }
 
     /**
-     * 获取任务最终结果（null=还没完成）（按会话）
+    /**
+     * 获取任务最终结果（null=未完成）
      */
     public static String getResult(String sessionId) {
         return state(sessionId).result;
@@ -63,7 +59,7 @@ public class EventStore {
                 "content", content == null ? "" : content
         );
         s.events.add(event);
-        while (s.events.size() > MAX_EVENTS) { // 超出上限，丢弃最旧的一条
+        while (s.events.size() > MAX_EVENTS) { // 超出上限丢弃最旧事件
             s.events.poll();
         }
     }
@@ -76,7 +72,8 @@ public class EventStore {
     }
 
     /**
-     * 清空会话的事件+结果+取消标志（每次新任务开始时调用，避免多任务混流）
+    /**
+     * 清空会话的事件、结果与取消标志
      */
     public static void clear(String sessionId) {
         SessionState s = state(sessionId);
@@ -86,14 +83,16 @@ public class EventStore {
     }
 
     /**
-     * 请求中断当前任务（/cancel 调用，planHook 每个事件检查该标志）
+    /**
+     * 请求中断当前任务
      */
     public static void requestCancel(String sessionId) {
         state(sessionId).cancelRequested = true;
     }
 
     /**
-     * 检查是否有中断请求（planHook 事件循环中调用，有则抛异常终止 ReAct 循环）
+    /**
+     * 检查是否有中断请求
      */
     public static boolean isCancelRequested(String sessionId) {
         return state(sessionId).cancelRequested;

@@ -14,8 +14,7 @@ let resultTimer = null;    // 结果轮询定时器（/result）
 let knownCount = 0;        // 已显示的事件数（保留，向后兼容）
 let lastEventCount = 0;    // 发送前的事件总数（用于增量显示）
 
-// ★会话隔离：每个浏览器窗口生成独立 sessionId（localStorage 持久），
-//  所有 /app /events /result /cancel 请求都带上它——多窗口互不污染
+// ★会话隔离：每个窗口独立 sessionId（localStorage 持久），请求带上它避免多窗口互扰
 const sessionId = (function () {
     let sid = localStorage.getItem('atp_session_id');
     if (!sid) {
@@ -60,7 +59,7 @@ function savePlan() {
     // 从结果里提取城市和天数（简单取第一个关键词前的文本，容错处理）
     const prompt = document.getElementById('prompt').value.trim();
     const city = prompt.replace(/帮我制定|制定|计划|规划|3日游|2日游|1日游|自驾游|游/g, '').trim() || '未知城市';
-    // ★天数提取：支持阿拉伯数字(7日)和中文数字(七日/七天)——用户常用"七日"汉字写法
+    // ★天数提取：支持阿拉伯数字(7日)和中文数字(七日/七天)
     const daysMatch = prompt.match(/(\d+)日|([一二三四五六七八九十]+)[日天]/);
     let days = 3; // 默认3天（匹配不到时兜底）
     if (daysMatch) {

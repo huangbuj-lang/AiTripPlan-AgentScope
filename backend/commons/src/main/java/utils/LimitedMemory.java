@@ -7,15 +7,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 有限条数记忆：防止单例Agent上下文无限增长
- * 单例Agent的Memory会无限累积→上下文超长→DashScope报400"input length超限"→任务失败
- * 解决：最多保留最近maxSize条消息，超出自动删最旧，上下文始终有界
+ * 有限条数记忆：最多保留最近 maxSize 条消息
  */
 public class LimitedMemory implements Memory {
 
-    private final List<Msg> messages = new ArrayList<>(); // 消息列表（按加入顺序）
+    private final List<Msg> messages = new ArrayList<>(); // 消息列表
 
-    private final int maxSize; // 最多保留多少条消息（超出删最旧）
+    private final int maxSize; // 消息条数上限
 
     public LimitedMemory(int maxSize) {
         this.maxSize = maxSize;

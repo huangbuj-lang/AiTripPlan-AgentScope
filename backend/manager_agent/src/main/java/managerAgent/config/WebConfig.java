@@ -9,10 +9,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 拦截器注册 + 静态资源缓存配置
- * 拦截：/app /result /events /api/* 等业务接口（登录后才能调）
- * 放行：登录注册接口 + 静态页面
- * 静态资源：禁用缓存（部署新版后页面自动更新，无需手动?v=）
+/**
+ * 拦截器注册与静态资源缓存配置
  */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
@@ -26,7 +24,7 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        registry.addResourceHandler("/**") // 静态资源禁用缓存（只影响页面文件，不影响Controller接口）
+        registry.addResourceHandler("/**") // 静态资源禁用缓存
                 .addResourceLocations("classpath:/static/")
                 .setCacheControl(CacheControl.noCache());
     }

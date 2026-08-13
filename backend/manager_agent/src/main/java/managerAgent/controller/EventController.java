@@ -10,15 +10,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 事件查询接口：GET /events?sessionId=xxx → 该会话主管Agent最近运行的事件列表（前端轮询实时显示进度）
- * ★会话隔离：按 sessionId 查询各自会话的事件，多窗口互不污染；不传回退默认会话
+/**
+ * 事件查询接口：按会话查询Agent运行事件（供前端轮询）
  */
 @RestController
 @RequestMapping("/events")
 public class EventController {
 
     /**
-     * 查询事件列表（该会话主管Agent的运行进度）
+    /**
+     * 查询该会话的事件列表
      */
     @GetMapping
     public List<Map<String, String>> events(

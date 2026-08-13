@@ -26,15 +26,13 @@ import java.util.Set;
 public class RouteMakingAgent {
 
     @Bean
-    @Scope("prototype") // ★并发支持：每次A2A任务从容器取新实例（ReActAgentWithStarterRunner每次getObject()），
-                        //  避免单例Bean的状态机并发冲突（"Cannot update task status"）——官方标准方案
+    @Scope("prototype") // 原型作用域：每次任务获取新实例，避免单例Bean并发冲突
     public ReActAgent getRouteMakingAgent() {
 
-        // 用普通@Tool工具替代MCP客户端注册
-        // （AgentScope 1.0.8的registerMcpClient在魔塔MCP v1.9.4下有转换bug→首轮请求400超长；
-        BaiduMapTool baiduMapTool = new BaiduMapTool(); // BaiduMapTool内部直接调魔塔MCP的tools/call，绕开转换层）
+        // 使用普通@Tool工具替代MCP客户端注册，直接调用百度地图MCP
+        BaiduMapTool baiduMapTool = new BaiduMapTool();
 
-        ToolUtils toolUtils = new ToolUtils(false); // 工具包（普通工具注册路径；串行=地图MCP不并发，防session冲突超时）
+        ToolUtils toolUtils = new ToolUtils(false); // 工具包（普通工具注册，串行执行）
         Toolkit toolkit = toolUtils.getToolkit(baiduMapTool);
 
         Set<String> toolNames = toolkit.getToolNames(); // 打印挂载的工具
@@ -48,7 +46,7 @@ public class RouteMakingAgent {
                 "RouteMakingAgent",
                 "擅长处理自驾游路线制定"
         )
-                .memory(new LimitedMemory(20)) // 限量记忆：单例Agent上下文无限增长会导致大模型400超长报错
+                .memory(new LimitedMemory(20)) // 限量记忆
                 .toolkit(toolkit) // 工具包
                 .build();
     }

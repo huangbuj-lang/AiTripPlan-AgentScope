@@ -14,14 +14,15 @@ import managerAgent.hook.EventStore;
 import utils.NacosUtil;
 
 /**
- * 将远程Agent封装为工具（返回远程Agent的结果给主管）
+/**
+ * 将远程Agent封装为工具供主管调用
  */
 @Slf4j
 public class RemoteAgentTool {
 
-    private String sessionId = "default"; // ★会话隔离：Agent结果事件写入哪个会话（ManagerAgent注入）
+    private String sessionId = "default"; // 会话ID（结果事件按会话隔离）
 
-    /** 设置会话ID（ManagerAgent构造时注入，使"Agent结果"事件与思考过程同会话） */
+    /** 设置会话ID */
     public void setSessionId(String sessionId) {
         this.sessionId = sessionId;
     }
@@ -38,7 +39,7 @@ public class RemoteAgentTool {
         log.info("工具方法：路线制定智能体...正在调用中");
         log.info("============");
 
-        A2aAgent agent = A2aAgent.builder() // 创建A2A远程Agent代理（通过Nacos查找名片）
+        A2aAgent agent = A2aAgent.builder() // 创建A2A远程Agent代理（Nacos查找名片）
                 .name("RouteMakingAgent")
                 .agentCardResolver(
                         new NacosAgentCardResolver(NacosUtil.getNacosClient()))
@@ -48,7 +49,7 @@ public class RemoteAgentTool {
         log.info("获取到的远程Agent描述：" + agent.getDescription());
         log.info("============");
 
-        // 把任务文本打包成 A2A 消息，发给远程路线 Agent，阻塞等待它干完活，把回复收回来
+        // 打包任务为A2A消息并阻塞等待远程回复
         Msg response = agent.call(
                 Msg.builder()
                         .role(MsgRole.USER)
@@ -58,10 +59,10 @@ public class RemoteAgentTool {
                         .build()
         ).block();
 
-        String result = (response != null && response.getTextContent() != null) // 把远程Agent的结果返回给主管（不再丢弃）
+        String result = (response != null && response.getTextContent() != null) // 返回远程Agent的结果
                 ? response.getTextContent()
                 : "路线Agent没有返回内容";
-        // ★部署修复：结果事件（前端思考栏显示子Agent调用状态，替代关闭思考模式后缺失的提示）
+        // 记录子Agent调用结果事件
         EventStore.add(sessionId, "Agent结果", result == null || result.isBlank() || result.equals("路线Agent没有返回内容")
                 ? "路线Agent ❌ 调用失败(返回空)"
                 : "路线Agent ✅ 调用成功(返回" + result.length() + "字符)");
@@ -94,10 +95,10 @@ public class RemoteAgentTool {
                         .build()
         ).block();
 
-        String result = (response != null && response.getTextContent() != null) // 把远程Agent的结果返回给主管
+        String result = (response != null && response.getTextContent() != null) // 返回远程Agent的结果
                 ? response.getTextContent()
                 : "行程Agent没有返回内容";
-        // ★部署修复：结果事件（前端思考栏显示子Agent调用状态）
+        // 记录子Agent调用结果事件
         EventStore.add(sessionId, "Agent结果", result == null || result.isBlank() || result.equals("行程Agent没有返回内容")
                 ? "行程Agent ❌ 调用失败(返回空)"
                 : "行程Agent ✅ 调用成功(返回" + result.length() + "字符)");

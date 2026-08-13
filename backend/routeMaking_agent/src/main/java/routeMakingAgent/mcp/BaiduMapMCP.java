@@ -28,7 +28,7 @@ public class BaiduMapMCP {
 //       log.info("==================");
 
         baiduMapMCP = McpClientBuilder.create("BaiduMap-mcp") // 创建MCP客户端
-                // 以streamable_http方式通信（魔塔MCP用的是这种新协议）
+                // 以streamable_http方式通信
                 .streamableHttpTransport("https://mcp.api-inference.modelscope.net/884c6f052e6546/mcp")
                 .timeout(Duration.ofSeconds(120)) // 请求超时
                 .buildAsync() // 异步请求
