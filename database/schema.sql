@@ -118,10 +118,12 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE TABLE IF NOT EXISTS comments (
     id            BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '评论ID',
     post_id       BIGINT NOT NULL COMMENT '所属帖子',
-    user_id       BIGINT NOT NULL COMMENT '评论者',
+    user_id       BIGINT NOT NULL COMMENT '评论者（AI答主为0）',
     parent_id     BIGINT NULL COMMENT '父评论（楼中楼）',
     reply_user_id BIGINT NULL COMMENT '被回复的用户ID',
     content       VARCHAR(1000) NOT NULL COMMENT '评论内容',
+    is_ai         TINYINT NOT NULL DEFAULT 0 COMMENT '1=AI答主生成',
+    is_adopted    TINYINT NOT NULL DEFAULT 0 COMMENT '1=楼主已采纳',
     status        TINYINT NOT NULL DEFAULT 1 COMMENT '1正常 0删除',
     created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_post (post_id)
@@ -153,3 +155,36 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='通知表';
+
+-- 4.6 审核记录（AI 审核 Agent 结构化输出落库，阶段三）
+CREATE TABLE IF NOT EXISTS moderation_records (
+    id          BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '审核记录ID',
+    target_type TINYINT NOT NULL COMMENT '1帖子 2评论',
+    target_id   BIGINT NOT NULL COMMENT '被审核内容ID',
+    verdict     TINYINT NOT NULL COMMENT '0pass 1review 2block',
+    reason      VARCHAR(200) NULL COMMENT '审核理由',
+    model       VARCHAR(50) NULL COMMENT '审核模型（降级可追溯）',
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_target (target_type, target_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='内容审核记录表';
+
+-- 4.7 举报（用户举报进管理员审核队列，阶段三）
+CREATE TABLE IF NOT EXISTS reports (
+    id          BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '举报ID',
+    reporter_id BIGINT NOT NULL COMMENT '举报者',
+    target_type TINYINT NOT NULL COMMENT '1帖子 2评论',
+    target_id   BIGINT NOT NULL COMMENT '被举报内容ID',
+    reason      VARCHAR(200) NOT NULL COMMENT '举报理由',
+    status      TINYINT NOT NULL DEFAULT 0 COMMENT '0待处理 1已处理',
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='举报表';
+
+-- 4.8 公告（管理后台发布，联动全员通知，阶段三）
+CREATE TABLE IF NOT EXISTS announcements (
+    id         BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '公告ID',
+    title      VARCHAR(100) NOT NULL COMMENT '标题',
+    content    TEXT NOT NULL COMMENT '正文',
+    created_by BIGINT NOT NULL COMMENT '发布管理员',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公告表';

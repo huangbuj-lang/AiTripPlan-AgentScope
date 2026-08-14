@@ -122,6 +122,18 @@ td .preview { color: #64748b; font-size: 12px; max-width: 320px; overflow: hidde
 .data-col .panel-body { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 12px; max-height: 520px; overflow: auto; }
 
 .empty { color: #64748b; text-align: center; padding: 24px; font-size: 13px; }
+
+/* 内容审核/业务看板/公告（阶段三） */
+.btn-primary { background: #3b82f6; color: #fff; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.btn-primary:hover { background: #2563eb; }
+#panel-moderation h3, #panel-business h3 { color: #cbd5e1; font-size: 14px; margin: 8px 0; }
+.announce-form { display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
+.ann-input { background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; padding: 10px 14px; font-size: 14px; }
+.ann-input:focus { outline: none; border-color: #3b82f6; }
+.ann-item { padding: 12px 14px; border: 1px solid #334155; border-radius: 8px; margin-bottom: 10px; }
+.ann-item b { color: #fff; }
+.ann-meta { color: #64748b; font-size: 12px; margin-left: 10px; }
+.ann-item div { color: #cbd5e1; font-size: 13px; margin-top: 6px; line-height: 1.6; }
 .toast {
     position: fixed; top: 20px; right: 20px; background: #1e293b; border: 1px solid #3b82f6;
     color: #fff; padding: 12px 20px; border-radius: 10px; font-size: 14px; z-index: 999;

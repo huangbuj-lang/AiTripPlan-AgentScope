@@ -152,6 +152,7 @@ public class LoginController {
             result.put("success", true);
             result.put("username", username);
             result.put("role", session.getAttribute("role"));
+            result.put("userId", session.getAttribute("userId"));
         }
         return result;
     }

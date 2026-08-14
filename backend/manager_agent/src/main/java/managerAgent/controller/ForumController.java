@@ -2,6 +2,8 @@ package managerAgent.controller;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
+import managerAgent.service.AiAnswerService;
+import managerAgent.service.ModerationService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,8 +23,15 @@ public class ForumController {
     @Resource
     private JdbcTemplate jdbcTemplate;
 
+    @Resource
+    private ModerationService moderationService;
+
+    @Resource
+    private AiAnswerService aiAnswerService;
+
     private static final int POST_DAILY_LIMIT = 5;      // 发帖日配额
     private static final int COMMENT_DAILY_LIMIT = 30;  // 评论日配额
+    private static final int AI_ANSWER_DAILY_LIMIT = 3; // AI 答主请求日配额
 
     private long uid(HttpSession session) {
         return ((Number) session.getAttribute("userId")).longValue();
@@ -128,21 +137,43 @@ public class ForumController {
             result.put("message", "今日发帖已达上限（" + POST_DAILY_LIMIT + " 篇/天）");
             return result;
         }
+        // ★审核第一层：DFA 敏感词快筛，命中直接拒绝（零成本拦截明显违规）
+        if (moderationService.containsSensitive(title + content)) {
+            result.put("success", false);
+            result.put("message", "内容含违规信息，请修改后重试");
+            return result;
+        }
         // 关联行程时内嵌结构化 JSON（供详情页展示 + 同款复制）
-        String planJson = null;
+        final String planJson;
         if (tripId != null) {
             List<Map<String, Object>> trips = jdbcTemplate.queryForList(
                     "SELECT plan_json FROM trip_plans WHERE id = ? AND user_id = ?", tripId, userId);
-            if (!trips.isEmpty()) {
-                planJson = (String) trips.get(0).get("plan_json");
-            }
+            planJson = trips.isEmpty() ? null : (String) trips.get(0).get("plan_json");
+        } else {
+            planJson = null;
         }
-        jdbcTemplate.update(
-                "INSERT INTO posts(user_id, board_id, title, content, trip_id, trip_plan_json, destination, travel_date) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                userId, boardId, title.trim(), content, tripId, planJson,
-                destination == null || destination.isBlank() ? null : destination.trim(),
-                travelDate == null || travelDate.isBlank() ? null : travelDate.trim());
+        org.springframework.jdbc.core.PreparedStatementCreator psc = con -> {
+            java.sql.PreparedStatement ps = con.prepareStatement(
+                    "INSERT INTO posts(user_id, board_id, title, content, trip_id, trip_plan_json, destination, travel_date) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    java.sql.Statement.RETURN_GENERATED_KEYS);
+            ps.setLong(1, userId);
+            ps.setInt(2, boardId);
+            ps.setString(3, title.trim());
+            ps.setString(4, content);
+            ps.setObject(5, tripId);
+            ps.setString(6, planJson);
+            ps.setString(7, destination == null || destination.isBlank() ? null : destination.trim());
+            ps.setString(8, travelDate == null || travelDate.isBlank() ? null : travelDate.trim());
+            return ps;
+        };
+        org.springframework.jdbc.support.KeyHolder keyHolder = new org.springframework.jdbc.support.GeneratedKeyHolder();
+        jdbcTemplate.update(psc, keyHolder);
+        Number newId = keyHolder.getKey();
+        // ★审核第二层：异步 LLM 语义审核（block 则隐藏，review 进人工队列）
+        if (newId != null) {
+            moderationService.moderateAsync(1, newId.longValue(), title + "\n" + content);
+        }
         result.put("success", true);
         result.put("message", "发帖成功");
         return result;
@@ -186,9 +217,10 @@ public class ForumController {
         result.put("success", true);
         result.put("comments", jdbcTemplate.queryForList(
                 "SELECT c.id, c.content, c.created_at, c.parent_id, c.reply_user_id, c.user_id, " +
+                "c.is_ai, c.is_adopted, " +
                 "COALESCE(pr.nickname, u.username) AS author, " +
                 "COALESCE(pr2.nickname, u2.username) AS reply_author " +
-                "FROM comments c JOIN users u ON u.id = c.user_id " +
+                "FROM comments c LEFT JOIN users u ON u.id = c.user_id " +
                 "LEFT JOIN user_profiles pr ON pr.user_id = c.user_id " +
                 "LEFT JOIN users u2 ON u2.id = c.reply_user_id " +
                 "LEFT JOIN user_profiles pr2 ON pr2.user_id = c.reply_user_id " +
@@ -215,13 +247,34 @@ public class ForumController {
             result.put("message", "今日评论已达上限（" + COMMENT_DAILY_LIMIT + " 条/天）");
             return result;
         }
+        // ★审核第一层：DFA 敏感词快筛
+        if (moderationService.containsSensitive(content)) {
+            result.put("success", false);
+            result.put("message", "内容含违规信息，请修改后重试");
+            return result;
+        }
         // 取帖子作者，用于通知
         Long postAuthor = jdbcTemplate.queryForObject(
                 "SELECT user_id FROM posts WHERE id = ?", Long.class, id);
-        jdbcTemplate.update(
-                "INSERT INTO comments(post_id, user_id, parent_id, reply_user_id, content) VALUES (?, ?, ?, ?, ?)",
-                id, userId, parentId, replyUserId, content.trim());
+        org.springframework.jdbc.core.PreparedStatementCreator psc = con -> {
+            java.sql.PreparedStatement ps = con.prepareStatement(
+                    "INSERT INTO comments(post_id, user_id, parent_id, reply_user_id, content) VALUES (?, ?, ?, ?, ?)",
+                    java.sql.Statement.RETURN_GENERATED_KEYS);
+            ps.setLong(1, id);
+            ps.setLong(2, userId);
+            ps.setObject(3, parentId);
+            ps.setObject(4, replyUserId);
+            ps.setString(5, content.trim());
+            return ps;
+        };
+        org.springframework.jdbc.support.KeyHolder keyHolder = new org.springframework.jdbc.support.GeneratedKeyHolder();
+        jdbcTemplate.update(psc, keyHolder);
         jdbcTemplate.update("UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?", id);
+        // ★审核第二层：异步 LLM 语义审核
+        Number newId = keyHolder.getKey();
+        if (newId != null) {
+            moderationService.moderateAsync(2, newId.longValue(), content);
+        }
         // 通知：不通知自己
         if (postAuthor != null && postAuthor != userId) {
             notify(postAuthor, 1, authorName(userId) + " 评论了你的帖子", "/post.html?id=" + id);
@@ -272,6 +325,90 @@ public class ForumController {
             result.put("favorited", true);
         }
         result.put("success", true);
+        return result;
+    }
+
+    // ==================== AI 答主 / 采纳 / 举报 ====================
+
+    /** 请求 AI 答主回答（仅楼主，问答版块；异步生成，入并发子池） */
+    @PostMapping("/answers/ai")
+    public Map<String, Object> aiAnswer(@RequestParam Long postId, HttpSession session) {
+        long userId = uid(session);
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> posts = jdbcTemplate.queryForList(
+                "SELECT user_id FROM posts WHERE id = ? AND status = 1", postId);
+        if (posts.isEmpty()) {
+            result.put("success", false);
+            result.put("message", "帖子不存在");
+            return result;
+        }
+        if (((Number) posts.get(0).get("user_id")).longValue() != userId) {
+            result.put("success", false);
+            result.put("message", "仅楼主可请求 AI 答主");
+            return result;
+        }
+        Integer cnt = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM comments c JOIN posts p ON p.id = c.post_id " +
+                "WHERE p.user_id = ? AND c.is_ai = 1 AND DATE(c.created_at) = CURDATE()",
+                Integer.class, userId);
+        if (cnt != null && cnt >= AI_ANSWER_DAILY_LIMIT) {
+            result.put("success", false);
+            result.put("message", "今日 AI 答主请求已达上限（" + AI_ANSWER_DAILY_LIMIT + " 次/天）");
+            return result;
+        }
+        aiAnswerService.answerAsync(postId, userId);
+        result.put("success", true);
+        result.put("message", "AI 答主已受理，正在生成回答，稍后刷新查看");
+        return result;
+    }
+
+    /** 采纳 AI 回答（仅楼主，采纳后标注「已采纳」） */
+    @PostMapping("/comments/{id}/adopt")
+    public Map<String, Object> adopt(@PathVariable Long id, HttpSession session) {
+        long userId = uid(session);
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT c.post_id, c.is_ai, p.user_id FROM comments c JOIN posts p ON p.id = c.post_id WHERE c.id = ?", id);
+        if (rows.isEmpty()) {
+            result.put("success", false);
+            result.put("message", "评论不存在");
+            return result;
+        }
+        Map<String, Object> row = rows.get(0);
+        if (((Number) row.get("is_ai")).intValue() != 1) {
+            result.put("success", false);
+            result.put("message", "仅 AI 回答可采纳");
+            return result;
+        }
+        if (((Number) row.get("user_id")).longValue() != userId) {
+            result.put("success", false);
+            result.put("message", "仅楼主可采纳");
+            return result;
+        }
+        jdbcTemplate.update("UPDATE comments SET is_adopted = 1 WHERE id = ?", id);
+        result.put("success", true);
+        result.put("message", "已采纳该 AI 回答");
+        return result;
+    }
+
+    /** 举报帖子/评论（进管理员审核队列） */
+    @PostMapping("/reports")
+    public Map<String, Object> report(@RequestParam int targetType,
+                                      @RequestParam Long targetId,
+                                      @RequestParam String reason,
+                                      HttpSession session) {
+        long userId = uid(session);
+        Map<String, Object> result = new HashMap<>();
+        if (reason == null || reason.isBlank()) {
+            result.put("success", false);
+            result.put("message", "请填写举报理由");
+            return result;
+        }
+        jdbcTemplate.update(
+                "INSERT INTO reports(reporter_id, target_type, target_id, reason) VALUES (?, ?, ?, ?)",
+                userId, targetType, targetId, reason.trim());
+        result.put("success", true);
+        result.put("message", "举报已提交，管理员将尽快处理");
         return result;
     }
 

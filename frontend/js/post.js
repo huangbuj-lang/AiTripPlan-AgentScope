@@ -5,6 +5,14 @@
 
 const postId = new URLSearchParams(location.search).get('id');
 let replyTo = null; // 当前回复的评论（null=回复帖子）
+let currentUserId = null;   // 当前登录用户 ID
+let postAuthorId = null;    // 楼主 ID
+let boardId = null;         // 版块 ID（判断是否问答版块可请求 AI 答主）
+
+// 获取当前登录用户（用于判断是否楼主 / AI 采纳 / 举报权限）
+fetch('/api/check-login').then(r => r.json()).then(d => {
+    if (d.success) currentUserId = d.userId;
+});
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
@@ -69,6 +77,8 @@ function loadPost() {
     fetch('/api/forum/posts/' + postId).then(r => r.json()).then(d => {
         if (!d.success) { document.getElementById('postCard').innerHTML = '<div class="empty">' + d.message + '</div>'; return; }
         const p = d.post;
+        postAuthorId = p.user_id;
+        boardId = p.board_id;
         let trip = '';
         if (p.trip_plan_json) {
             let plan = null;
@@ -91,6 +101,8 @@ function loadPost() {
             '<div class="pd-actions">' +
             '<button class="act-btn" id="likeBtn" onclick="toggleLike()"><i class="fa-regular fa-heart"></i> 赞 ' + (p.like_count || 0) + '</button>' +
             '<button class="act-btn" id="favBtn" onclick="toggleFav()"><i class="fa-regular fa-star"></i> 收藏</button>' +
+            (boardId === 2 ? '<button class="act-btn" onclick="requestAi()"><i class="fa-solid fa-robot"></i> 请求 AI 答主</button>' : '') +
+            '<button class="act-btn" onclick="reportPost()"><i class="fa-solid fa-flag"></i> 举报</button>' +
             '</div>';
     }).catch(() => { document.getElementById('postCard').innerHTML = '<div class="empty">加载失败</div>'; });
 }
@@ -125,11 +137,18 @@ function loadComments() {
         if (!comments.length) { list.innerHTML = '<div class="empty" style="padding:20px">暂无评论，抢沙发！</div>'; return; }
         list.innerHTML = comments.map(c => {
             const isReply = c.parent_id != null;
-            return '<div class="comment' + (isReply ? ' reply' : '') + '">' +
-                '<div class="c-head"><b>' + esc(c.author) + '</b>' +
+            const isAi = c.is_ai === 1;
+            const author = isAi ? '🤖 AI答主' : esc(c.author);
+            const aiBadge = isAi ? '<span class="ai-badge">AI 生成</span>' : '';
+            const adopted = c.is_adopted === 1 ? '<span class="adopt-badge">已采纳</span>' : '';
+            const adoptBtn = (isAi && !c.is_adopted && currentUserId != null && currentUserId == postAuthorId)
+                ? '<button class="adopt-btn" onclick="adoptComment(' + c.id + ')">采纳</button>' : '';
+            const replyBtn = isAi ? '' : '<span class="c-reply" onclick="setReply(' + c.id + ', ' + c.user_id + ', \'' + esc(c.author) + '\')">回复</span>';
+            return '<div class="comment' + (isReply ? ' reply' : '') + (isAi ? ' ai' : '') + '">' +
+                '<div class="c-head"><b>' + author + '</b>' + aiBadge + adopted +
                 (c.reply_author ? ' 回复 <b>' + esc(c.reply_author) + '</b>' : '') +
                 '<span style="color:#b2bec3"> · ' + fmtTime(c.created_at) + '</span>' +
-                '<span class="c-reply" onclick="setReply(' + c.id + ', ' + c.user_id + ', \'' + esc(c.author) + '\')">回复</span></div>' +
+                replyBtn + adoptBtn + '</div>' +
                 '<div class="c-body">' + esc(c.content) + '</div></div>';
         }).join('');
     });
@@ -153,6 +172,33 @@ function submitComment() {
         if (d.success) { input.value = ''; replyTo = null; input.placeholder = '写下你的评论...'; loadComments(); }
         else alert(d.message);
     });
+}
+
+function requestAi() {
+    if (!confirm('请求 AI 答主为你的问题生成回答？（异步生成，稍后刷新查看）')) return;
+    fetch('/api/forum/answers/ai', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ postId: postId })
+    }).then(r => r.json()).then(d => {
+        alert(d.message || '已受理');
+        setTimeout(loadComments, 3000); // 生成中，稍后刷新
+    });
+}
+
+function adoptComment(id) {
+    fetch('/api/forum/comments/' + id + '/adopt', { method: 'POST' }).then(r => r.json()).then(d => {
+        alert(d.message || '已采纳');
+        if (d.success) loadComments();
+    });
+}
+
+function reportPost() {
+    const reason = prompt('请填写举报理由：');
+    if (!reason || !reason.trim()) return;
+    fetch('/api/forum/reports', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ targetType: 1, targetId: postId, reason: reason.trim() })
+    }).then(r => r.json()).then(d => alert(d.message || '已提交'));
 }
 
 loadPost();
