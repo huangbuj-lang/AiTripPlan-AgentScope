@@ -35,6 +35,7 @@ function checkLogin() {
             if (data.success) {
                 document.getElementById('userName').textContent = '👤 ' + data.username;
                 document.getElementById('myPlansBtn').style.display = 'inline-block';
+                document.getElementById('forumBtn').style.display = 'inline-block';
                 document.getElementById('profileBtn').style.display = 'inline-block';
                 document.getElementById('logoutBtn').style.display = 'inline-block';
                 document.getElementById('skipPrefsWrap').style.display = 'inline-block';

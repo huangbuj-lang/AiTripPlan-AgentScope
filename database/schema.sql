@@ -75,3 +75,81 @@ CREATE TABLE IF NOT EXISTS trip_shares (
     UNIQUE KEY uk_share_code (share_code),
     UNIQUE KEY uk_trip (trip_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行程分享表';
+
+-- ============================================
+-- 4. 论坛模块（阶段二 P1，ForumController 操作）
+-- ============================================
+
+-- 4.1 版块（攻略/问答/结伴三版块）
+CREATE TABLE IF NOT EXISTS forum_boards (
+    id         BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '版块ID',
+    name       VARCHAR(50) NOT NULL COMMENT '版块名',
+    sort_order INT NOT NULL DEFAULT 0 COMMENT '排序（小在前）'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛版块表';
+
+-- 初始版块（幂等）
+INSERT IGNORE INTO forum_boards (id, name, sort_order) VALUES
+    (1, '旅行攻略', 1),
+    (2, '旅行问答', 2),
+    (3, '结伴同行', 3);
+
+-- 4.2 帖子
+CREATE TABLE IF NOT EXISTS posts (
+    id             BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '帖子ID',
+    user_id        BIGINT NOT NULL COMMENT '作者（关联users.id）',
+    board_id       BIGINT NOT NULL COMMENT '所属版块',
+    title          VARCHAR(120) NOT NULL COMMENT '标题',
+    content        MEDIUMTEXT NOT NULL COMMENT '正文（markdown 原文）',
+    trip_id        BIGINT NULL COMMENT '关联行程（攻略内嵌行程）',
+    trip_plan_json JSON NULL COMMENT '内嵌结构化行程（供详情展示/同款复制）',
+    destination    VARCHAR(100) NULL COMMENT '目的地（结伴版块）',
+    travel_date    VARCHAR(50) NULL COMMENT '出行时间（结伴版块）',
+    like_count     INT NOT NULL DEFAULT 0 COMMENT '点赞数',
+    comment_count  INT NOT NULL DEFAULT 0 COMMENT '评论数',
+    view_count     INT NOT NULL DEFAULT 0 COMMENT '浏览量',
+    status         TINYINT NOT NULL DEFAULT 1 COMMENT '1正常 0隐藏(审核/删除)',
+    created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_board (board_id),
+    INDEX idx_user (user_id),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛帖子表';
+
+-- 4.3 评论（两级楼中楼：parent_id 指向被回复评论）
+CREATE TABLE IF NOT EXISTS comments (
+    id            BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '评论ID',
+    post_id       BIGINT NOT NULL COMMENT '所属帖子',
+    user_id       BIGINT NOT NULL COMMENT '评论者',
+    parent_id     BIGINT NULL COMMENT '父评论（楼中楼）',
+    reply_user_id BIGINT NULL COMMENT '被回复的用户ID',
+    content       VARCHAR(1000) NOT NULL COMMENT '评论内容',
+    status        TINYINT NOT NULL DEFAULT 1 COMMENT '1正常 0删除',
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_post (post_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='论坛评论表';
+
+-- 4.4 点赞 / 收藏（用户-帖子关系）
+CREATE TABLE IF NOT EXISTS post_likes (
+    user_id    BIGINT NOT NULL,
+    post_id    BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, post_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='帖子点赞表';
+
+CREATE TABLE IF NOT EXISTS post_favorites (
+    user_id    BIGINT NOT NULL,
+    post_id    BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, post_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='帖子收藏表';
+
+-- 4.5 通知（评论/点赞/收藏时通知作者，SSE 实时推送）
+CREATE TABLE IF NOT EXISTS notifications (
+    id         BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '通知ID',
+    user_id    BIGINT NOT NULL COMMENT '接收者',
+    type       TINYINT NOT NULL COMMENT '1评论 2点赞 3收藏 4系统 5公告',
+    content    VARCHAR(255) NOT NULL COMMENT '通知文案',
+    link_url   VARCHAR(255) NULL COMMENT '跳转链接',
+    is_read    TINYINT NOT NULL DEFAULT 0 COMMENT '0未读 1已读',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='通知表';

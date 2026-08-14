@@ -24,7 +24,7 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addInterceptor(new LoginInterceptor(jdbcTemplate))
                 .addPathPatterns("/app", "/result", "/events", "/cancel",
                         "/api/save-plan", "/api/my-plans", "/api/delete-plan", "/api/logout",
-                        "/api/profile/**", "/api/trips/**", "/api/admin/**")
+                        "/api/profile/**", "/api/trips/**", "/api/forum/**", "/api/notifications/**", "/api/admin/**")
                 .excludePathPatterns("/api/login", "/api/register", "/api/check-login", "/api/share/**");
         // 管理接口：登录拦截器先拦（未登录401），再校验管理员角色（非管理员403）
         registry.addInterceptor(new AdminInterceptor())
