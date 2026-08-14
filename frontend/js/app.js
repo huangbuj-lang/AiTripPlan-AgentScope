@@ -118,6 +118,7 @@ function showMyPlans() {
                     '</div>' +
                     '<div class="plan-card-actions">' +
                     '<button class="mini-btn" onclick="viewPlan(' + p.id + ')">查看</button> ' +
+                    '<button class="mini-btn" onclick="location.href=\'edit.html?id=' + p.id + '\'">编辑</button> ' +
                     '<button class="mini-btn" onclick="sharePlan(' + p.id + ')">分享</button> ' +
                     '<button class="mini-btn" onclick="deletePlan(' + p.id + ')">删除</button>' +
                     '</div></div>'
