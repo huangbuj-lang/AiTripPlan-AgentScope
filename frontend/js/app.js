@@ -15,6 +15,7 @@ let eventSource = null;    // SSE 实时事件流（阶段四 F-3，替代 /even
 let knownCount = 0;        // 已显示的事件数（保留，向后兼容）
 let lastEventCount = 0;    // 发送前的事件总数（用于增量显示）
 let lastResultMarkdown = ''; // 最近一次最终结果的 markdown 原文（保存行程用，避免存 HTML）
+let lastResultJson = '';      // 最近一次最终结果的结构化 JSON 原文（保存行程用，供分享/二次编辑）
 
 // ★会话隔离：每个窗口独立 sessionId（localStorage 持久），请求带上它避免多窗口互扰
 const sessionId = (function () {
@@ -81,7 +82,7 @@ function savePlan() {
     fetch('/api/save-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ city: city, days: days, planContent: text })
+        body: new URLSearchParams({ city: city, days: days, planContent: text, planJson: lastResultJson })
     })
         .then(r => r.json())
         .then(data => {
@@ -130,6 +131,21 @@ function viewPlan(id) {
         .then(data => {
             const p = (data.plans || []).find(x => x.id === id);
             if (p) {
+                // ★第0步：优先用结构化 JSON 渲染（供分享/二次编辑），缺失时退回 markdown/HTML
+                let structured = null;
+                if (p.plan_json) {
+                    try {
+                        structured = typeof p.plan_json === 'string' ? JSON.parse(p.plan_json) : p.plan_json;
+                    } catch (e) { structured = null; }
+                }
+                if (structured && (structured.sections || structured.title)) {
+                    lastResultJson = typeof p.plan_json === 'string' ? p.plan_json : JSON.stringify(structured);
+                    document.getElementById('resultBody').innerHTML = renderStructuredPlan(structured);
+                    document.getElementById('saveBar').style.display = 'none';
+                    closeMyPlans();
+                    document.getElementById('resultBody').scrollIntoView({ behavior: 'smooth' });
+                    return;
+                }
                 let content = p.plan_content || '';
                 // ★F-1：区分新旧格式。旧数据是 HTML → DOMPurify 消毒；新数据是 markdown → 安全渲染
                 if (/<[a-zA-Z][^>]*>/.test(content)) {
@@ -262,9 +278,11 @@ function fetchResult() {
             try { structured = JSON.parse(text); } catch (e) { /* 非 JSON：按原文处理 */ }
             if (structured && (structured.sections || structured.title)) {
                 lastResultMarkdown = structured.markdown || ''; // 记录降级 markdown，供保存
+                lastResultJson = text; // 记录结构化 JSON 原文，供保存行程（分享/二次编辑）
                 document.getElementById('resultBody').innerHTML = renderStructuredPlan(structured);
             } else {
                 lastResultMarkdown = text; // 记录原文，供保存行程使用
+                lastResultJson = ''; // 非结构化结果，不保存 JSON
                 document.getElementById('resultBody').innerHTML = renderPlanSheet(text);
             }
             document.getElementById('status').textContent = '✅ 计划生成完成！';
