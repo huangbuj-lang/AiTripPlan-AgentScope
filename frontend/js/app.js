@@ -778,7 +778,7 @@ function formatSectionItem(type, item) {
             return t;
         }
         case 'stay':
-            return pick(item.name, item.category, item.price);
+            return pick(item.name, item.kind, item.price);
         case 'tips':
             return (item.kind ? item.kind + '：' : '') + (item.text || '');
         default:

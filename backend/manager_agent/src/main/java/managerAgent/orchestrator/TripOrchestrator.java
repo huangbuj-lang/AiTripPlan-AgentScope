@@ -262,9 +262,13 @@ public class TripOrchestrator {
                             .append(it.getPlace()).append(" ").append(it.getActivity());
                     case "transport" -> sb.append(it.getFrom()).append(" → ").append(it.getTo())
                             .append("（").append(it.getWay()).append("，").append(it.getDuration()).append("）");
-                    case "stay" -> sb.append(it.getName()).append("（").append(it.getCategory())
-                            .append(it.getPrice().isBlank() ? "" : " " + it.getPrice()).append("）");
-                    case "tips" -> sb.append(it.getKind()).append("：").append(it.getText());
+                    case "stay" -> {
+                        String kind = it.getKind().isBlank() ? it.getCategory() : it.getKind();
+                        String detail = (kind + " " + it.getPrice()).trim();
+                        sb.append(it.getName());
+                        if (!detail.isBlank()) sb.append("（").append(detail).append("）");
+                    }
+                    case "tips" -> sb.append(it.getKind().isBlank() ? "" : it.getKind() + "：").append(it.getText());
                     default -> sb.append(it.getActivity()).append(it.getPlace()).append(it.getText());
                 }
                 sb.append("\n");
