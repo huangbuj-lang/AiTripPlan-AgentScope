@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RestController;
 import utils.JsonUtils;
 
 /**
-/**
  * 用户与Agent互动的HTTP接口
  */
 @Slf4j
@@ -38,7 +37,6 @@ public class AppController {
     /** 当前占用的并发槽数（管理端任务监控展示） */
     public static int inUseSlots() { return MAX_CONCURRENT_TASKS - TASK_SLOTS.availablePermits(); }
 
-    /**
     /**
      * HTTP入口：提交任务给主管Agent异步处理
      */
@@ -92,7 +90,6 @@ public class AppController {
         return r == null ? "⏳ 任务还在执行中..." : r;
     }
 
-    /**
     /**
      * 中断当前任务
      */

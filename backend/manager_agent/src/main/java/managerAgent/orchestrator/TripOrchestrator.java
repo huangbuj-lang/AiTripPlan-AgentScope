@@ -71,9 +71,10 @@ public class TripOrchestrator {
         EventStore.add(sessionId, "整合", "正在整合路线与行程数据...");
         TripPlanData plan = aggregate(req, routeResult, planResult);
         if (plan == null) {
-            plan = fallbackPlan(req, routeResult, planResult);
+            plan = fallbackPlan(req, routeResult, planResult); // 兜底已含完整 markdown 原文
+        } else {
+            plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
         }
-        plan.setMarkdown(renderMarkdown(plan)); // 降级 markdown 字段
         EventStore.add(sessionId, "完成", "结构化行程生成完成");
         return plan;
     }

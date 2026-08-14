@@ -9,7 +9,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.util.concurrent.TimeUnit;
 
 /**
-/**
  * 拦截器注册与静态资源缓存配置
  */
 @Configuration

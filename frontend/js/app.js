@@ -35,6 +35,10 @@ function checkLogin() {
                 document.getElementById('userName').textContent = '👤 ' + data.username;
                 document.getElementById('myPlansBtn').style.display = 'inline-block';
                 document.getElementById('logoutBtn').style.display = 'inline-block';
+                // ★管理员额外显示「管理端」入口
+                if (data.role === 'admin') {
+                    document.getElementById('adminBtn').style.display = 'inline-block';
+                }
             } else {
                 // 未登录：跳转登录页（相对路径，兼容部署上下文）
                 location.href = 'login.html';

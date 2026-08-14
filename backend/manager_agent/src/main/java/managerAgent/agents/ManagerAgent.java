@@ -103,7 +103,6 @@ public class ManagerAgent {
     }
 
     /**
-    /**
      * Agent 运行并返回最终结果（供HTTP接口使用）
      */
     public String runAndReturn(String userPrompt) {
@@ -143,7 +142,6 @@ public class ManagerAgent {
     }
 
     /**
-    /**
      * 剥离回复中泄漏的 tool_calls XML 块
      */
     private String stripToolCallXml(String text) {
@@ -162,7 +160,6 @@ public class ManagerAgent {
         return stripped.isEmpty() ? text : stripped;
     }
 
-    /**
     /**
      * 剥离回复开头的引导句/过程叙述段
      */

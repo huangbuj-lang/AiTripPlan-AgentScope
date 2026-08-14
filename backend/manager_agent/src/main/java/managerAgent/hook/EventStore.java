@@ -12,7 +12,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
 /**
-/**
  * 内存事件库：按会话保存Agent运行事件，供 /events 查询
  */
 public class EventStore {
@@ -110,7 +109,6 @@ public class EventStore {
     }
 
     /**
-    /**
      * 获取任务最终结果（null=未完成）
      */
     public static String getResult(String sessionId) {
@@ -142,7 +140,6 @@ public class EventStore {
     }
 
     /**
-    /**
      * 清空会话的事件、结果与取消标志
      */
     public static void clear(String sessionId) {
@@ -153,14 +150,12 @@ public class EventStore {
     }
 
     /**
-    /**
      * 请求中断当前任务
      */
     public static void requestCancel(String sessionId) {
         state(sessionId).cancelRequested = true;
     }
 
-    /**
     /**
      * 检查是否有中断请求
      */

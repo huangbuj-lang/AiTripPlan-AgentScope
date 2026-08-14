@@ -46,7 +46,9 @@ function submit() {
                 if (mode === 'login') {
                     msg.textContent = '✅ 登录成功，正在进入...';
                     msg.className = 'msg ok';
-                    setTimeout(() => { location.href = 'index.html'; }, 600);
+                    // ★管理员登录后进入后台管理页，普通用户进入前台
+                    const target = (data.role === 'admin') ? 'admin.html' : 'index.html';
+                    setTimeout(() => { location.href = target; }, 600);
                 } else {
                     msg.textContent = '✅ 注册成功，请登录';
                     msg.className = 'msg ok';

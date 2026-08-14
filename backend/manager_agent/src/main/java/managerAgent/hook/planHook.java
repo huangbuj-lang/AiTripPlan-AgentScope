@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
 /**
-/**
  * 计划拦截器：监听Agent事件并记录（事件展示 + Token监控）
  */
 @Slf4j
@@ -123,10 +122,6 @@ public class planHook implements Hook {
         return Mono.just(event); // 返回原事件
     }
 
-    /**
-    /**
-     * 打印Token监控统计
-     */
     /** 从消息的 usage 累计真实 token（消息可能无 usage，判空兜底） */
     private void accumulateUsage(io.agentscope.core.message.Msg msg) {
         if (msg == null) return;
@@ -136,6 +131,7 @@ public class planHook implements Hook {
         totalOutputTokens += usage.getOutputTokens();
     }
 
+    /** 打印 Token 监控统计 */
     private void printMonitorSummary() {
         try {
             long costMs = (System.nanoTime() - startTimeNanos) / 1_000_000; // 耗时（毫秒）
