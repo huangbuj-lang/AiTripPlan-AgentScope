@@ -25,6 +25,7 @@
             <span id="userName" class="user-chip"><i class="fa-regular fa-circle-user"></i> 未登录</span>
             <button class="mini-btn" id="adminBtn" onclick="location.href='admin.html'" style="display:none"><i class="fa-solid fa-gauge"></i> 管理端</button>
             <button class="mini-btn" id="myPlansBtn" onclick="showMyPlans()" style="display:none"><i class="fa-solid fa-folder-open"></i> 我的行程</button>
+            <button class="mini-btn" id="profileBtn" onclick="location.href='profile.html'" style="display:none"><i class="fa-solid fa-user-gear"></i> 个人中心</button>
             <button class="mini-btn" id="logoutBtn" onclick="logout()" style="display:none"><i class="fa-solid fa-right-from-bracket"></i> 退出</button>
         </div>
     </div>
@@ -37,6 +38,9 @@
                onkeydown="if(event.key==='Enter') send()">
         <button id="sendBtn" onclick="send()"><i class="fa-solid fa-wand-magic-sparkles"></i> 生成计划</button>
         <button id="cancelBtn" onclick="cancelTask()" style="display:none;background:#e17055"><i class="fa-solid fa-stop"></i> 停止</button>
+        <label class="skip-prefs" id="skipPrefsWrap" style="display:none" title="勾选后本次生成不应用个人中心里设置的旅行偏好">
+            <input type="checkbox" id="skipPrefs"> 本次不使用偏好
+        </label>
     </div>
 
     <!-- 状态条 -->

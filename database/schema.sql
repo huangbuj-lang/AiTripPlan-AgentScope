@@ -49,3 +49,29 @@ CREATE TABLE IF NOT EXISTS trip_plans (
     plan_json JSON NULL COMMENT '结构化 TripPlanData 契约（供分享/复制/二次编辑）',
     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='旅行计划表';
+
+-- 3.5 用户旅行偏好（个人中心设置，注入 TripRequest 用）
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id       BIGINT PRIMARY KEY COMMENT '关联users.id',
+    travel_style  JSON NULL COMMENT '风格标签 ["穷游","亲子","美食"]',
+    budget_level  TINYINT NULL COMMENT '预算档 1经济 2舒适 3奢华',
+    pace          TINYINT NULL COMMENT '节奏 1紧凑 2适中 3松弛',
+    avoid_list    JSON NULL COMMENT '忌口/回避项',
+    use_by_default TINYINT NOT NULL DEFAULT 1 COMMENT '是否默认注入到每次生成',
+    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户旅行偏好表';
+
+-- 3.6 行程分享（只读链接，免登录查看）
+CREATE TABLE IF NOT EXISTS trip_shares (
+    id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+    trip_id       BIGINT NOT NULL COMMENT '关联trip_plans.id',
+    user_id       BIGINT NOT NULL COMMENT '分享者（关联users.id）',
+    share_code    VARCHAR(16) NOT NULL COMMENT '短码',
+    password_hash VARCHAR(100) NULL COMMENT '可选访问密码(BCrypt)',
+    is_public     TINYINT NOT NULL DEFAULT 1 COMMENT '是否公开',
+    expires_at    DATETIME NULL COMMENT '过期时间',
+    view_count    INT NOT NULL DEFAULT 0 COMMENT '浏览量',
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_share_code (share_code),
+    UNIQUE KEY uk_trip (trip_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行程分享表';

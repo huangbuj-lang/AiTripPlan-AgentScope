@@ -1,16 +1,22 @@
 package managerAgent.controller;
 
 import dto.TripPlanData;
+import dto.TripRequest;
+import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import managerAgent.hook.CancelledException;
 import managerAgent.hook.EventStore;
 import managerAgent.orchestrator.TripOrchestrator;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import utils.JsonUtils;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * 用户与Agent互动的HTTP接口
@@ -18,6 +24,9 @@ import utils.JsonUtils;
 @Slf4j
 @RestController
 public class AppController {
+
+    @Resource
+    private JdbcTemplate jdbcTemplate;
 
     // 全局并发任务数上限（环境变量配置，默认1）
     private static final int MAX_CONCURRENT_TASKS = Integer.parseInt(
@@ -43,6 +52,7 @@ public class AppController {
     @RequestMapping(value = "/app", method = RequestMethod.POST)
     public String app(@RequestParam(name = "prompt", required = false, defaultValue = "帮我制定2026年元旦,深圳到惠州3日游自驾游计划，请包含吃住行，天气，酒店，餐饮美食。") String prompt,
                       @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
+                      @RequestParam(name = "skipPrefs", required = false, defaultValue = "false") boolean skipPrefs,
                       HttpSession session) {
 
         // 获取并发槽位，失败则拒绝
@@ -56,12 +66,16 @@ public class AppController {
             EventStore.bindOwner(sessionId, ((Number) userIdObj).longValue());
         }
 
+        // ★P0：读取用户沉淀偏好（本次未勾选「不使用偏好」时注入）
+        final TripRequest.Preferences prefs = (!skipPrefs && userIdObj != null)
+                ? loadPreferences(((Number) userIdObj).longValue()) : null;
+
         EventStore.clear(sessionId); // 清空该会话的旧事件
 
         TASK_POOL.submit(() -> { // 异步执行任务
             try {
                 TripOrchestrator orchestrator = new TripOrchestrator(sessionId); // 确定性编排器（会话隔离）
-                TripPlanData plan = orchestrator.run(prompt); // 解析→并行DAG→聚合，返回结构化行程
+                TripPlanData plan = orchestrator.run(prompt, prefs); // 解析→并行DAG→聚合，返回结构化行程
                 EventStore.setResult(sessionId, JsonUtils.toJson(plan)); // 缓存结构化 JSON 结果（含降级 markdown 字段）
             } catch (CancelledException e) {
                 EventStore.setResult(sessionId, "⏹ 任务已由用户中断。"); // 用户取消的友好提示（类型化判断）
@@ -74,6 +88,30 @@ public class AppController {
         });
 
         return "✅ 任务已接收，正在后台执行中！请查看思考过程，完成后结果自动显示。";
+    }
+
+    /** ★P0：从 user_preferences 加载用户沉淀偏好（未设置或禁用默认返回 null） */
+    private TripRequest.Preferences loadPreferences(long userId) {
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT travel_style, budget_level, pace, avoid_list, use_by_default FROM user_preferences WHERE user_id = ?", userId);
+            if (rows.isEmpty()) {
+                return null;
+            }
+            Map<String, Object> row = rows.get(0);
+            if (row.get("use_by_default") != null && ((Number) row.get("use_by_default")).intValue() != 1) {
+                return null; // 用户关闭了默认注入
+            }
+            TripRequest.Preferences p = new TripRequest.Preferences();
+            p.setTravelStyle(JsonUtils.parseStringList((String) row.get("travel_style")));
+            p.setBudgetLevel(row.get("budget_level") == null ? null : ((Number) row.get("budget_level")).intValue());
+            p.setPace(row.get("pace") == null ? null : ((Number) row.get("pace")).intValue());
+            p.setAvoid(JsonUtils.parseStringList((String) row.get("avoid_list")));
+            return p.isEmpty() ? null : p;
+        } catch (Exception e) {
+            log.warn("加载用户偏好失败: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**

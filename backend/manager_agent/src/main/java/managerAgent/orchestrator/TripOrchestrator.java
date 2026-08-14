@@ -49,13 +49,19 @@ public class TripOrchestrator {
 
     /**
      * 执行编排：解析需求 → 并行调用专家 → 聚合为结构化行程。
+     * @param prefs 用户沉淀偏好（P0 注入，可为 null 表示未设置/本次不使用）
      */
-    public TripPlanData run(String userPrompt) {
+    public TripPlanData run(String userPrompt, TripRequest.Preferences prefs) {
         // ① 需求解析（单次结构化 LLM 调用）
         EventStore.add(sessionId, "解析", "正在解析旅行需求...");
         TripRequest req = parseRequest(userPrompt);
+        // ★P0：偏好注入——在 parseRequest() 之后合并，不走 LLM 解析偏好（避免幻觉）
+        if (prefs != null && !prefs.isEmpty()) {
+            req.setPreferences(prefs);
+        }
         EventStore.add(sessionId, "解析", "需求：" + req.getOrigin() + " → " + req.getDestination()
-                + "，" + req.getDays() + " 天" + (req.getPreference().isBlank() ? "" : "（" + req.getPreference() + "）"));
+                + "，" + req.getDays() + " 天" + (req.getPreference().isBlank() ? "" : "（" + req.getPreference() + "）")
+                + (req.getPreferences() == null || req.getPreferences().isEmpty() ? "" : "，偏好已注入"));
         checkCancel();
 
         // ② 并行 DAG：路线 + 行程 同时调用，无先后依赖
@@ -127,12 +133,23 @@ public class TripOrchestrator {
 
     private String routeTask(TripRequest req) {
         return "请规划从 " + req.getOrigin() + " 到 " + req.getDestination() + " 的自驾路线，"
-                + req.getDays() + " 天，包含每日行车路线、途经景点、驾驶时间与费用。";
+                + req.getDays() + " 天，包含每日行车路线、途经景点、驾驶时间与费用。"
+                + prefsSuffix(req);
     }
 
     private String planTask(TripRequest req) {
         return "请规划 " + req.getDestination() + " " + req.getDays() + " 日游的景点与每日行程，"
-                + "包含景点、门票、住宿、餐饮美食" + (req.getPreference().isBlank() ? "" : "，偏好：" + req.getPreference()) + "。";
+                + "包含景点、门票、住宿、餐饮美食" + (req.getPreference().isBlank() ? "" : "，偏好：" + req.getPreference())
+                + prefsSuffix(req) + "。";
+    }
+
+    /** ★P0：把用户沉淀偏好拼进提示词（路线 + 行程两个子 Agent 都带上，个性化收敛在编排层） */
+    private String prefsSuffix(TripRequest req) {
+        TripRequest.Preferences p = req.getPreferences();
+        if (p == null || p.isEmpty()) {
+            return "";
+        }
+        return "，用户偏好：" + p.toPromptText();
     }
 
     /** 检查中断请求（替代原 planHook 的事件级取消，编排器在步骤边界检查） */

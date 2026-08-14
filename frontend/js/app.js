@@ -35,7 +35,9 @@ function checkLogin() {
             if (data.success) {
                 document.getElementById('userName').textContent = '👤 ' + data.username;
                 document.getElementById('myPlansBtn').style.display = 'inline-block';
+                document.getElementById('profileBtn').style.display = 'inline-block';
                 document.getElementById('logoutBtn').style.display = 'inline-block';
+                document.getElementById('skipPrefsWrap').style.display = 'inline-block';
                 // ★管理员额外显示「管理端」入口
                 if (data.role === 'admin') {
                     document.getElementById('adminBtn').style.display = 'inline-block';
@@ -115,6 +117,7 @@ function showMyPlans() {
                     '</div>' +
                     '<div class="plan-card-actions">' +
                     '<button class="mini-btn" onclick="viewPlan(' + p.id + ')">查看</button> ' +
+                    '<button class="mini-btn" onclick="sharePlan(' + p.id + ')">分享</button> ' +
                     '<button class="mini-btn" onclick="deletePlan(' + p.id + ')">删除</button>' +
                     '</div></div>'
                 ).join('');
@@ -174,6 +177,27 @@ function deletePlan(id) {
         .catch(() => { });
 }
 
+// ★P0：分享行程（生成/刷新只读分享链接）
+function sharePlan(id) {
+    fetch('/api/trips/' + id + '/share', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const url = location.origin + data.url;
+                const msg = '分享链接（免登录可看）：\n' + url;
+                const copy = confirm(msg + '\n\n点击「确定」复制链接到剪贴板？');
+                if (copy) {
+                    navigator.clipboard.writeText(url).then(() => {
+                        document.getElementById('saveMsg').textContent = '✅ 分享链接已复制';
+                    }).catch(() => { });
+                }
+            } else {
+                alert('分享失败：' + data.message);
+            }
+        })
+        .catch(() => { alert('分享失败，请重试'); });
+}
+
 // 关闭弹层
 function closeMyPlans() { document.getElementById('myPlansModal').style.display = 'none'; }
 
@@ -199,8 +223,10 @@ function send() {
     document.getElementById('status').classList.add('show');
     document.getElementById('sendBtn').disabled = true;
 
-    // ① 提交任务（后端立即返回，不占连接）★带sessionId会话隔离
-    fetch('/app?prompt=' + encodeURIComponent(prompt) + '&sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
+    // ① 提交任务（后端立即返回，不占连接）★带sessionId会话隔离 + 本次不使用偏好开关
+    const skipPrefs = document.getElementById('skipPrefs') ? document.getElementById('skipPrefs').checked : false;
+    fetch('/app?prompt=' + encodeURIComponent(prompt) + '&sessionId=' + encodeURIComponent(sessionId)
+        + '&skipPrefs=' + skipPrefs, { method: 'POST' })
         .then(r => r.text())
         .then(msg => {
             // 并发防护提示
