@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理端 - AI旅行规划助手</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+<div class="admin-shell">
+    <header class="topbar">
+        <div class="brand">
+            <span class="icon">🛠️</span>
+            <div>
+                <h1>管理控制台</h1>
+                <p>AiTripPlan-AgentScope · 可观测与运营</p>
+            </div>
+        </div>
+        <div class="user-area">
+            <span id="currentUser" class="username">加载中...</span>
+            <a href="index.html" class="btn-ghost">返回前台</a>
+            <button class="btn-ghost" onclick="logout()">退出登录</button>
+        </div>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab active" data-tab="status" onclick="switchTab('status')">🖥️ 系统状态</button>
+        <button class="tab" data-tab="tasks" onclick="switchTab('tasks')">📋 任务监控</button>
+        <button class="tab" data-tab="breaker" onclick="switchTab('breaker')">🔌 模型监控</button>
+        <button class="tab" data-tab="data" onclick="switchTab('data')">🗄️ 数据管理</button>
+    </nav>
+
+    <main class="content">
+        <!-- 系统状态 -->
+        <section class="panel" id="panel-status">
+            <div class="panel-head">
+                <h2>系统状态</h2>
+                <button class="btn-refresh" onclick="loadStatus()">刷新</button>
+            </div>
+            <div id="statusBody" class="panel-body">加载中...</div>
+        </section>
+
+        <!-- 任务监控 -->
+        <section class="panel hidden" id="panel-tasks">
+            <div class="panel-head">
+                <h2>任务监控</h2>
+                <button class="btn-refresh" onclick="loadTasks()">刷新</button>
+            </div>
+            <div id="taskSummary" class="summary-strip"></div>
+            <div id="taskBody" class="panel-body">加载中...</div>
+        </section>
+
+        <!-- 模型监控 -->
+        <section class="panel hidden" id="panel-breaker">
+            <div class="panel-head">
+                <h2>模型监控</h2>
+                <button class="btn-refresh" onclick="loadBreaker()">刷新</button>
+            </div>
+            <div id="breakerBody" class="panel-body">加载中...</div>
+        </section>
+
+        <!-- 数据管理 -->
+        <section class="panel hidden" id="panel-data">
+            <div class="panel-head">
+                <h2>数据管理</h2>
+                <button class="btn-refresh" onclick="loadData()">刷新</button>
+            </div>
+            <div class="data-cols">
+                <div class="data-col">
+                    <h3>用户表</h3>
+                    <div id="usersBody" class="panel-body">加载中...</div>
+                </div>
+                <div class="data-col">
+                    <h3>行程表</h3>
+                    <div id="plansBody" class="panel-body">加载中...</div>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<script src="js/admin.js"></script>
+</body>
+</html>

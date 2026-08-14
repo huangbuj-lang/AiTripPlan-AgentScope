@@ -10,19 +10,23 @@ import io.agentscope.core.skill.AgentSkill;
 import io.agentscope.core.skill.SkillBox;
 import io.agentscope.core.skill.util.JarSkillRepositoryAdapter;
 import io.agentscope.core.tool.Toolkit;
+import lombok.extern.slf4j.Slf4j;
 import managerAgent.hook.planHook;
 import managerAgent.plan.TripPlan;
 import managerAgent.tool.RemoteAgentTool;
 import reactor.core.publisher.Flux;
 import utils.AgentUtils;
+import utils.Config;
 import utils.LimitedMemory;
 import utils.ToolUtils;
 
 import java.io.IOException;
+import java.time.Duration;
 
 /**
  * 主管Agent：拆解任务、协调远程Agent、整合输出
  */
+@Slf4j
 public class ManagerAgent {
 
     private final ReActAgent agent;
@@ -33,7 +37,7 @@ public class ManagerAgent {
         try {
             return new JarSkillRepositoryAdapter("skills");
         } catch (IOException e) {
-            System.err.println("★★★ 主管Skills仓库加载失败（不影响运行）: " + e.getMessage());
+            log.error("★★★ 主管Skills仓库加载失败（不影响运行）: {}", e.getMessage());
             return null;
         }
     }
@@ -53,7 +57,7 @@ public class ManagerAgent {
                 AgentSkill managerSkill = SKILL_REPO.getSkill("Manager-Skills");
                 skillBox.registerSkill(managerSkill);
             } catch (Exception e) {
-                System.err.println("★★★ 主管Skills加载失败（不影响运行）: " + e.getMessage());
+                log.error("★★★ 主管Skills加载失败（不影响运行）: {}", e.getMessage());
             }
         }
 
@@ -67,7 +71,7 @@ public class ManagerAgent {
                 /* PlanNotebook：任务分解→步骤执行→完成 */
                 .planNotebook(planNotebook)
                 .hook(new planHook(planNotebook, sessionId)) // 注册事件拦截器（记录事件+中断支持）
-                .memory(new LimitedMemory(20))// 限量记忆（20条）
+                .memory(new LimitedMemory(Config.getInt("MEMORY_SIZE", 20)))// 限量记忆（20条）
                 .toolkit(toolkit) // 工具包
                 .skillBox(skillBox) // 操作手册
                 .build();
@@ -94,8 +98,8 @@ public class ManagerAgent {
         Flux<Event> stream = AgentUtils.streamResponse(agent, userPrompt);
 
         stream // 打印响应并阻塞到结束
-                .doOnNext(msg->System.out.println(msg.getMessage().getTextContent()))
-                .blockLast();
+                .doOnNext(msg -> log.info("{}", msg.getMessage().getTextContent()))
+                .blockLast(Duration.ofSeconds(600)); // 带超时，避免卡死
     }
 
     /**
@@ -108,7 +112,7 @@ public class ManagerAgent {
                         .role(MsgRole.USER)
                         .content(TextBlock.builder().text(userPrompt).build())
                         .build()
-        ).block();
+        ).block(Duration.ofSeconds(600)); // 带超时，避免卡死占死并发槽
 
         String finalResult = (reply != null && reply.getTextContent() != null)
                 ? reply.getTextContent().trim()
@@ -130,7 +134,7 @@ public class ManagerAgent {
                             result.append(text);
                         }
                     })
-                    .blockLast();
+                    .blockLast(Duration.ofSeconds(600)); // 带超时，避免卡死占死并发槽
             finalResult = result.toString().trim();
             finalResult = stripToolCallXml(finalResult); // 流式结果同样剥离XML块
             finalResult = stripIntroSentence(finalResult); // 流式结果同样剥离引导句

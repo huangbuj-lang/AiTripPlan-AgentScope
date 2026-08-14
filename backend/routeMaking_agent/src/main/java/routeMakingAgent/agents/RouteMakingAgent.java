@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import routeMakingAgent.mcp.BaiduMapTool;
 import utils.AgentUtils;
+import utils.Config;
 import utils.LimitedMemory;
 import utils.ToolUtils;
 
@@ -46,7 +47,7 @@ public class RouteMakingAgent {
                 "RouteMakingAgent",
                 "擅长处理自驾游路线制定"
         )
-                .memory(new LimitedMemory(20)) // 限量记忆
+                .memory(new LimitedMemory(Config.getInt("MEMORY_SIZE", 20))) // 限量记忆
                 .toolkit(toolkit) // 工具包
                 .build();
     }

@@ -23,6 +23,17 @@ public class LoginController {
 
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(); // BCrypt密码加密器
 
+    // 登录失败计数（防爆破）：连续失败达上限后短时间冷却
+    private static final java.util.concurrent.ConcurrentHashMap<String, FailEntry> LOGIN_FAILS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final int MAX_FAILS = 5;                 // 连续失败上限
+    private static final long COOLDOWN_MS = 60_000L;        // 冷却时长（60秒）
+
+    /** 单个账号的失败记录 */
+    private static class FailEntry {
+        final java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger();
+        volatile long lastFailMs = 0;
+    }
+
     /**
      * 注册新用户
      */
@@ -48,15 +59,35 @@ public class LoginController {
         return result;
     }
 
+    /** 判断账号是否处于失败冷却期 */
+    private boolean inCooldown(String username) {
+        FailEntry f = LOGIN_FAILS.get(username);
+        if (f == null) return false;
+        return f.count.get() >= MAX_FAILS && (System.currentTimeMillis() - f.lastFailMs) < COOLDOWN_MS;
+    }
+
+    /** 记录一次登录失败 */
+    private void recordFail(String username) {
+        FailEntry f = LOGIN_FAILS.computeIfAbsent(username, k -> new FailEntry());
+        f.count.incrementAndGet();
+        f.lastFailMs = System.currentTimeMillis();
+    }
+
     /**
      * 登录（成功把用户信息存入Session）
      */
     @PostMapping("/login")
     public Map<String, Object> login(@RequestParam String username, @RequestParam String password, HttpSession session) {
         Map<String, Object> result = new HashMap<>();
+        if (inCooldown(username)) { // 防爆破：冷却期内拒绝尝试
+            result.put("success", false);
+            result.put("message", "尝试次数过多，请 " + (COOLDOWN_MS / 1000) + " 秒后再试");
+            return result;
+        }
         List<Map<String, Object>> users = jdbcTemplate.queryForList( // 查用户
                 "SELECT * FROM users WHERE username = ?", username);
         if (users.isEmpty()) {
+            recordFail(username); // 用户不存在也计入失败，防用户名枚举撞库
             result.put("success", false);
             result.put("message", "用户不存在，请先注册");
             return result;
@@ -64,15 +95,25 @@ public class LoginController {
         Map<String, Object> user = users.get(0);
         String hashed = (String) user.get("password");
         if (!passwordEncoder.matches(password, hashed)) { // BCrypt比对密码
+            recordFail(username);
             result.put("success", false);
             result.put("message", "密码错误");
             return result;
         }
+        LOGIN_FAILS.remove(username); // 登录成功：清除失败记录
         session.setAttribute("userId", ((Number) user.get("id")).longValue()); // 登录成功：用户信息存入Session
         session.setAttribute("username", username);
+        // 角色：优先读库 role 字段（老库无此列则默认 user）；ADMIN_USERNAME 环境变量可强制指定管理员（零迁移）
+        String role = user.get("role") == null ? "user" : user.get("role").toString();
+        String adminUser = System.getenv("ADMIN_USERNAME");
+        if (adminUser != null && !adminUser.isBlank() && adminUser.equals(username)) {
+            role = "admin";
+        }
+        session.setAttribute("role", role);
         result.put("success", true);
         result.put("message", "登录成功");
         result.put("username", username);
+        result.put("role", role);
         return result;
     }
 
@@ -101,6 +142,7 @@ public class LoginController {
         } else {
             result.put("success", true);
             result.put("username", username);
+            result.put("role", session.getAttribute("role"));
         }
         return result;
     }

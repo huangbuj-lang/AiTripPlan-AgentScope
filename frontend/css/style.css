@@ -495,6 +495,28 @@ body {
 /* 旧数据兼容包裹层（无标题纯内容时使用） */
 .plan-body { padding: 0; }
 
+/* ★城市地标装饰（结构化渲染标题区差异化装饰，F-5） */
+.plan-landmark {
+    font-size: 34px;
+    line-height: 1;
+    margin-bottom: 4px;
+    text-align: center;
+}
+
+/* ★移动端响应式（F-4）：屏幕端缩小内边距与字号，210mm 精确尺寸仅在 @media print 保留 */
+@media (max-width: 640px) {
+    .plan-sheet {
+        padding: 6mm 6mm 8mm;
+        font-size: 11.5px;
+    }
+    .plan-sheet .plan-title { font-size: 19px; }
+    .plan-title { font-size: 19px; }
+    .plan-meta { font-size: 10.5px; gap: 6px; }
+    .sec-title { font-size: 13px; }
+    .plan-section { padding: 6px 8px 8px; }
+    .overview-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+}
+
 /* ===== 打印 / 导出按钮（最终旅行计划面板右上角） ===== */
 /* 默认隐藏，仅当结果区存在可导出的计划内容时由 app.js 的 initPrintButton 显示 */
 .panel-actions { margin-left: auto; position: relative; display: none; align-items: center; }

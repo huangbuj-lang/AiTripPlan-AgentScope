@@ -13,8 +13,13 @@ USE aitripplan;
 CREATE TABLE IF NOT EXISTS users (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '用户ID',
     username VARCHAR(50) NOT NULL UNIQUE COMMENT '用户名（唯一）',
-    password VARCHAR(100) NOT NULL COMMENT '密码（BCrypt加密存储，非明文）'
+    password VARCHAR(100) NOT NULL COMMENT '密码（BCrypt加密存储，非明文）',
+    role VARCHAR(20) NOT NULL DEFAULT 'user' COMMENT '角色(user/admin)'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
+
+-- ★已有数据库升级（老库没有 role 列时执行下面这句，再指定管理员）：
+-- ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user' COMMENT '角色(user/admin)';
+-- 指定管理员示例：UPDATE users SET role='admin' WHERE username='你的管理员用户名';
 
 -- 3. 行程表（保存行程用，PlanController 操作）
 -- ★plan_content 必须是 MEDIUMTEXT：TEXT 只有64KB，存不下完整的长行程（会保存失败500）
