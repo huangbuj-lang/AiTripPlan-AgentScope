@@ -18,6 +18,7 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import tripPlannerAgent.tool.Calculate;
 import utils.AgentUtils;
+import utils.Config;
 import utils.LimitedMemory;
 
 import java.io.IOException;
@@ -50,7 +51,7 @@ public class TripPlannerAgent {
                 "TripPlannerAgent",
                 "擅长处理景点行程规划"
         )
-                .memory(new LimitedMemory(20)) // 限量记忆：单例Agent上下文无限增长会导致状态卡死/大模型400
+                .memory(new LimitedMemory(Config.getInt("MEMORY_SIZE", 20))) // 限量记忆：单例Agent上下文无限增长会导致状态卡死/大模型400
                 .toolkit(toolkit) // 挂载工具包
 
                 ;

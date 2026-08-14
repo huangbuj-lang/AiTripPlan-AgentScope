@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
 /**
-/**
  * 计划拦截器：监听Agent事件并记录（事件展示 + Token监控）
  */
 @Slf4j
@@ -21,7 +20,9 @@ public class planHook implements Hook {
 
     // 监控统计字段
     private long startTimeNanos = 0;        // 本次Agent运行开始时间
-    private int totalMessageChars = 0;      // 累计消息字符数（估算token用）
+    private int totalMessageChars = 0;      // 累计消息字符数（估算token兜底用）
+    private long totalInputTokens = 0;      // 累计输入token（真实usage）
+    private long totalOutputTokens = 0;     // 累计输出token（真实usage）
     private int toolCallCount = 0;          // 工具调用次数
 
     public planHook(PlanNotebook planNotebook, String sessionId) {
@@ -32,9 +33,9 @@ public class planHook implements Hook {
     @Override
     public <T extends HookEvent> Mono<T> onEvent(T event) {
 
-        // 检查中断标志，有则抛异常终止运行
+        // 检查中断标志，有则抛类型化异常终止运行
         if (EventStore.isCancelRequested(sessionId)) {
-            throw new RuntimeException("任务已被用户中断（/cancel）");
+            throw new CancelledException();
         }
 
         switch (event) { // 匹配不同的事件类型
@@ -89,6 +90,7 @@ public class planHook implements Hook {
                 if (reason != null) { // 累计思考字符数
                     totalMessageChars += reason.length();
                 }
+                accumulateUsage(e.getReasoningMessage()); // 累计本轮真实 token
 
             } // 全自动模式：不征求用户意见，继续执行
 
@@ -103,10 +105,13 @@ public class planHook implements Hook {
             }
 
             case PostCallEvent e -> { // Agent 运行结束事件（打印监控统计）
+                accumulateUsage(e.getFinalMessage()); // 累计最终回复的真实 token
                 printMonitorSummary();
                 EventStore.add(sessionId, "完成", "Agent 运行结束"); // 记录完成事件
                 startTimeNanos = 0; // 重置统计
                 totalMessageChars = 0;
+                totalInputTokens = 0;
+                totalOutputTokens = 0;
                 toolCallCount = 0;
             }
 
@@ -117,26 +122,29 @@ public class planHook implements Hook {
         return Mono.just(event); // 返回原事件
     }
 
-    /**
-    /**
-     * 打印Token监控统计
-     */
+    /** 从消息的 usage 累计真实 token（消息可能无 usage，判空兜底） */
+    private void accumulateUsage(io.agentscope.core.message.Msg msg) {
+        if (msg == null) return;
+        io.agentscope.core.model.ChatUsage usage = msg.getChatUsage();
+        if (usage == null) return;
+        totalInputTokens += usage.getInputTokens();
+        totalOutputTokens += usage.getOutputTokens();
+    }
+
+    /** 打印 Token 监控统计 */
     private void printMonitorSummary() {
         try {
             long costMs = (System.nanoTime() - startTimeNanos) / 1_000_000; // 耗时（毫秒）
-            int estimatedTokens = totalMessageChars / 4; // 估算 token
-            double cost = estimatedTokens / 10000.0 * 0.5; // 估算费用
+            long totalTokens = totalInputTokens + totalOutputTokens; // 真实 token
+            if (totalTokens <= 0) { // 无真实 usage 时退回字符数/4 估算
+                totalTokens = totalMessageChars / 4;
+            }
+            double cost = totalTokens / 10000.0 * 0.5; // 估算费用
 
-            System.out.println("════════════════════════════════════════");
-            System.out.println("【Token监控】Agent 运行完成");
-            System.out.println("   消息字符数: " + totalMessageChars + " 字符");
-            System.out.println("   估算 Token: " + estimatedTokens);
-            System.out.println("   调用工具次数: " + toolCallCount + " 次");
-            System.out.println("   执行耗时: " + costMs + " ms");
-            System.out.println("   估算费用: ¥" + String.format("%.4f", cost));
-            System.out.println("════════════════════════════════════════");
+            log.info("【Token监控】Agent 运行完成：输入token={}, 输出token={}, 总token={}, 工具调用={}次, 耗时={}ms, 估算费用=¥{}",
+                    totalInputTokens, totalOutputTokens, totalTokens, toolCallCount, costMs, String.format("%.4f", cost));
         } catch (Exception ex) {
-            System.err.println("Token监控统计失败: " + ex.getMessage());
+            log.error("Token监控统计失败: {}", ex.getMessage());
         }
     }
 }

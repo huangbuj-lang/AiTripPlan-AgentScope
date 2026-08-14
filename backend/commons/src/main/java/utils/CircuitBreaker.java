@@ -8,9 +8,9 @@ public class CircuitBreaker {
     /** 熔断器状态 */
     public enum State { CLOSED, OPEN, HALF_OPEN }
 
-    private static final int FAILURE_THRESHOLD = 5;     // 窗口内失败累计阈值
-    private static long WINDOW_MS = 10_000;             // 失败统计窗口（毫秒）
-    private static long COOL_DOWN_MS = 60_000;          // 熔断冷却时间（毫秒）
+    private static final int FAILURE_THRESHOLD = Math.max(1, Config.getInt("BREAKER_FAILURE_THRESHOLD", 5)); // 窗口内失败累计阈值
+    private static long WINDOW_MS = Config.getLong("BREAKER_WINDOW_MS", 10_000);    // 失败统计窗口（毫秒）
+    private static long COOL_DOWN_MS = Config.getLong("BREAKER_COOL_DOWN_MS", 60_000); // 熔断冷却时间（毫秒）
 
     private State state = State.CLOSED;
     private long[] failureTimes = new long[FAILURE_THRESHOLD]; // 滑动窗口：记录失败时间戳
@@ -90,6 +90,13 @@ public class CircuitBreaker {
     /** 获取窗口内失败次数 */
     public synchronized int getConsecutiveFailures() {
         return failureCount;
+    }
+
+    /** 重置熔断器到初始 CLOSED 状态（管理端/测试用） */
+    public synchronized void reset() {
+        state = State.CLOSED;
+        failureCount = 0;
+        openedAtNanos = 0;
     }
 
     /** 设置熔断冷却时间（毫秒） */

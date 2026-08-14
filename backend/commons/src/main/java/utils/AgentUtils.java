@@ -24,8 +24,8 @@ public class AgentUtils {
     private static io.agentscope.core.model.Model buildDeepSeekModel(String apiKey) {
         return OpenAIChatModel.builder()
                 .apiKey(apiKey) // API Key
-                .baseUrl("https://api.deepseek.com") // DeepSeek OpenAI 兼容接口
-                .modelName("deepseek-v4-flash") // 语言模型（快速版，支持工具调用）
+                .baseUrl(Config.get("MODEL_BASE_URL", "https://api.deepseek.com")) // DeepSeek OpenAI 兼容接口
+                .modelName(Config.get("MODEL_NAME", "deepseek-v4-flash")) // 语言模型（快速版，支持工具调用）
                 // DeepSeek 专用 formatter：修复 tool 消息与 tool_calls 的配对
                 .formatter(new DeepSeekToolFixFormatter())
                 // 关闭流式增量，保证完整输出
@@ -39,12 +39,32 @@ public class AgentUtils {
     private static io.agentscope.core.model.Model buildQwenModel(String apiKey) {
         return DashScopeChatModel.builder()
                 .apiKey(apiKey) // API Key
-                .modelName("qwen3.7-max") // 语言模型
+                .modelName(Config.get("FALLBACK_MODEL_NAME", "qwen3.7-max")) // 语言模型
                 // 关闭思考模式，加快响应
                 .enableThinking(false)
                 // 关闭流式增量，保证完整输出
                 .stream(false)
                 .build();
+    }
+
+    /**
+     * 构建主/备模型，包上 SafeModel（限速+重试+熔断动态降级，降级判断下沉到每次调用）。
+     * 供 ReAct Agent 与确定性编排器的裸 LLM 调用复用。
+     */
+    public static io.agentscope.core.model.Model buildModel() {
+        // 从环境变量读取主模型与备用模型的 API Key
+        String deepseekKey = System.getenv("DEEPSEEK_API_KEY");
+        if (deepseekKey == null || deepseekKey.isBlank()) {
+            throw new IllegalStateException(
+                    "未配置 DEEPSEEK_API_KEY 环境变量！请先执行: export DEEPSEEK_API_KEY=你的key，再启动 Agent");
+        }
+        String qwenKey = System.getenv("DASHSCOPE_API_KEY"); // 备用模型 Key（可缺失）
+
+        io.agentscope.core.model.Model primary = buildDeepSeekModel(deepseekKey); // 主模型：DeepSeek
+        io.agentscope.core.model.Model fallback = (qwenKey != null && !qwenKey.isBlank())
+                ? buildQwenModel(qwenKey)   // 备用模型：Qwen（可缺失）
+                : null;
+        return new SafeModel(primary, fallback); // 安全装饰器：限速+重试+熔断动态降级
     }
 
     /**
@@ -55,25 +75,7 @@ public class AgentUtils {
             String description
     ) {
 
-        // 从环境变量读取主模型与备用模型的 API Key
-        String deepseekKey = System.getenv("DEEPSEEK_API_KEY");
-        if (deepseekKey == null || deepseekKey.isBlank()) {
-            throw new IllegalStateException(
-                    "未配置 DEEPSEEK_API_KEY 环境变量！请先执行: export DEEPSEEK_API_KEY=你的key，再启动 Agent");
-        }
-        String qwenKey = System.getenv("DASHSCOPE_API_KEY"); // 备用模型 Key（可缺失）
-
-        // 熔断时自动降级使用备用模型 Qwen
-        boolean useFallback = CircuitBreaker.getInstance().isOpen() && qwenKey != null && !qwenKey.isBlank();
-        if (useFallback) {
-            log.warn("★★★ 熔断器已触发：主模型DeepSeek连续失败，降级使用备用模型 Qwen(qwen3.7-max)");
-        }
-
-        // 构建主/备模型并包上 SafeModel（限速+重试+熔断上报）
-        io.agentscope.core.model.Model model = useFallback
-                ? buildQwenModel(qwenKey)   // 熔断降级：Qwen
-                : buildDeepSeekModel(deepseekKey); // 正常：DeepSeek
-        model = new SafeModel(model); // 安全装饰器：限速+重试+熔断上报
+        io.agentscope.core.model.Model model = buildModel(); // 主/备模型（SafeModel 装饰）
 
         return ReActAgent.builder()
                         .name(name)
@@ -92,7 +94,7 @@ public class AgentUtils {
                                 + "\"计划已制定完毕/已完成\"\"最终完整方案\"等任何过程叙述或引导语——"
                                 + "那些话占用篇幅且用户不需要，直接给内容。")
                         // 设置最大迭代轮数，避免复杂任务被截断
-                        .maxIters(30)
+                        .maxIters(Config.getInt("MODEL_MAX_ITERS", 30))
                         .model(model)
                         ;
 

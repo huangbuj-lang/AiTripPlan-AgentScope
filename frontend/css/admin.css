@@ -1,0 +1,136 @@
+/* ============================================================
+   admin.css — 管理控制台（admin.html）样式
+   与前台深色主题保持一致（#0f172a 底、#3b82f6 主色）
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: "Microsoft YaHei", -apple-system, sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    min-height: 100vh;
+    color: #cbd5e1;
+}
+
+.admin-shell { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+/* 顶栏 */
+.topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #1e293b; border: 1px solid #334155; border-radius: 14px;
+    padding: 18px 24px; margin-bottom: 20px;
+}
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand .icon { font-size: 32px; }
+.brand h1 { color: #fff; font-size: 20px; }
+.brand p { color: #94a3b8; font-size: 12px; margin-top: 2px; }
+.user-area { display: flex; align-items: center; gap: 12px; }
+.username { color: #34d399; font-size: 14px; }
+.btn-ghost {
+    background: transparent; border: 1px solid #475569; color: #cbd5e1;
+    padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    text-decoration: none; transition: all .2s;
+}
+.btn-ghost:hover { border-color: #3b82f6; color: #fff; }
+
+/* 页签 */
+.tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+.tab {
+    flex: 1; min-width: 130px; text-align: center; padding: 12px 0; cursor: pointer;
+    background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+    color: #94a3b8; font-size: 15px; transition: all .2s;
+}
+.tab:hover { border-color: #475569; }
+.tab.active { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+
+/* 面板 */
+.panel {
+    background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 20px;
+}
+.panel.hidden, .hidden { display: none; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.panel-head h2 { color: #fff; font-size: 17px; }
+.btn-refresh {
+    background: #3b82f6; border: none; color: #fff; padding: 7px 16px;
+    border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.btn-refresh:hover { opacity: .9; }
+
+.panel-body { font-size: 14px; }
+
+/* 系统状态 */
+.status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.status-card {
+    background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 16px;
+}
+.status-card h3 { color: #fff; font-size: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.status-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; color: #94a3b8; }
+.status-row b { color: #cbd5e1; font-weight: 600; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.ok { background: #34d399; }
+.dot.bad { background: #f87171; }
+.dot.warn { background: #fbbf24; }
+.badge { padding: 2px 10px; border-radius: 20px; font-size: 12px; }
+.badge.ok { background: rgba(52,211,153,.15); color: #34d399; }
+.badge.bad { background: rgba(248,113,113,.15); color: #f87171; }
+
+/* 汇总条 */
+.summary-strip {
+    display: flex; gap: 14px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.summary-card {
+    flex: 1; min-width: 120px; background: #0f172a; border: 1px solid #334155;
+    border-radius: 10px; padding: 14px; text-align: center;
+}
+.summary-card .num { color: #3b82f6; font-size: 26px; font-weight: 700; }
+.summary-card .label { color: #94a3b8; font-size: 12px; margin-top: 4px; }
+
+/* 表格 */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #334155; }
+th { color: #94a3b8; font-weight: 600; background: #0f172a; }
+tr:hover td { background: #0f172a; }
+td .kv { display: block; color: #94a3b8; font-size: 12px; }
+td .preview { color: #64748b; font-size: 12px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mono { font-family: monospace; color: #7dd3fc; }
+.btn-danger {
+    background: transparent; border: 1px solid #f87171; color: #f87171;
+    padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.btn-danger:hover { background: #f87171; color: #fff; }
+.btn-sm {
+    background: transparent; border: 1px solid #fbbf24; color: #fbbf24;
+    padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.btn-sm:hover { background: #fbbf24; color: #0f172a; }
+
+/* 模型监控指标卡 */
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+.metric {
+    background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 16px;
+}
+.metric .num { color: #3b82f6; font-size: 24px; font-weight: 700; }
+.metric .label { color: #94a3b8; font-size: 12px; margin-top: 4px; }
+.breaker-state { font-size: 14px; margin-bottom: 16px; padding: 12px; border-radius: 8px; background: #0f172a; border: 1px solid #334155; }
+.breaker-state.CLOSED { color: #34d399; }
+.breaker-state.OPEN { color: #f87171; }
+.breaker-state.HALF_OPEN { color: #fbbf24; }
+
+/* 数据管理双栏 */
+.data-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.data-col h3 { color: #fff; font-size: 14px; margin-bottom: 10px; }
+.data-col .panel-body { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 12px; max-height: 520px; overflow: auto; }
+
+.empty { color: #64748b; text-align: center; padding: 24px; font-size: 13px; }
+.toast {
+    position: fixed; top: 20px; right: 20px; background: #1e293b; border: 1px solid #3b82f6;
+    color: #fff; padding: 12px 20px; border-radius: 10px; font-size: 14px; z-index: 999;
+    opacity: 0; transform: translateY(-10px); transition: all .3s; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.err { border-color: #f87171; }
+
+@media (max-width: 768px) {
+    .data-cols { grid-template-columns: 1fr; }
+    .topbar { flex-direction: column; gap: 12px; align-items: flex-start; }
+}

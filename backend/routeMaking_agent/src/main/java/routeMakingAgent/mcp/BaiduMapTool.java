@@ -3,6 +3,8 @@ package routeMakingAgent.mcp;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -17,13 +19,14 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class BaiduMapTool {
 
-    // 魔塔MCP服务地址（百度地图MCP）
-    private static final String MCP_URL = "https://mcp.api-inference.modelscope.net/884c6f052e6546/mcp";
+    // 魔塔MCP服务地址（百度地图MCP）：从环境变量注入，避免密钥写死进源码
+    private static final String MCP_URL = System.getenv("BAIDU_MCP_URL");
 
     private static volatile String sessionId = null; // 缓存的MCP会话ID
 
     // 结果缓存：工具名+参数 → 结果，TTL 24小时（静态缓存，跨实例共享）
     private static final long CACHE_TTL_MS = 24 * 60 * 60 * 1000L; // 24小时
+    private static final int MAX_CACHE_ENTRIES = 500;              // 缓存容量上限（防内存无限增长）
     private static final Map<String, CacheEntry> MCP_CACHE = new ConcurrentHashMap<>();
 
     /** 缓存条目：结果值 + 写入时间戳 */
@@ -37,10 +40,29 @@ public class BaiduMapTool {
             .connectTimeout(Duration.ofSeconds(30))
             .build();
 
+    private static final ObjectMapper MAPPER = new ObjectMapper(); // JSON解析器（复用，避免反复new）
+
+    /** 写入缓存（带容量上限：超出时清理过期条目，仍超则放弃缓存） */
+    private static void cachePut(String key, CacheEntry entry) {
+        synchronized (MCP_CACHE) {
+            if (MCP_CACHE.size() >= MAX_CACHE_ENTRIES) {
+                long now = System.currentTimeMillis();
+                MCP_CACHE.entrySet().removeIf(e -> now - e.getValue().time >= CACHE_TTL_MS); // 清过期
+                if (MCP_CACHE.size() >= MAX_CACHE_ENTRIES) {
+                    return; // 仍超限：本次不缓存，避免无限增长
+                }
+            }
+            MCP_CACHE.put(key, entry);
+        }
+    }
+
     /**
      * 确保MCP会话有效（没有则初始化握手）
      */
     private static synchronized String ensureSession() throws Exception {
+        if (MCP_URL == null || MCP_URL.isBlank()) {
+            throw new IllegalStateException("百度地图MCP未配置（缺少环境变量 BAIDU_MCP_URL）");
+        }
         if (sessionId != null) return sessionId;
         String init = "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"initialize\",\"params\":{" // initialize 握手
                 + "\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},"
@@ -85,17 +107,16 @@ public class BaiduMapTool {
             }
         }
         ensureSession();
-        StringBuilder params = new StringBuilder("{"); // 构造 tools/call 请求体
-        int i = 0;
-        for (Map.Entry<String, Object> e : args.entrySet()) {
-            if (i++ > 0) params.append(",");
-            params.append("\"").append(e.getKey()).append("\":\"")
-                    .append(String.valueOf(e.getValue()).replace("\"", "\\\"")).append("\"");
-        }
-        params.append("}");
-        String body = "{\"jsonrpc\":\"2.0\",\"id\":\"call-" + System.currentTimeMillis() + "\","
-                + "\"method\":\"tools/call\","
-                + "\"params\":{\"name\":\"" + toolName + "\",\"arguments\":" + params + "}}";
+        // 用 ObjectMapper 构造 tools/call 请求体（避免手写 JSON 拼接的转义漏洞）
+        Map<String, Object> callParams = new HashMap<>();
+        callParams.put("name", toolName);
+        callParams.put("arguments", args);
+        Map<String, Object> bodyMap = new HashMap<>();
+        bodyMap.put("jsonrpc", "2.0");
+        bodyMap.put("id", "call-" + System.currentTimeMillis());
+        bodyMap.put("method", "tools/call");
+        bodyMap.put("params", callParams);
+        String body = MAPPER.writeValueAsString(bodyMap);
         HttpResponse<String> r = HTTP.send(HttpRequest.newBuilder(URI.create(MCP_URL))
                         .header("Content-Type", "application/json")
                         .header("Accept", "application/json, text/event-stream")
@@ -118,8 +139,7 @@ public class BaiduMapTool {
         }
         // 解析MCP响应JSON，提取其中的文本内容
         try {
-            com.fasterxml.jackson.databind.JsonNode root =
-                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(resp);
+            com.fasterxml.jackson.databind.JsonNode root = MAPPER.readTree(resp);
             com.fasterxml.jackson.databind.JsonNode content = root.path("result").path("content");
             if (content.isArray() && content.size() > 0) {
                 String text = content.get(0).path("text").asText("");
@@ -132,14 +152,14 @@ public class BaiduMapTool {
                         result = text;
                     }
                     // 写回缓存
-                    MCP_CACHE.put(cacheKey, new CacheEntry(result, System.currentTimeMillis()));
+                    cachePut(cacheKey, new CacheEntry(result, System.currentTimeMillis()));
                     return result;
                 }
             }
         } catch (Exception ignored) { }
         String fallback = resp.length() > 2000 ? resp.substring(0, 2000) : resp; // 兜底：返回截断的原始响应
         // 兜底响应也写入缓存
-        MCP_CACHE.put(cacheKey, new CacheEntry(fallback, System.currentTimeMillis()));
+        cachePut(cacheKey, new CacheEntry(fallback, System.currentTimeMillis()));
         return fallback;
     }
 
