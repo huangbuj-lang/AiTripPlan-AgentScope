@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link rel="stylesheet" href="css/style.css">
 <style>
-  .forum-wrap { max-width: 900px; margin: 30px auto; padding: 0 16px; }
+  .forum-wrap { width: 100%; max-width: 1560px; margin: 30px auto; padding: 0 24px; }
   .forum-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px; }
   .forum-brand { font-size:20px; font-weight:700; color:#2d3436; }
   .forum-brand i { color:#00b894; margin-right:6px; }
@@ -22,7 +22,7 @@
   .forum-bar input { flex:1; min-width:180px; padding:10px 14px; border:1px solid #dfe6e9; border-radius:8px; font-size:14px; }
   .forum-bar select { padding:10px; border:1px solid #dfe6e9; border-radius:8px; font-size:14px; background:#fff; }
   .btn-primary { background:linear-gradient(135deg,#00b894,#00a381); color:#fff; border:none; border-radius:8px; padding:10px 20px; font-size:14px; font-weight:600; cursor:pointer; }
-  .post-list { display:flex; flex-direction:column; gap:12px; }
+  .post-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:16px; }
   .post-card { background:#fff; border-radius:12px; padding:18px 20px; box-shadow:0 2px 8px rgba(0,0,0,.04); cursor:pointer; transition:transform .15s, box-shadow .15s; }
   .post-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(9,132,227,.12); }
   .post-card h3 { margin:0 0 8px; font-size:16px; color:#2d3436; }
