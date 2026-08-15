@@ -1,9 +1,8 @@
 /* ============================================================
    print.css — 打印专用样式（@media print）
-   PDF 导出走 window.print()，本文件负责：
-   1) 页面设为 A4 尺寸（210mm×297mm）+ 10mm 打印边距
-   2) 隐藏按钮/输入框/思考过程等非计划内容，只保留行程规划表
-   3) 去掉屏幕上的卡片阴影/背景色，保证黑白打印清晰
+   PDF 导出走 window.print()，流程：
+   exportPDF → buildPrintView() 生成 #printView（概览+详情）
+   本文件只显示 #printView，隐藏页面其余全部内容，A4 排版
    ============================================================ */
 
 @media print {
@@ -11,82 +10,83 @@
     /* A4 页面 + 打印边距 */
     @page {
         size: A4;
-        margin: 10mm;
+        margin: 12mm;
     }
 
-    /* 去掉渐变背景与居中布局，还原为纯白打印 */
+    /* 全部隐藏，只留打印视图 */
     html, body {
         background: #fff !important;
         margin: 0 !important;
         padding: 0 !important;
         display: block !important;
     }
-
-    .container {
-        max-width: none !important;
-        width: 100% !important;
-    }
-
-    /* 隐藏所有非计划内容：头部/输入框/状态条/思考过程/保存栏/页脚/按钮/弹层 */
-    .header,
-    .input-area,
-    .status,
-    .panel-think,
-    .footer,
-    .user-bar,
+    .world-bg,
+    nav,
+    .start,
+    .journey,
+    .schemes,
+    .trip-view,
     .save-bar,
-    .no-print,
-    .export-menu,
-    .my-plans-modal {
+    .think,
+    .footer,
+    .chip,
+    .modal-mask,
+    .my-plans-modal,
+    .no-print {
         display: none !important;
     }
+    .wrap { max-width: none !important; width: 100% !important; padding: 0 !important; }
 
-    /* 结果面板去掉卡片样式，只露出行程单 */
-    .panel {
-        box-shadow: none !important;
-        border: none !important;
-        border-radius: 0 !important;
-        margin: 0 !important;
-        background: #fff !important;
+    /* ===== 打印视图 ===== */
+    .print-view {
+        display: block !important;
+        color: #222 !important;
+        font-family: "Microsoft YaHei", "PingFang SC", SimSun, sans-serif !important;
+        font-size: 12px !important;
+        line-height: 1.65 !important;
     }
-    .panel-result { margin: 0 !important; }
-    .panel-result .panel-title { display: none !important; }
-    .panel-body.result-body {
-        padding: 0 !important;
-        max-height: none !important;
-        overflow: visible !important;
+    .print-view * { box-sizing: border-box !important; }
+
+    /* 标题头 */
+    .pv-header { text-align: center; border-bottom: 2px solid #1FAE8F; padding-bottom: 10px; margin-bottom: 14px; }
+    .pv-header h1 { font-size: 21px; margin: 0 0 6px; letter-spacing: 1px; }
+    .pv-meta { font-size: 11.5px; color: #555; }
+    .pv-meta span { margin: 0 10px; }
+
+    /* 分区 */
+    .pv-part { margin-bottom: 16px; }
+    .pv-part-title {
+        font-size: 13px; font-weight: 700; letter-spacing: 2px; color: #1FAE8F;
+        border-left: 4px solid #1FAE8F; padding-left: 8px; margin-bottom: 10px;
     }
 
-    /* A4 行程单铺满打印区域；去掉屏幕上的裁剪线/装饰/背景 */
-    .plan-sheet {
-        width: 100% !important;
-        max-width: 100% !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        border: none !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
-        background-image: none !important;   /* 去掉虚线裁剪线 */
-        background: #fff !important;
+    /* ===== 概览：每天一行轨迹点 ===== */
+    .pv-day { margin-bottom: 8px; page-break-inside: avoid; }
+    .pv-day-head { font-weight: 700; font-size: 12.5px; margin-bottom: 4px; }
+    .pv-day-stops { display: flex; flex-wrap: wrap; gap: 4px 0; }
+    .pv-stop {
+        display: inline-flex; align-items: baseline; gap: 6px;
+        border: 1px solid #ddd; border-radius: 999px; padding: 2px 10px;
+        margin-right: 6px; margin-bottom: 4px; font-size: 11px; background: #fafafa;
     }
-    .plan-sheet::before { content: "" !important; }  /* 去掉地标装饰条 */
-    .plan-section { background: #fff !important; border: none !important; padding: 2px 0 !important; }
-    .plan-meta span { background: #fff !important; border: none !important; padding: 0 !important; }
-    .overview-card { border: 1px solid #ccc !important; box-shadow: none !important; }
-    .timeline-table .timeline-time { background: #eee !important; color: #333 !important; }
-    .timeline-item { background: #fff !important; border: none !important; padding: 0 !important; }
+    .pv-time { color: #1FAE8F; font-weight: 700; }
+    .pv-place { font-weight: 600; }
+    .pv-cost { color: #888; }
 
-    /* 区块尽量不跨页断裂 */
-    .plan-section { page-break-inside: avoid; }
-    .plan-header { page-break-after: avoid; }
-    .plan-table tr { page-break-inside: avoid; }
-    .plan-table th, .plan-table td { background: #fff !important; }
+    /* ===== 详情：每天表格 ===== */
+    .pv-day-detail { margin-bottom: 10px; page-break-inside: avoid; }
+    .pv-detail-head {
+        font-weight: 700; font-size: 12.5px; color: #1FAE8F;
+        border-bottom: 1px solid #1FAE8F; padding-bottom: 3px; margin-bottom: 5px;
+    }
+    .pv-table { width: 100%; border-collapse: collapse; }
+    .pv-table td { padding: 3.5px 8px; font-size: 11.5px; border-bottom: 1px dashed #e5e5e5; vertical-align: top; }
+    .pv-table .pv-t { width: 56px; color: #1FAE8F; font-weight: 700; white-space: nowrap; }
 
-    /* 链接不显示下划线/颜色，代码块背景降为浅灰保证灰度可读 */
+    /* 其他区块 */
+    .pv-other { margin-bottom: 8px; page-break-inside: avoid; }
+    .pv-other ul { margin: 4px 0 4px 18px; }
+    .pv-other li { margin: 2px 0; font-size: 11.5px; }
+
     a { color: #2d3436 !important; text-decoration: none !important; }
-    .plan-sheet pre,
-    .plan-sheet code {
-        background: #f5f5f5 !important;
-        color: #333 !important;
-    }
 }
