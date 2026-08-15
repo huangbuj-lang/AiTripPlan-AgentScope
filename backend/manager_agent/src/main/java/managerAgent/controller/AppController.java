@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import utils.JsonUtils;
+import utils.SafeModel;
 
 /**
  * 用户与Agent互动的HTTP接口
@@ -102,5 +103,15 @@ public class AppController {
         }
         EventStore.requestCancel(sessionId);
         return "✅ 已发送中断请求，任务将在下一步停止。";
+    }
+
+    /**
+     * 观测接口：返回本进程的模型调用次数（临时调试用）
+     */
+    @RequestMapping(value = "/stats", method = RequestMethod.GET)
+    public java.util.Map<String, Object> stats() {
+        java.util.Map<String, Object> m = new java.util.HashMap<>();
+        m.put("model_calls", SafeModel.MODEL_CALLS.get()); // 本进程模型调用次数（每次ReAct轮=1次）
+        return m;
     }
 }

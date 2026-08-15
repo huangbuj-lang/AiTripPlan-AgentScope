@@ -28,6 +28,9 @@ public class SafeModel implements Model {
     private final Model primary;   // 主模型
     private final Model fallback;  // 备用模型（可空）
 
+    // ★模型调用计数器（观测用）：整个进程累计的模型调用次数（每次ReAct轮=1次）
+    public static final java.util.concurrent.atomic.AtomicLong MODEL_CALLS = new java.util.concurrent.atomic.AtomicLong(0);
+
     public SafeModel(Model primary, Model fallback) {
         this.primary = primary;
         this.fallback = fallback;
@@ -47,6 +50,7 @@ public class SafeModel implements Model {
             }
             // 每次调用动态选主/备模型（熔断时降级）
             Model target = (fallback != null && CircuitBreaker.getInstance().isOpen()) ? fallback : primary;
+            MODEL_CALLS.incrementAndGet(); // ★计数：每次模型调用+1（含重试）
             return attempt(target, messages, tools, options, 0);
         });
     }

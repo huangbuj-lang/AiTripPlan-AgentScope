@@ -36,6 +36,9 @@ public class BaiduMapTool {
         CacheEntry(String value, long time) { this.value = value; this.time = time; }
     }
 
+    // ★MCP调用计数器（观测用）：实际发往魔塔MCP的网络请求次数（缓存命中不算）
+    public static final java.util.concurrent.atomic.AtomicLong MCP_CALLS = new java.util.concurrent.atomic.AtomicLong(0);
+
     private static final HttpClient HTTP = HttpClient.newBuilder() // HTTP客户端（复用连接）
             .connectTimeout(Duration.ofSeconds(30))
             .build();
@@ -107,6 +110,7 @@ public class BaiduMapTool {
             }
         }
         ensureSession();
+        MCP_CALLS.incrementAndGet(); // ★计数：实际发往MCP的网络请求（缓存未命中才到这）
         // 用 ObjectMapper 构造 tools/call 请求体（避免手写 JSON 拼接的转义漏洞）
         Map<String, Object> callParams = new HashMap<>();
         callParams.put("name", toolName);
