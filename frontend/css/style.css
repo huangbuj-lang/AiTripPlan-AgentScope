@@ -117,19 +117,28 @@ nav { display: flex; align-items: center; justify-content: space-between; paddin
 }
 .day-card:hover { border-color: rgba(31,174,143,.4); transform: translateY(-2px); }
 .day-card.active { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(31,174,143,.12); }
-.day-top { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+.day-top { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; padding-right: 30px; }
 .day-top .n { font-weight: 800; font-size: 13.5px; letter-spacing: .5px; }
 .day-top .km { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--amber); letter-spacing: 1px; }
 .day-top .expand {
+  position: absolute; top: 10px; right: 10px;
   width: 22px; height: 22px; border-radius: 7px; border: 1px solid var(--line); background: #F7FBF9;
   color: var(--teal); font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: .15s; flex-shrink: 0;
 }
 .day-top .expand:hover { background: var(--teal); color: #fff; border-color: var(--teal); }
-.item { display: flex; gap: 8px; padding: 4.5px 0; font-size: 12px; color: #5F726B; border-top: 1px dashed var(--line); }
+.item { display: flex; gap: 9px; padding: 5px 0; font-size: 12px; color: #5F726B; border-top: 1px dashed var(--line); }
 .item:first-of-type { border-top: none; }
-.item .ic { width: 15px; text-align: center; flex-shrink: 0; font-size: 11px; }
+.item .ic { width: 21px; text-align: center; flex-shrink: 0; font-size: 14px; line-height: 1.35; }
 .item .pl { color: var(--ink); font-weight: 600; }
+/* 地名 → 高德地图链接 */
+.place-link {
+    color: var(--teal); text-decoration: none; cursor: pointer;
+    border-bottom: 1px dashed rgba(31,174,143,.45); transition: .15s;
+}
+.place-link:hover { color: #D4880F; border-bottom-color: #D4880F; background: rgba(232,164,92,.1); border-radius: 3px; }
+.stop .pl .place-link, .detail-body .p .place-link { color: inherit; border-bottom-color: rgba(31,174,143,.4); }
+.stop .pl .place-link:hover, .detail-body .p .place-link:hover { color: #D4880F; }
 
 /* ===== 详情弹窗 ===== */
 .modal-mask { position: fixed; inset: 0; background: rgba(20,34,30,.45); backdrop-filter: blur(3px); z-index: 50; display: none; align-items: center; justify-content: center; padding: 24px; }

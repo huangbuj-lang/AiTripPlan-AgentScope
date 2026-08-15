@@ -498,15 +498,55 @@ function applyInline(s) {
  *   景点/游览 → 🎡  餐饮/美食 → 🍜  交通/地铁 → 🚇  住宿/酒店 → 🏨
  *   门票/费用 → 🎫  电话/紧急 → 📞  天气 → 🌤️
  */
+/** 活动类型 → 图标（关键词匹配,兜底返回通用图标,永不空白） */
 function activityIcon(text) {
-    if (/景点|游览|参观|游玩|观光|乐园|公园|博物馆|古镇|风景区|爬山|海滩/.test(text)) return '🎡';
-    if (/早餐|午餐|晚餐|夜宵|餐饮|美食|餐厅|小吃|品尝/.test(text)) return '🍜';
-    if (/地铁|公交|交通|驾车|步行|打车|高铁|火车|飞机|机场|码头|船|换乘|线路/.test(text)) return '🚇';
-    if (/酒店|住宿|入住|民宿|旅馆|客栈/.test(text)) return '🏨';
+    text = text || '';
+    // 交通类(按优先级:先具体后通用)
+    if (/地铁|高铁|火车|动车|城际/.test(text)) return '🚄';
+    if (/公交|巴士|大巴/.test(text)) return '🚌';
+    if (/飞机|机场|航班|航空/.test(text)) return '✈️';
+    if (/打车|出租车|滴滴/.test(text)) return '🚕';
+    if (/自驾|驾车|开车|高速/.test(text)) return '🚗';
+    if (/步行|徒步|走路|散步|登山|爬山/.test(text)) return '🥾';
+    if (/骑行|自行车|单车|骑行道/.test(text)) return '🚲';
+    if (/船|码头|轮渡|游船|帆船/.test(text)) return '⛵';
+    if (/缆车|索道/.test(text)) return '🚡';
+    // 餐饮类
+    if (/火锅|涮肉|涮锅/.test(text)) return '🍲';
+    if (/烤鸭|烤肉|烧烤|烤鱼/.test(text)) return '🍖';
+    if (/海鲜|生蚝|龙虾|螃蟹/.test(text)) return '🦞';
+    if (/小吃|夜市|美食街|排档|路边/.test(text)) return '🍢';
+    if (/咖啡|奶茶|茶饮|茶馆|下午茶/.test(text)) return '☕';
+    if (/早餐|早点|包子|豆浆|豆汁|油条|煎饼/.test(text)) return '🥟';
+    if (/甜点|蛋糕|冰淇淋|糖水|甜品/.test(text)) return '🍰';
+    if (/面|粉|馄饨|饺子|烧卖/.test(text)) return '🍜';
+    if (/餐厅|饭|餐|美食|品尝|小吃/.test(text)) return '🍽️';
+    // 景点类
+    if (/博物馆|展览馆|美术馆|科技馆|纪念馆/.test(text)) return '🏛️';
+    if (/故宫|宫殿|王府|皇城|古镇|古城|寺庙|庙|塔|楼阁|园林|颐和园|圆明园|拙政园|留园/.test(text)) return '🏯';
+    if (/长城|城墙|遗址|古迹|陵|石窟/.test(text)) return '🧱';
+    if (/海滩|沙滩|海岛|海滨|赶海/.test(text)) return '🏖️';
+    if (/山|峰|峡谷|瀑布|溶洞|自然|森林|草原|湿地/.test(text)) return '🏔️';
+    if (/湖|江|河|水乡|泛舟|划船/.test(text)) return '🌊';
+    if (/乐园|游乐场|主题公园|迪士尼|环球/.test(text)) return '🎡';
+    if (/动物园|熊猫|海洋馆|水族馆|动物/.test(text)) return '🐼';
+    if (/公园|广场|绿地/.test(text)) return '🌳';
+    if (/夜景|夜景|灯光秀|日落|日出|观景|俯瞰/.test(text)) return '🌇';
+    if (/拍照|出片|摄影|机位|打卡/.test(text)) return '📸';
+    if (/购物|商场|街区|步行街|商业街|免税/.test(text)) return '🛍️';
+    if (/演出|剧场|音乐|看秀|戏剧/.test(text)) return '🎭';
+    if (/大学|高校|校园|学院/.test(text)) return '🎓';
+    // 住宿类
+    if (/酒店|宾馆|饭店/.test(text)) return '🏨';
+    if (/民宿|客栈|青旅|青年旅社/.test(text)) return '🏡';
+    if (/住宿|入住|休息/.test(text)) return '🛏️';
+    // 其他
     if (/门票|票价|费用|价格|消费|¥|￥|元/.test(text)) return '🎫';
-    if (/电话|紧急|求助|报警|急救|联系/.test(text)) return '📞';
-    if (/天气|气温|温度|℃/.test(text)) return '🌤️';
-    return '';
+    if (/电话|紧急|求助|报警|急救|联系|热线/.test(text)) return '📞';
+    if (/天气|气温|温度|℃|晴|雨|雪|多云/.test(text)) return '🌤️';
+    if (/免税|购物/.test(text)) return '🛒';
+    // 兜底：通用定位图标，保证永不空白
+    return '📍';
 }
 
 /** 给文本添加活动类型图标（无匹配则原样返回） */
@@ -1022,7 +1062,7 @@ function renderStructuredPlan(plan) {
             const hl = i === 1 || i === d0Items.length - 2; // 关键点高亮（第2个与倒数第2个）
             return '<div class="stop' + (hl ? ' hl' : '') + '">'
                 + '<div class="dot"></div><div class="tm">' + escapeHtml(it.time || '') + '</div>'
-                + '<div class="pl">' + escapeHtml(it.place || it.activity || '') + '</div>'
+                + '<div class="pl">' + amapLink(it.place || it.activity || '') + '</div>'
                 + '<div class="d">' + escapeHtml(it.cost || '') + '</div></div>';
         }).join('')
         + '</div></div>';
@@ -1031,14 +1071,14 @@ function renderStructuredPlan(plan) {
     html += '<div class="days">';
     days.forEach((day, di) => {
         const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity));
-        const title = day.title || ('第 ' + (di + 1) + ' 天');
         html += '<div class="day-card' + (di === 0 ? ' active' : '') + '" onclick="selectDay(' + di + ')">'
             + '<div class="day-top">'
-            + '<span class="n">' + escapeHtml(title) + '</span>'
-            + '<button class="expand" title="查看当日详细规划" onclick="event.stopPropagation();openDayModal(' + di + ')">⤢</button>'
+            + '<span class="n">DAY ' + String(di + 1).padStart(2, '0') + '</span>'
+            + (items.length ? '<span class="km">徒步 ' + estWalkKm(items.length) + 'km</span>' : '')
+            + '<button class="expand" title="查看当日详细规划" onclick="event.stopPropagation();openDayModal(' + di + ')">✏️</button>'
             + '</div>'
             + items.map(it => '<div class="item"><span class="ic">' + activityIcon(it.activity || it.place || '') + '</span>'
-                + '<span><span class="pl">' + escapeHtml(it.place || it.activity || '') + '</span></span></div>').join('')
+                + '<span><span class="pl">' + amapLink(it.place || it.activity || '') + '</span></span></div>').join('')
             + '</div>';
     });
     html += '</div>';
@@ -1060,6 +1100,43 @@ function renderStructuredPlan(plan) {
     }
 
     return html;
+}
+
+/** 按当日景点数粗估徒步公里数（不用太具体：4个景点≈3km，每多2个+1km，封顶8km） */
+function estWalkKm(itemCount) {
+    const n = itemCount || 0;
+    const km = Math.min(8, Math.max(3, 3 + Math.floor((n - 3) / 2)));
+    return km;
+}
+
+/** 地名 → 高德定位链接(点击先查经纬度→直接定位;查不到降级搜索页) */
+function amapLink(place) {
+    const name = (place || '').trim();
+    if (!name) return '';
+    // 带上当前行程目的地城市,避免同名地点(如"人民公园")定位到别的城市
+    const city = (currentPlanData && currentPlanData.destination) ? currentPlanData.destination.trim() : '';
+    return '<a class="place-link" href="https://uri.amap.com/search?keyword='
+        + encodeURIComponent(name)
+        + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();gotoAmap(this.href, \'' + name.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\', \'' + city.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\');return false" title="在高德地图中查看「' + name + '」">'
+        + escapeHtml(name) + '</a>';
+}
+
+/** 点击景点：先调后端 /amap/geocode 拿经纬度 → 跳 marker 直接定位；失败降级搜索页 */
+function gotoAmap(fallbackUrl, name, city) {
+    fetch('/amap/geocode?name=' + encodeURIComponent(name)
+        + (city ? '&city=' + encodeURIComponent(city) : ''))
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.ok && data.lng && data.lat) {
+                // 直接定位：position=经度,纬度
+                window.open('https://uri.amap.com/marker?position=' + data.lng + ',' + data.lat
+                    + '&name=' + encodeURIComponent(data.poiName || name)
+                    + '&src=mypage&coordinate=gaode&callnative=0', '_blank');
+            } else {
+                window.open(fallbackUrl, '_blank'); // 降级：搜索页
+            }
+        })
+        .catch(() => window.open(fallbackUrl, '_blank')); // 网络异常降级
 }
 
 /** 按点数生成轨迹曲线路径 */
@@ -1099,7 +1176,7 @@ function selectDay(di) {
                 const hl = i === 1 || i === items.length - 2;
                 return '<div class="stop' + (hl ? ' hl' : '') + '">'
                     + '<div class="dot"></div><div class="tm">' + escapeHtml(it.time || '') + '</div>'
-                    + '<div class="pl">' + escapeHtml(it.place || it.activity || '') + '</div>'
+                    + '<div class="pl">' + amapLink(it.place || it.activity || '') + '</div>'
                     + '<div class="d">' + escapeHtml(it.cost || '') + '</div></div>';
             }).join('')
             + '</div>';
@@ -1121,7 +1198,7 @@ function openDayModal(di) {
     if (!day) return;
     const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity));
     document.getElementById('modalEm').textContent = activityIcon(day.title || '');
-    document.getElementById('modalTitle').textContent = day.title || ('第 ' + (di + 1) + ' 天');
+    document.getElementById('modalTitle').textContent = 'DAY ' + String(di + 1).padStart(2, '0') + ' · ' + (day.title || ('第 ' + (di + 1) + ' 天'));
     document.getElementById('modalSub').textContent = items.length + ' 个安排 · ' + currentPlanData.destination || '';
     document.getElementById('modalBody').innerHTML =
         items.map(it => {
@@ -1129,7 +1206,7 @@ function openDayModal(di) {
             return '<div class="detail-item' + (hl ? ' hl' : '') + '">'
                 + '<span class="detail-time">' + escapeHtml(it.time || '') + '</span>'
                 + '<div class="detail-body"><div class="p"><span class="em">' + activityIcon(it.activity || it.place || '') + '</span>'
-                + escapeHtml(it.place || it.activity || '') + '</div>'
+                + amapLink(it.place || it.activity || '') + '</div>'
                 + '<div class="d">' + escapeHtml([it.activity, it.cost, it.note].filter(Boolean).join(' · ')) + '</div></div></div>';
         }).join('')
         + '<div class="detail-foot">'
@@ -1261,7 +1338,7 @@ function buildPrintView() {
         html += '<div class="pv-part"><div class="pv-part-title">概览 · OVERVIEW</div>';
         days.forEach((day, di) => {
             const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity));
-            const title = day.title || ('第 ' + (di + 1) + ' 天');
+            const title = 'DAY ' + String(di + 1).padStart(2, '0') + ' · ' + (day.title || ('第 ' + (di + 1) + ' 天'));
             html += '<div class="pv-day">'
                 + '<div class="pv-day-head"><span class="pv-day-n">' + escapeHtml(title) + '</span></div>'
                 + '<div class="pv-day-stops">'
@@ -1280,7 +1357,7 @@ function buildPrintView() {
         html += '<div class="pv-part"><div class="pv-part-title">每日详情 · DAILY DETAILS</div>';
         days.forEach((day, di) => {
             const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity));
-            const title = day.title || ('第 ' + (di + 1) + ' 天');
+            const title = 'DAY ' + String(di + 1).padStart(2, '0') + ' · ' + (day.title || ('第 ' + (di + 1) + ' 天'));
             html += '<div class="pv-day-detail">'
                 + '<div class="pv-detail-head">' + escapeHtml(title) + '</div>'
                 + '<table class="pv-table"><tbody>'
