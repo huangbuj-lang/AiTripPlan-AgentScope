@@ -84,6 +84,46 @@
         </div>
     </div>
 
+    <!-- ★预检卡片：生成前勾选偏好（步行/作息/博物馆），可跳过 -->
+    <div id="precheckModal" class="my-plans-modal" style="display:none">
+        <div class="modal-card precheck-card">
+            <div class="modal-head">
+                <b><i class="fa-solid fa-sliders"></i> 行程偏好（可选，让计划更贴合你）</b>
+                <button class="mini-btn" onclick="closePrecheck()"><i class="fa-solid fa-xmark"></i> 关闭</button>
+            </div>
+            <div class="modal-body precheck-body">
+                <div class="precheck-group">
+                    <label class="precheck-label"><i class="fa-solid fa-person-walking"></i> 步行忍耐度</label>
+                    <div class="precheck-opts" id="walkOpts">
+                        <button type="button" class="precheck-opt" data-v="5000">少走（≤5km）</button>
+                        <button type="button" class="precheck-opt" data-v="10000">适中（≤10km）</button>
+                        <button type="button" class="precheck-opt" data-v="20000">能走（≤20km）</button>
+                    </div>
+                </div>
+                <div class="precheck-group">
+                    <label class="precheck-label"><i class="fa-solid fa-clock"></i> 作息习惯</label>
+                    <div class="precheck-opts" id="chronoOpts">
+                        <button type="button" class="precheck-opt" data-v="early">早起</button>
+                        <button type="button" class="precheck-opt" data-v="both">均可</button>
+                        <button type="button" class="precheck-opt" data-v="night">夜猫子</button>
+                    </div>
+                </div>
+                <div class="precheck-group">
+                    <label class="precheck-label"><i class="fa-solid fa-landmark"></i> 博物馆占比</label>
+                    <div class="precheck-opts" id="museumOpts">
+                        <button type="button" class="precheck-opt" data-v="low">少</button>
+                        <button type="button" class="precheck-opt" data-v="mid">适中</button>
+                        <button type="button" class="precheck-opt" data-v="high">多</button>
+                    </div>
+                </div>
+                <div class="precheck-actions">
+                    <button type="button" class="precheck-skip" onclick="submitWithPreference(true)">跳过，直接生成</button>
+                    <button type="button" class="precheck-confirm" onclick="submitWithPreference(false)"><i class="fa-solid fa-wand-magic-sparkles"></i> 按此偏好生成</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="footer">AiTripPlan-AgentScope · 多Agent协作系统 · 实时事件驱动</div>
 </div>
 

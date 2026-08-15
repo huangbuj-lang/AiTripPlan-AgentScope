@@ -44,6 +44,9 @@ public class AppController {
     @RequestMapping(value = "/app", method = RequestMethod.POST)
     public String app(@RequestParam(name = "prompt", required = false, defaultValue = "帮我制定2026年元旦,深圳到惠州3日游自驾游计划，请包含吃住行，天气，酒店，餐饮美食。") String prompt,
                       @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
+                      @RequestParam(name = "walkTolerance", required = false, defaultValue = "") String walkTolerance,
+                      @RequestParam(name = "chronotype", required = false, defaultValue = "") String chronotype,
+                      @RequestParam(name = "museumRatio", required = false, defaultValue = "") String museumRatio,
                       HttpSession session) {
 
         // 获取并发槽位，失败则拒绝
@@ -62,7 +65,7 @@ public class AppController {
         TASK_POOL.submit(() -> { // 异步执行任务
             try {
                 TripOrchestrator orchestrator = new TripOrchestrator(sessionId); // 确定性编排器（会话隔离）
-                TripPlanData plan = orchestrator.run(prompt); // 解析→并行DAG→聚合，返回结构化行程
+                TripPlanData plan = orchestrator.run(prompt, walkTolerance, chronotype, museumRatio); // 解析→并行DAG→聚合（带预检偏好）
                 EventStore.setResult(sessionId, JsonUtils.toJson(plan)); // 缓存结构化 JSON 结果（含降级 markdown 字段）
             } catch (CancelledException e) {
                 EventStore.setResult(sessionId, "⏹ 任务已由用户中断。"); // 用户取消的友好提示（类型化判断）

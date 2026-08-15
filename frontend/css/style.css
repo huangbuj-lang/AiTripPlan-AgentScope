@@ -631,3 +631,29 @@ body {
 /* ===== 空状态提示 / 页脚 ===== */
 .empty { color: #b2bec3; font-size: 14px; text-align: center; padding: 30px 0; }
 .footer { text-align: center; color: #b2bec3; font-size: 12px; margin-top: 12px; padding-bottom: 8px; }
+
+/* ===== 预检卡片（功能1：意图拆解） ===== */
+.precheck-card { max-width: 480px; }
+.precheck-body { padding: 18px 22px; }
+.precheck-group { margin-bottom: 16px; }
+.precheck-label { display: block; font-size: 13px; color: #636e72; margin-bottom: 8px; font-weight: 600; }
+.precheck-label i { color: #0984e3; margin-right: 4px; }
+.precheck-opts { display: flex; gap: 8px; flex-wrap: wrap; }
+.precheck-opt {
+    padding: 7px 14px; border: 1px solid #dfe6e9; border-radius: 18px;
+    background: #fff; color: #2d3436; font-size: 13px; cursor: pointer;
+    transition: all .15s ease;
+}
+.precheck-opt:hover { border-color: #74b9ff; }
+.precheck-opt.active { background: #0984e3; color: #fff; border-color: #0984e3; }
+.precheck-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+.precheck-skip {
+    padding: 9px 16px; border: 1px solid #dfe6e9; border-radius: 8px;
+    background: #fff; color: #636e72; font-size: 13px; cursor: pointer;
+}
+.precheck-skip:hover { background: #f5f6fa; }
+.precheck-confirm {
+    padding: 9px 18px; border: none; border-radius: 8px;
+    background: #0984e3; color: #fff; font-size: 14px; cursor: pointer;
+}
+.precheck-confirm:hover { background: #0870c2; }

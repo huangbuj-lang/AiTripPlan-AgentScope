@@ -172,53 +172,8 @@ checkLogin();
 function send() {
     const prompt = document.getElementById('prompt').value.trim();
     if (!prompt) { alert('请输入旅行需求！'); return; }
-    if (polling) { clearInterval(polling); polling = null; }
-    if (eventSource) { eventSource.close(); eventSource = null; }
-    if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
-
-    // 重置界面
-    document.getElementById('thinkBody').innerHTML = '';
-    document.getElementById('resultBody').innerHTML = '<div class="empty">正在生成...</div>';
-    document.getElementById('status').textContent = '⏳ 任务提交中...';
-    document.getElementById('status').classList.add('show');
-    document.getElementById('sendBtn').disabled = true;
-
-    // ① 提交任务（后端立即返回，不占连接）★带sessionId会话隔离
-    fetch('/app?prompt=' + encodeURIComponent(prompt) + '&sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
-        .then(r => r.text())
-        .then(msg => {
-            // 并发防护提示
-            if (msg.includes('有任务正在执行')) {
-                document.getElementById('resultBody').innerHTML =
-                    '<div style="color:#e17055">⚠️ ' + msg + '</div>';
-                document.getElementById('status').textContent = '⚠️ 任务未提交';
-                document.getElementById('sendBtn').disabled = false;
-                if (polling) { clearInterval(polling); polling = null; }
-                if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
-                return;
-            }
-            document.getElementById('status').textContent = '🧠 主管Agent正在规划中，请稍候...';
-            // 显示"停止"按钮（任务执行中可中断）
-            document.getElementById('cancelBtn').style.display = 'inline-block';
-            // 服务端已清空事件，从0开始增量显示
-            lastEventCount = 0;
-            // ② SSE 实时事件流（阶段四 F-3，替代 /events 轮询）
-            if (eventSource) eventSource.close();
-            lastEventCount = 0;
-            eventSource = new EventSource('/events/stream?sessionId=' + encodeURIComponent(sessionId));
-            eventSource.addEventListener('event', function (e) {
-                try { appendThinkItem(JSON.parse(e.data)); } catch (err) { /* 忽略非法数据 */ }
-            });
-            // ③ 轮询 /result（拿最终结果）
-            if (resultTimer) clearInterval(resultTimer);
-            resultTimer = setInterval(fetchResult, 2000);
-        })
-        .catch(err => {
-            document.getElementById('resultBody').innerHTML =
-                '<div style="color:#d63031">❌ 请求失败：' + err + '</div>';
-            document.getElementById('status').textContent = '❌ 出错了，请重试';
-            document.getElementById('sendBtn').disabled = false;
-        });
+    // ★预检卡片：生成前弹出偏好勾选（历史偏好已回填默认值），可选跳过
+    showPrecheck();
 }
 
 /**
@@ -240,6 +195,126 @@ function cancelTask() {
             }
         })
         .catch(() => { /* 网络抖动，忽略 */ });
+}
+
+// ==================== ★预检卡片（功能1：意图拆解）+ 偏好记忆（功能5） ====================
+
+/** 当前选中的偏好（内存态，提交时读取） */
+let currentPref = { walkTolerance: '', chronotype: '', museumRatio: '' };
+
+/** 弹出预检卡片：回填历史偏好，绑定选项点击 */
+function showPrecheck() {
+    // 重置选中态
+    document.querySelectorAll('.precheck-opt').forEach(b => b.classList.remove('active'));
+    currentPref = { walkTolerance: '', chronotype: '', museumRatio: '' };
+    // 拉取历史偏好回填默认值（隐形学习：下次不用重新勾选）
+    fetch('/api/get-preference')
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                currentPref = { walkTolerance: d.walkTolerance || '', chronotype: d.chronotype || '', museumRatio: d.museumRatio || '' };
+                highlightOpt('walkOpts', d.walkTolerance);
+                highlightOpt('chronoOpts', d.chronotype);
+                highlightOpt('museumOpts', d.museumRatio);
+            }
+        })
+        .catch(() => { /* 未登录或网络问题：不填默认值 */ });
+    document.getElementById('precheckModal').style.display = 'flex';
+    // 绑定选项点击（每次弹出重新绑定）
+    bindPrecheckOpts('walkOpts', 'walkTolerance');
+    bindPrecheckOpts('chronoOpts', 'chronotype');
+    bindPrecheckOpts('museumOpts', 'museumRatio');
+}
+
+/** 高亮历史回填的选项 */
+function highlightOpt(groupId, value) {
+    if (!value) return;
+    document.querySelectorAll('#' + groupId + ' .precheck-opt').forEach(b => {
+        if (b.getAttribute('data-v') === value) b.classList.add('active');
+    });
+}
+
+/** 绑定一组选项的点击（单选） */
+function bindPrecheckOpts(groupId, key) {
+    document.querySelectorAll('#' + groupId + ' .precheck-opt').forEach(b => {
+        b.onclick = function () {
+            document.querySelectorAll('#' + groupId + ' .precheck-opt').forEach(x => x.classList.remove('active'));
+            b.classList.add('active');
+            currentPref[key] = b.getAttribute('data-v');
+        };
+    });
+}
+
+/** 关闭预检卡片 */
+function closePrecheck() {
+    document.getElementById('precheckModal').style.display = 'none';
+}
+
+/** 确认生成：skip=true 跳过偏好（全不限）；否则带勾选偏好提交 */
+function submitWithPreference(skip) {
+    document.getElementById('precheckModal').style.display = 'none';
+    const prompt = document.getElementById('prompt').value.trim();
+    if (!prompt) { alert('请输入旅行需求！'); return; }
+    const walk = skip ? '' : (currentPref.walkTolerance || '');
+    const chrono = skip ? '' : (currentPref.chronotype || '');
+    const museum = skip ? '' : (currentPref.museumRatio || '');
+    // ★偏好持久化：非跳过时保存（隐形学习）；跳过不覆盖历史偏好
+    if (!skip) {
+        fetch('/api/save-preference?walkTolerance=' + encodeURIComponent(walk)
+            + '&chronotype=' + encodeURIComponent(chrono)
+            + '&museumRatio=' + encodeURIComponent(museum), { method: 'POST' })
+            .catch(() => { /* 保存失败不影响生成 */ });
+    }
+    doSubmit(prompt, walk, chrono, museum);
+}
+
+/** 实际提交任务（原 send 的提交逻辑，增加偏好参数） */
+function doSubmit(prompt, walk, chrono, museum) {
+    if (polling) { clearInterval(polling); polling = null; }
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
+
+    // 重置界面
+    document.getElementById('thinkBody').innerHTML = '';
+    document.getElementById('resultBody').innerHTML = '<div class="empty">正在生成...</div>';
+    document.getElementById('status').textContent = '⏳ 任务提交中...';
+    document.getElementById('status').classList.add('show');
+    document.getElementById('sendBtn').disabled = true;
+
+    // ① 提交任务（带偏好参数）
+    fetch('/app?prompt=' + encodeURIComponent(prompt) + '&sessionId=' + encodeURIComponent(sessionId)
+        + '&walkTolerance=' + encodeURIComponent(walk)
+        + '&chronotype=' + encodeURIComponent(chrono)
+        + '&museumRatio=' + encodeURIComponent(museum), { method: 'POST' })
+        .then(r => r.text())
+        .then(msg => {
+            if (msg.includes('有任务正在执行')) {
+                document.getElementById('resultBody').innerHTML =
+                    '<div style="color:#e17055">⚠️ ' + msg + '</div>';
+                document.getElementById('status').textContent = '⚠️ 任务未提交';
+                document.getElementById('sendBtn').disabled = false;
+                if (polling) { clearInterval(polling); polling = null; }
+                if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
+                return;
+            }
+            document.getElementById('status').textContent = '🧠 主管Agent正在规划中，请稍候...';
+            document.getElementById('cancelBtn').style.display = 'inline-block';
+            lastEventCount = 0;
+            if (eventSource) eventSource.close();
+            lastEventCount = 0;
+            eventSource = new EventSource('/events/stream?sessionId=' + encodeURIComponent(sessionId));
+            eventSource.addEventListener('event', function (e) {
+                try { appendThinkItem(JSON.parse(e.data)); } catch (err) { /* 忽略非法数据 */ }
+            });
+            if (resultTimer) clearInterval(resultTimer);
+            resultTimer = setInterval(fetchResult, 2000);
+        })
+        .catch(err => {
+            document.getElementById('resultBody').innerHTML =
+                '<div style="color:#d63031">❌ 请求失败：' + err + '</div>';
+            document.getElementById('status').textContent = '❌ 出错了，请重试';
+            document.getElementById('sendBtn').disabled = false;
+        });
 }
 
 /**

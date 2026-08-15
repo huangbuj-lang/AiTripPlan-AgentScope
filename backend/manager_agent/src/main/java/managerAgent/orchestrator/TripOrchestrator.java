@@ -51,11 +51,26 @@ public class TripOrchestrator {
      * 执行编排：解析需求 → 并行调用专家 → 聚合为结构化行程。
      */
     public TripPlanData run(String userPrompt) {
+        return run(userPrompt, "", "", "");
+    }
+
+    /**
+     * 执行编排（带偏好参数）：解析需求 → 并行调用专家 → 聚合为结构化行程。
+     * @param walkTolerance 步行忍耐度（米），空=不限
+     * @param chronotype    作息（early/both/night），空=不限
+     * @param museumRatio   博物馆占比（low/mid/high），空=不限
+     */
+    public TripPlanData run(String userPrompt, String walkTolerance, String chronotype, String museumRatio) {
         // ① 需求解析（单次结构化 LLM 调用）
         EventStore.add(sessionId, "解析", "正在解析旅行需求...");
         TripRequest req = parseRequest(userPrompt);
+        // ★预检偏好注入：确定性勾选值直接覆盖，不依赖 LLM 猜测
+        if (walkTolerance != null && !walkTolerance.isBlank()) { req.setWalkTolerance(walkTolerance.trim()); }
+        if (chronotype != null && !chronotype.isBlank()) { req.setChronotype(chronotype.trim()); }
+        if (museumRatio != null && !museumRatio.isBlank()) { req.setMuseumRatio(museumRatio.trim()); }
         EventStore.add(sessionId, "解析", "需求：" + req.getOrigin() + " → " + req.getDestination()
-                + "，" + req.getDays() + " 天" + (req.getPreference().isBlank() ? "" : "（" + req.getPreference() + "）"));
+                + "，" + req.getDays() + " 天" + (req.getPreference().isBlank() ? "" : "（" + req.getPreference() + "）")
+                + buildPreferenceLabel(req));
         checkCancel();
 
         // ② 并行 DAG：路线 + 行程 同时调用，无先后依赖
@@ -123,6 +138,44 @@ public class TripOrchestrator {
         return req;
     }
 
+    /** 偏好标签（事件流展示用，如「步行≤1万米 · 早起 · 博物馆多」） */
+    private String buildPreferenceLabel(TripRequest req) {
+        StringBuilder sb = new StringBuilder();
+        if (!req.getWalkTolerance().isBlank()) { sb.append("步行≤").append(req.getWalkTolerance()).append("米"); }
+        if (!req.getChronotype().isBlank()) {
+            if (sb.length() > 0) { sb.append(" · "); }
+            sb.append("early".equals(req.getChronotype()) ? "早起" : "night".equals(req.getChronotype()) ? "夜猫子" : "作息不限");
+        }
+        if (!req.getMuseumRatio().isBlank()) {
+            if (sb.length() > 0) { sb.append(" · "); }
+            sb.append("博物馆").append("high".equals(req.getMuseumRatio()) ? "多" : "low".equals(req.getMuseumRatio()) ? "少" : "适中");
+        }
+        return sb.length() > 0 ? " ｜ " + sb : "";
+    }
+
+    /** 偏好约束（聚合 prompt 用，引导模型按偏好安排行程节奏） */
+    private String buildPreferencePrompt(TripRequest req) {
+        StringBuilder sb = new StringBuilder();
+        if (!req.getWalkTolerance().isBlank()) {
+            sb.append("\n- 步行忍耐度：每天步行不超过 ").append(req.getWalkTolerance()).append(" 米，据此安排景点密度与接驳方式");
+        }
+        if (!req.getChronotype().isBlank()) {
+            if ("early".equals(req.getChronotype())) {
+                sb.append("\n- 作息：用户偏好早起，行程安排在早上开始、晚上早点结束");
+            } else if ("night".equals(req.getChronotype())) {
+                sb.append("\n- 作息：用户是夜猫子，上午可安排较晚出发，晚上可安排夜游/夜市");
+            }
+        }
+        if (!req.getMuseumRatio().isBlank()) {
+            if ("high".equals(req.getMuseumRatio())) {
+                sb.append("\n- 博物馆占比：用户喜欢博物馆，行程中增加博物馆/展览类景点占比");
+            } else if ("low".equals(req.getMuseumRatio())) {
+                sb.append("\n- 博物馆占比：用户不喜欢博物馆，减少博物馆类景点，多安排户外/体验类");
+            }
+        }
+        return sb.toString();
+    }
+
     // ==================== ② 并行 DAG ====================
 
     private String routeTask(TripRequest req) {
@@ -167,7 +220,9 @@ public class TripOrchestrator {
                 + "sections 按「每日行程(timeline)/交通(transport)/住宿餐饮(stay)/实用信息(tips)」组织，"
                 + "每天的行程放在一个 type=timeline 的 section 里，title 用「第N天」。"
                 + "内容必须具体（真实景点名/价格/餐厅酒店名）。除 JSON 外不要输出任何文字。";
-        String userPrompt = "用户需求：" + req.getRaw() + "\n\n【路线数据】\n" + routeResult + "\n\n【行程数据】\n" + planResult;
+        String userPrompt = "用户需求：" + req.getRaw()
+                + buildPreferencePrompt(req)  // ★预检偏好约束（步行/作息/博物馆占比）
+                + "\n\n【路线数据】\n" + routeResult + "\n\n【行程数据】\n" + planResult;
         String text = callModelJson(sysPrompt, userPrompt);
         TripPlanData plan = JsonUtils.extractAndParse(text, TripPlanData.class);
         if (plan == null) {
