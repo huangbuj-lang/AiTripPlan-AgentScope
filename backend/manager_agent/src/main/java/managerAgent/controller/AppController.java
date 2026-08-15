@@ -47,6 +47,7 @@ public class AppController {
                       @RequestParam(name = "walkTolerance", required = false, defaultValue = "") String walkTolerance,
                       @RequestParam(name = "chronotype", required = false, defaultValue = "") String chronotype,
                       @RequestParam(name = "museumRatio", required = false, defaultValue = "") String museumRatio,
+                      @RequestParam(name = "multiScheme", required = false, defaultValue = "false") String multiScheme,
                       HttpSession session) {
 
         // 获取并发槽位，失败则拒绝
@@ -65,8 +66,13 @@ public class AppController {
         TASK_POOL.submit(() -> { // 异步执行任务
             try {
                 TripOrchestrator orchestrator = new TripOrchestrator(sessionId); // 确定性编排器（会话隔离）
-                TripPlanData plan = orchestrator.run(prompt, walkTolerance, chronotype, museumRatio); // 解析→并行DAG→聚合（带预检偏好）
-                EventStore.setResult(sessionId, JsonUtils.toJson(plan)); // 缓存结构化 JSON 结果（含降级 markdown 字段）
+                if ("true".equalsIgnoreCase(multiScheme)) { // ★多方案模式：生成3套差异化方案
+                    dto.PlanSet planSet = orchestrator.runMultiScheme(prompt, walkTolerance, chronotype, museumRatio);
+                    EventStore.setResult(sessionId, JsonUtils.toJson(planSet)); // 缓存多方案 JSON
+                } else {
+                    TripPlanData plan = orchestrator.run(prompt, walkTolerance, chronotype, museumRatio); // 解析→并行DAG→聚合（带预检偏好）
+                    EventStore.setResult(sessionId, JsonUtils.toJson(plan)); // 缓存结构化 JSON 结果（含降级 markdown 字段）
+                }
             } catch (CancelledException e) {
                 EventStore.setResult(sessionId, "⏹ 任务已由用户中断。"); // 用户取消的友好提示（类型化判断）
             } catch (Exception e) {

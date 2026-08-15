@@ -1,5 +1,6 @@
 package managerAgent.orchestrator;
 
+import dto.PlanSet;
 import dto.Section;
 import dto.SectionItem;
 import dto.TripPlanData;
@@ -56,11 +57,43 @@ public class TripOrchestrator {
 
     /**
      * 执行编排（带偏好参数）：解析需求 → 并行调用专家 → 聚合为结构化行程。
-     * @param walkTolerance 步行忍耐度（米），空=不限
-     * @param chronotype    作息（early/both/night），空=不限
-     * @param museumRatio   博物馆占比（low/mid/high），空=不限
      */
     public TripPlanData run(String userPrompt, String walkTolerance, String chronotype, String museumRatio) {
+        ReqAndData rd = resolveAndFetch(userPrompt, walkTolerance, chronotype, museumRatio);
+        // ③ 聚合：结构化 JSON（失败退回 markdown 原文兜底）
+        EventStore.add(sessionId, "整合", "正在整合路线与行程数据...");
+        TripPlanData plan = aggregate(rd.req, rd.routeResult, rd.planResult);
+        if (plan == null) {
+            plan = fallbackPlan(rd.req, rd.routeResult, rd.planResult); // 兜底已含完整 markdown 原文
+        } else {
+            plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
+        }
+        EventStore.add(sessionId, "完成", "结构化行程生成完成");
+        return plan;
+    }
+
+    /**
+     * 多方案编排（功能4 MVP）：解析 + 并行 DAG 与单方案共享，聚合阶段产出 3 套差异化方案
+     * （美食向 / 出片向 / 省钱向），供前端左右对比、选中后细化。
+     */
+    public PlanSet runMultiScheme(String userPrompt, String walkTolerance, String chronotype, String museumRatio) {
+        ReqAndData rd = resolveAndFetch(userPrompt, walkTolerance, chronotype, museumRatio);
+        EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
+        PlanSet set = aggregateMulti(rd.req, rd.routeResult, rd.planResult);
+        // 每套方案补降级 markdown（前端打印/导出用）
+        if (set != null) {
+            for (TripPlanData p : set.getPlans()) {
+                if (p != null && p.getMarkdown().isBlank()) {
+                    p.setMarkdown(renderMarkdown(p));
+                }
+            }
+        }
+        EventStore.add(sessionId, "完成", "多方案生成完成（" + (set == null ? 0 : set.getPlans().size()) + " 套）");
+        return set;
+    }
+
+    /** 解析需求 + 并行 DAG（单方案/多方案共享的前置步骤） */
+    private ReqAndData resolveAndFetch(String userPrompt, String walkTolerance, String chronotype, String museumRatio) {
         // ① 需求解析（单次结构化 LLM 调用）
         EventStore.add(sessionId, "解析", "正在解析旅行需求...");
         TripRequest req = parseRequest(userPrompt);
@@ -81,17 +114,17 @@ public class TripOrchestrator {
         String routeResult = await(routeFuture, "路线Agent");
         String planResult = await(planFuture, "行程Agent");
         checkCancel();
+        return new ReqAndData(req, routeResult, planResult);
+    }
 
-        // ③ 聚合：结构化 JSON（失败退回 markdown 原文兜底）
-        EventStore.add(sessionId, "整合", "正在整合路线与行程数据...");
-        TripPlanData plan = aggregate(req, routeResult, planResult);
-        if (plan == null) {
-            plan = fallbackPlan(req, routeResult, planResult); // 兜底已含完整 markdown 原文
-        } else {
-            plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
+    /** 解析+DAG 结果载体 */
+    private static class ReqAndData {
+        final TripRequest req;
+        final String routeResult;
+        final String planResult;
+        ReqAndData(TripRequest req, String routeResult, String planResult) {
+            this.req = req; this.routeResult = routeResult; this.planResult = planResult;
         }
-        EventStore.add(sessionId, "完成", "结构化行程生成完成");
-        return plan;
     }
 
     // ==================== ① 需求解析 ====================
@@ -212,6 +245,11 @@ public class TripOrchestrator {
     // ==================== ③ 聚合 ====================
 
     private TripPlanData aggregate(TripRequest req, String routeResult, String planResult) {
+        return aggregateWithStyle(req, routeResult, planResult, null);
+    }
+
+    /** 单套方案聚合（style=null 表示默认无风格；否则注入风格约束） */
+    private TripPlanData aggregateWithStyle(TripRequest req, String routeResult, String planResult, String style) {
         String sysPrompt = "你是行程聚合器。根据需求与专家数据，输出一个结构化 JSON 对象，字段名固定如下：\n"
                 + "{\"title\":\"行程标题\",\"destination\":\"目的地\",\"days\":天数,\"date\":\"日期\",\"weather\":\"天气\","
                 + "\"sections\":[{\"type\":\"timeline|transport|stay|tips\",\"title\":\"区块标题\",\"items\":[{\"time\":\"\","
@@ -219,7 +257,8 @@ public class TripOrchestrator {
                 + "\"way\":\"\",\"duration\":\"\",\"name\":\"\",\"price\":\"\",\"kind\":\"\",\"text\":\"\"}]}]}\n"
                 + "sections 按「每日行程(timeline)/交通(transport)/住宿餐饮(stay)/实用信息(tips)」组织，"
                 + "每天的行程放在一个 type=timeline 的 section 里，title 用「第N天」。"
-                + "内容必须具体（真实景点名/价格/餐厅酒店名）。除 JSON 外不要输出任何文字。";
+                + "内容必须具体（真实景点名/价格/餐厅酒店名）。除 JSON 外不要输出任何文字。"
+                + buildStyleHint(style);
         String userPrompt = "用户需求：" + req.getRaw()
                 + buildPreferencePrompt(req)  // ★预检偏好约束（步行/作息/博物馆占比）
                 + "\n\n【路线数据】\n" + routeResult + "\n\n【行程数据】\n" + planResult;
@@ -238,6 +277,53 @@ public class TripOrchestrator {
             plan.setDays(req.getDays());
         }
         return plan;
+    }
+
+    /** 3 套差异化方案并行聚合（美食向/出片向/省钱向） */
+    private PlanSet aggregateMulti(TripRequest req, String routeResult, String planResult) {
+        String[][] styles = {
+                {"food", "美食向", "本次方案为「美食向」：以地道美食为主线，突出必吃餐厅、夜市、小吃街，行程围绕用餐地点安排，每个时段尽量给出具体餐厅/小吃推荐。"},
+                {"photo", "出片向", "本次方案为「出片向」：以拍照出片为主线，突出网红打卡点、绝美风景、日出日落最佳机位，每个景点标注拍摄建议。"},
+                {"budget", "省钱向", "本次方案为「省钱向」：以性价比为主线，突出免费景点、经济住宿、公共交通、平价美食，控制总预算。"},
+        };
+        // 并行提交 3 套聚合（PARALLEL_POOL 已 4 线程）
+        @SuppressWarnings("unchecked")
+        Future<TripPlanData>[] futures = new Future[3];
+        for (int i = 0; i < 3; i++) {
+            final int idx = i;
+            futures[i] = PARALLEL_POOL.submit(() ->
+                    aggregateWithStyle(req, routeResult, planResult, styles[idx][2]));
+        }
+        PlanSet set = new PlanSet();
+        int successCount = 0;
+        for (int i = 0; i < 3; i++) {
+            TripPlanData plan = null;
+            try {
+                plan = futures[i].get(180, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.error("方案「{}」聚合失败: {}", styles[i][1], e.getMessage());
+            }
+            if (plan == null) {
+                plan = fallbackPlan(req, routeResult, planResult); // 该套失败退回 markdown 兜底
+                plan.setTitle(req.getDestination() + req.getDays() + "日游（" + styles[i][1] + "）");
+            }
+            set.getPlans().add(plan);
+            set.getStyles().add(styles[i][0]);
+            set.getSlogans().add(styles[i][1]);
+            if (plan.getSections() != null && !plan.getSections().isEmpty()) {
+                successCount++;
+            }
+        }
+        // 全部结构化失败则返回 null（调用方兜底为单方案）
+        return successCount > 0 ? set : null;
+    }
+
+    /** 风格约束文案（style=null 返回空串） */
+    private String buildStyleHint(String style) {
+        if (style == null) {
+            return "";
+        }
+        return "\n【风格约束】" + style + "\n";
     }
 
     /** 聚合失败：退回原文 markdown，sections 留空供前端 markdown 兜底 */

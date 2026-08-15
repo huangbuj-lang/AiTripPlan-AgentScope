@@ -200,19 +200,21 @@ function cancelTask() {
 // ==================== ★预检卡片（功能1：意图拆解）+ 偏好记忆（功能5） ====================
 
 /** 当前选中的偏好（内存态，提交时读取） */
-let currentPref = { walkTolerance: '', chronotype: '', museumRatio: '' };
+let currentPref = { walkTolerance: '', chronotype: '', museumRatio: '', scheme: 'single' };
 
 /** 弹出预检卡片：回填历史偏好，绑定选项点击 */
 function showPrecheck() {
     // 重置选中态
     document.querySelectorAll('.precheck-opt').forEach(b => b.classList.remove('active'));
-    currentPref = { walkTolerance: '', chronotype: '', museumRatio: '' };
+    currentPref = { walkTolerance: '', chronotype: '', museumRatio: '', scheme: 'single' };
+    // 默认单方案高亮
+    highlightOpt('schemeOpts', 'single');
     // 拉取历史偏好回填默认值（隐形学习：下次不用重新勾选）
     fetch('/api/get-preference')
         .then(r => r.json())
         .then(d => {
             if (d.success) {
-                currentPref = { walkTolerance: d.walkTolerance || '', chronotype: d.chronotype || '', museumRatio: d.museumRatio || '' };
+                currentPref = { walkTolerance: d.walkTolerance || '', chronotype: d.chronotype || '', museumRatio: d.museumRatio || '', scheme: currentPref.scheme };
                 highlightOpt('walkOpts', d.walkTolerance);
                 highlightOpt('chronoOpts', d.chronotype);
                 highlightOpt('museumOpts', d.museumRatio);
@@ -224,6 +226,7 @@ function showPrecheck() {
     bindPrecheckOpts('walkOpts', 'walkTolerance');
     bindPrecheckOpts('chronoOpts', 'chronotype');
     bindPrecheckOpts('museumOpts', 'museumRatio');
+    bindPrecheckOpts('schemeOpts', 'scheme');
 }
 
 /** 高亮历史回填的选项 */
@@ -258,6 +261,7 @@ function submitWithPreference(skip) {
     const walk = skip ? '' : (currentPref.walkTolerance || '');
     const chrono = skip ? '' : (currentPref.chronotype || '');
     const museum = skip ? '' : (currentPref.museumRatio || '');
+    const multi = (!skip && currentPref.scheme === 'multi') ? 'true' : 'false';
     // ★偏好持久化：非跳过时保存（隐形学习）；跳过不覆盖历史偏好
     if (!skip) {
         fetch('/api/save-preference?walkTolerance=' + encodeURIComponent(walk)
@@ -265,11 +269,11 @@ function submitWithPreference(skip) {
             + '&museumRatio=' + encodeURIComponent(museum), { method: 'POST' })
             .catch(() => { /* 保存失败不影响生成 */ });
     }
-    doSubmit(prompt, walk, chrono, museum);
+    doSubmit(prompt, walk, chrono, museum, multi);
 }
 
 /** 实际提交任务（原 send 的提交逻辑，增加偏好参数） */
-function doSubmit(prompt, walk, chrono, museum) {
+function doSubmit(prompt, walk, chrono, museum, multi) {
     if (polling) { clearInterval(polling); polling = null; }
     if (eventSource) { eventSource.close(); eventSource = null; }
     if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
@@ -285,7 +289,8 @@ function doSubmit(prompt, walk, chrono, museum) {
     fetch('/app?prompt=' + encodeURIComponent(prompt) + '&sessionId=' + encodeURIComponent(sessionId)
         + '&walkTolerance=' + encodeURIComponent(walk)
         + '&chronotype=' + encodeURIComponent(chrono)
-        + '&museumRatio=' + encodeURIComponent(museum), { method: 'POST' })
+        + '&museumRatio=' + encodeURIComponent(museum)
+        + '&multiScheme=' + encodeURIComponent(multi), { method: 'POST' })
         .then(r => r.text())
         .then(msg => {
             if (msg.includes('有任务正在执行')) {
@@ -335,7 +340,11 @@ function fetchResult() {
             // ★阶段三：优先按结构化 JSON 渲染；旧 markdown / 错误文本走降级路径
             let structured = null;
             try { structured = JSON.parse(text); } catch (e) { /* 非 JSON：按原文处理 */ }
-            if (structured && (structured.sections || structured.title)) {
+            if (structured && structured.plans && Array.isArray(structured.plans) && structured.plans.length > 1) {
+                // ★功能4：多方案对比（PlanSet）
+                lastResultMarkdown = ''; // 多方案暂不支持保存单一 markdown（选中后回填）
+                document.getElementById('resultBody').innerHTML = renderPlanSet(structured);
+            } else if (structured && (structured.sections || structured.title)) {
                 lastResultMarkdown = structured.markdown || ''; // 记录降级 markdown，供保存
                 document.getElementById('resultBody').innerHTML = renderStructuredPlan(structured);
             } else {
@@ -859,6 +868,73 @@ function formatSectionItem(type, item) {
         default:
             return pick(item.activity, item.place, item.text, item.name);
     }
+}
+
+// ==================== ★功能4：多方案对比（MVP） ====================
+
+/** 当前多方案集合（内存态） + 当前选中索引 */
+let planSetData = null;
+let planSetIndex = 0;
+
+const STYLE_LABELS = { food: '🍜 美食向', photo: '📷 出片向', budget: '💰 省钱向' };
+
+/** 渲染多方案对比：顶部风格标签切换 + 当前方案详情 + 选中按钮 */
+function renderPlanSet(set) {
+    planSetData = set;
+    planSetIndex = 0;
+    const plans = set.plans || [];
+    if (plans.length === 0) return '<div class="empty">（多方案为空）</div>';
+
+    // 顶部风格标签栏
+    let tabs = '<div class="planset-tabs">';
+    plans.forEach((p, i) => {
+        const label = STYLE_LABELS[set.styles?.[i]] || ('方案' + (i + 1));
+        tabs += '<button class="planset-tab' + (i === 0 ? ' active' : '') + '" onclick="switchPlan(' + i + ')">' + label + '</button>';
+    });
+    tabs += '</div>';
+
+    // 当前方案详情
+    tabs += '<div id="plansetBody" class="planset-body"></div>';
+
+    // 底部操作栏
+    tabs += '<div class="planset-actions">'
+        + '<span id="plansetHint" class="planset-hint">左右切换对比 3 套方案，选中你最中意的一套</span>'
+        + '<button class="precheck-confirm" onclick="adoptPlan()"><i class="fa-solid fa-check"></i> 采用这套方案</button>'
+        + '</div>';
+
+    // 渲染当前方案（异步回填 body）
+    setTimeout(() => { refreshPlanSetBody(); }, 0);
+    return tabs;
+}
+
+/** 刷新当前选中方案的详情区 */
+function refreshPlanSetBody() {
+    if (!planSetData) return;
+    const p = planSetData.plans[planSetIndex];
+    const label = STYLE_LABELS[planSetData.styles?.[planSetIndex]] || '';
+    const slogan = planSetData.slogans?.[planSetIndex] || '';
+    let html = '<div class="planset-slogan">' + label + (slogan ? ' · ' + slogan : '') + '</div>';
+    html += renderStructuredPlan(p); // 复用单方案渲染
+    document.getElementById('plansetBody').innerHTML = html;
+    // 更新 tab 高亮
+    document.querySelectorAll('.planset-tab').forEach((b, i) => {
+        b.classList.toggle('active', i === planSetIndex);
+    });
+}
+
+/** 切换到第 i 套方案 */
+function switchPlan(i) {
+    planSetIndex = i;
+    refreshPlanSetBody();
+}
+
+/** 采用当前方案：替换为单方案渲染，回填 markdown 供保存 */
+function adoptPlan() {
+    if (!planSetData) return;
+    const p = planSetData.plans[planSetIndex];
+    lastResultMarkdown = p.markdown || ''; // 回填 markdown 供保存行程
+    document.getElementById('resultBody').innerHTML = renderStructuredPlan(p);
+    document.getElementById('status').textContent = '✅ 已采用「' + (STYLE_LABELS[planSetData.styles?.[planSetIndex]] || '') + '」方案！';
 }
 
 /** 将结构化 TripPlanData 渲染为 A4 行程规划表 HTML */
