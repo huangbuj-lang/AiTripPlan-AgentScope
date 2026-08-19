@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import utils.AgentUtils;
 import utils.Config;
 import utils.LimitedMemory;
-import utils.mcp.BaiduMapTool;
+import utils.mcp.BaiduEnhancedToolFactory;
 
 /**
  * 行程规划Agent
@@ -23,9 +23,8 @@ public class TripPlannerAgent {
 
         Toolkit toolkit = new Toolkit();
 
-        // ★真实地图工具：挂上百度地图MCP工具（景点/天气/路线等真实查询）。
-        // 挂载用 registration().tool()，避免 ToolUtils 触发 AgentScope 1.0.8 工具调用被吞 bug
-        toolkit.registration().tool(new BaiduMapTool()).apply();
+        // ★框架标准MCP + 语义化增强：MCP客户端(10工具) + 人名友好转换工具(6工具)
+        BaiduEnhancedToolFactory.register(toolkit);
 
         /* AgentScope框架自带注册中心AgentScopeA2aServer，
            智能体卡片通过SpringBoot Bean自动注入（或用下方注释代码手动写入） */

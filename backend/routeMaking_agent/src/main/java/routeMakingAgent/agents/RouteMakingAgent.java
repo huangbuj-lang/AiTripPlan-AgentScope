@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import utils.AgentUtils;
 import utils.Config;
 import utils.LimitedMemory;
-import utils.mcp.BaiduMapTool;
+import utils.mcp.BaiduEnhancedToolFactory;
 
 import java.util.Set;
 
@@ -24,13 +24,9 @@ public class RouteMakingAgent {
     @Scope("prototype") // 原型作用域：每次任务获取新实例，避免单例Bean并发冲突
     public ReActAgent getRouteMakingAgent() {
 
-        // 百度地图MCP工具（真实数据源）
-        BaiduMapTool baiduMapTool = new BaiduMapTool();
-
-        // ★挂载方式必须用 registration().tool()：实测 ToolUtils.getToolkit() 触发
-        // AgentScope 1.0.8 的 ToolUseBlock 被吞 bug（模型调工具→被丢弃→重试→轮次爆炸→编造失败）
+        // ★框架标准MCP + 语义化增强：MCP客户端(10工具) + 人名友好转换工具(6工具)
         Toolkit toolkit = new Toolkit();
-        toolkit.registration().tool(baiduMapTool).apply();
+        BaiduEnhancedToolFactory.register(toolkit);
 
         Set<String> toolNames = toolkit.getToolNames(); // 打印挂载的工具
         log.info("=============");
