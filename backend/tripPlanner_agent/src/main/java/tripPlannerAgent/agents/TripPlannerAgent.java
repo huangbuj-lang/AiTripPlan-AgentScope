@@ -1,30 +1,15 @@
 package tripPlannerAgent.agents;
 
 import io.agentscope.core.ReActAgent;
-import io.agentscope.core.a2a.server.AgentScopeA2aServer;
-import io.agentscope.core.a2a.server.card.ConfigurableAgentCard;
-import io.agentscope.core.a2a.server.transport.DeploymentProperties;
-import io.agentscope.core.skill.AgentSkill;
-import io.agentscope.core.skill.SkillBox;
-import io.agentscope.core.skill.repository.AgentSkillRepository;
-import io.agentscope.core.skill.repository.FileSystemSkillRepository;
-import io.agentscope.core.skill.util.JarSkillRepositoryAdapter;
-import io.agentscope.core.skill.util.SkillUtil;
 import io.agentscope.core.tool.Toolkit;
-import io.agentscope.core.tool.subagent.SubAgentTool;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
-import tripPlannerAgent.tool.Calculate;
 import utils.AgentUtils;
 import utils.Config;
 import utils.LimitedMemory;
-
-import java.io.IOException;
-import java.net.URISyntaxException;
-import java.nio.file.Path;
-import java.util.List;
+import utils.mcp.BaiduMapTool;
 
 /**
  * 行程规划Agent
@@ -34,15 +19,13 @@ public class TripPlannerAgent {
 
     @Bean
     @Scope("prototype") // ★并发支持：每次A2A任务从容器取新实例（官方标准方案，避免单例状态机并发冲突）
-    public ReActAgent getTripPlannerAgent() throws URISyntaxException, IOException {
+    public ReActAgent getTripPlannerAgent() {
 
         Toolkit toolkit = new Toolkit();
 
-        SuggestSightAgent SuggestSightAgent = new SuggestSightAgent();
-
-        toolkit.registration().subAgent( // 将子Agent作为工具注册
-                ()->SuggestSightAgent.getSuggestSightAgent()
-        ).apply();
+        // ★真实地图工具：挂上百度地图MCP工具（景点/天气/路线等真实查询）。
+        // 挂载用 registration().tool()，避免 ToolUtils 触发 AgentScope 1.0.8 工具调用被吞 bug
+        toolkit.registration().tool(new BaiduMapTool()).apply();
 
         /* AgentScope框架自带注册中心AgentScopeA2aServer，
            智能体卡片通过SpringBoot Bean自动注入（或用下方注释代码手动写入） */
