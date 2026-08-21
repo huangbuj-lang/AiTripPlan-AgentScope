@@ -130,7 +130,10 @@ public class TripOrchestrator {
         checkCancel();
 
         // ★偏好分流：主管用 LLM 把用户文本偏好 分类成 行程/路线/聚合 三类，后续传给对应子Agent综合工具
-        if (req.getPreference() != null && !req.getPreference().isBlank()) {
+        // ★个人中心沉淀偏好并入：与用户文本同路，主管LLM统一分类
+        boolean hasTextPref = req.getPreference() != null && !req.getPreference().isBlank();
+        boolean hasStoredPref = req.getPreferences() != null && !req.getPreferences().isEmpty();
+        if (hasTextPref || hasStoredPref) {
             classifyPreference(req);
         }
         // ★确定性编排分支：
@@ -269,9 +272,6 @@ public class TripOrchestrator {
         if (req.getWalkTolerance() != null && !req.getWalkTolerance().isBlank()) {
             routePrefs.add("步行上限" + req.getWalkTolerance().trim() + "米");
         }
-        if (req.getPreferences() != null && !req.getPreferences().isEmpty()) {
-            routePrefs.add(req.getPreferences().toPromptText());
-        }
         String routePrefStr = routePrefs.isEmpty() ? "" : String.join(" ", routePrefs);
         // sightList 非空 → 市内游且已由行程Agent定好景点，路线按这些景点查衔接
         String dest = (req.getDestination() == null || req.getDestination().isBlank()) ? "" : req.getDestination();
@@ -309,9 +309,6 @@ public class TripOrchestrator {
         if (req.getMuseumRatio() != null && !req.getMuseumRatio().isBlank()) {
             if ("high".equals(req.getMuseumRatio())) tripPrefs.add("博物馆多");
             else if ("low".equals(req.getMuseumRatio())) tripPrefs.add("博物馆少");
-        }
-        if (req.getPreferences() != null && !req.getPreferences().isEmpty()) {
-            tripPrefs.add(req.getPreferences().toPromptText());
         }
         String prefStr = tripPrefs.isEmpty() ? "" : String.join(" ", tripPrefs);
         if (waypoints != null && !waypoints.isBlank()) {
@@ -381,7 +378,13 @@ public class TripOrchestrator {
                 + "\"routePref\":\"适合路线Agent的偏好(与出行方式道路相关，如公交/骑行/步行/不走高速)；无则空\",\n"
                 + "\"aggPref\":\"不适合二者、只影响整体编排的偏好(如放松休闲/性价比紧凑/节假日)；无则空\"}\n"
                 + "只输出 JSON 不要多余文字。";
-        String out = callModelJson(sys, "用户偏好：" + req.getPreference());
+        // ★个人中心沉淀偏好并入分类输入：由主管LLM统一分类后按类传参
+        String prefInput = req.getPreference();
+        if (req.getPreferences() != null && !req.getPreferences().isEmpty()) {
+            prefInput = (prefInput == null || prefInput.isBlank() ? "" : prefInput + "；")
+                    + "个人中心设置：" + req.getPreferences().toPromptText();
+        }
+        String out = callModelJson(sys, "用户偏好：" + prefInput);
         try {
             var node = JsonUtils.extractAndParse(out, java.util.Map.class);
             if (node != null) {
