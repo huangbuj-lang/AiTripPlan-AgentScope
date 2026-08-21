@@ -287,4 +287,65 @@ public class AdminController {
         r.put("message", "公告已发布并推送给 " + userIds.size() + " 位用户");
         return r;
     }
+// ==================== 数据中心（数据管线可视化，独立新增） ====================
+
+    /** 表存在性容错查询：表不存在返回空列表 */
+    private java.util.List<Map<String, Object>> qRowsSafe(String sql) {
+        try {
+            return jdbcTemplate.queryForList(sql);
+        } catch (Exception e) {
+            return new java.util.ArrayList<>();
+        }
+    }
+
+    /** 数据管线统计：各表行数（表不存在返回0） */
+    @GetMapping("/data-stats")
+    public Map<String, Object> dataStats() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("attractions", qIntSafe("SELECT COUNT(*) FROM attractions"));
+        r.put("foods", qIntSafe("SELECT COUNT(*) FROM foods"));
+        r.put("hotels", qIntSafe("SELECT COUNT(*) FROM hotels"));
+        r.put("cities", qIntSafe("SELECT COUNT(DISTINCT city) FROM attractions"));
+        r.put("feedbacks", qIntSafe("SELECT COUNT(*) FROM plan_feedback"));
+        r.put("profiles", qIntSafe("SELECT COUNT(*) FROM user_profiles_tags"));
+        r.put("success", true);
+        return r;
+    }
+
+    private int qIntSafe(String sql) {
+        try {
+            Integer v = jdbcTemplate.queryForObject(sql, Integer.class);
+            return v == null ? 0 : v;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** 动态定价结果 */
+    @GetMapping("/pricing")
+    public Map<String, Object> pricing() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("rows", qRowsSafe("SELECT city, hotel_base, hotel_price, ticket_base, ticket_price, factors FROM pricing_output ORDER BY hotel_price DESC"));
+        r.put("success", true);
+        return r;
+    }
+
+    /** 客流预测（未来7天） */
+    @GetMapping("/forecast")
+    public Map<String, Object> forecast() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("rows", qRowsSafe("SELECT city, day, forecast_idx FROM forecast_output ORDER BY day, city"));
+        r.put("success", true);
+        return r;
+    }
+
+    /** 用户画像 + 反馈统计 */
+    @GetMapping("/profiles")
+    public Map<String, Object> profiles() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("profiles", qRowsSafe("SELECT t.user_id, u.username, t.tags FROM user_profiles_tags t LEFT JOIN users u ON u.id = t.user_id"));
+        r.put("feedback", qRowsSafe("SELECT action, COUNT(*) cnt FROM plan_feedback GROUP BY action"));
+        r.put("success", true);
+        return r;
+    }
 }

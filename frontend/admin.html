@@ -31,6 +31,7 @@
         <button class="tab" data-tab="moderation" onclick="switchTab('moderation')">🛡️ 内容审核</button>
         <button class="tab" data-tab="business" onclick="switchTab('business')">📊 业务看板</button>
         <button class="tab" data-tab="announce" onclick="switchTab('announce')">📢 公告发布</button>
+        <button class="tab" data-tab="center" onclick="switchTab('center')">📊 数据中心</button>
     </nav>
 
     <main class="content">
@@ -110,6 +111,27 @@
                 </div>
                 <div id="announceList" class="panel-body" style="margin-top:18px">加载中...</div>
             </div>
+        </section>
+
+        <!-- 数据中心（数据管线可视化） -->
+        <section class="panel hidden" id="panel-center">
+            <div class="panel-head">
+                <h2>数据中心</h2>
+                <button class="btn-refresh" onclick="loadDataCenter()">刷新</button>
+            </div>
+            <div id="centerStats" class="metric-grid" style="display:flex;flex-wrap:wrap;gap:12px"></div>
+            <div style="display:flex;gap:20px;margin-top:18px;flex-wrap:wrap">
+              <div style="flex:1;min-width:320px">
+                <h3 style="color:#cbd5e1;font-size:14px;margin:8px 0">动态定价（基准×系数）</h3>
+                <div id="pricingBody" class="panel-body" style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px;max-height:300px;overflow:auto">加载中...</div>
+              </div>
+              <div style="flex:1;min-width:320px">
+                <h3 style="color:#cbd5e1;font-size:14px;margin:8px 0">客流预测（未来7天指数）</h3>
+                <div id="forecastBody" class="panel-body" style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px;max-height:300px;overflow:auto">加载中...</div>
+              </div>
+            </div>
+            <h3 style="color:#cbd5e1;font-size:14px;margin:16px 0 8px">用户画像 + 反馈</h3>
+            <div id="profilesBody" class="panel-body" style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px;max-height:320px;overflow:auto">加载中...</div>
         </section>
         </section>
     </main>

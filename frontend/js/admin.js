@@ -52,6 +52,7 @@ function switchTab(tab) {
     else if (tab === 'moderation') { loadModeration(); stopStatusTimer(); stopTasksTimer(); }
     else if (tab === 'business') { loadBusiness(); stopStatusTimer(); stopTasksTimer(); }
     else if (tab === 'announce') { loadAnnouncements(); stopStatusTimer(); stopTasksTimer(); }
+    else if (tab === 'center') { loadDataCenter(); stopStatusTimer(); stopTasksTimer(); }
 }
 
 function startStatusTimer() { if (!statusTimer) statusTimer = setInterval(loadStatus, 5000); }
@@ -262,4 +263,58 @@ function publishAnnouncement() {
             toast(d.message, !d.success);
             if (d.success) { document.getElementById('annTitle').value = ''; document.getElementById('annContent').value = ''; loadAnnouncements(); }
         });
+}
+
+// ============ 数据中心（数据管线可视化） ============
+function loadDataCenter() {
+    // 统计卡片
+    fetch('/api/admin/data-stats').then(r => r.json()).then(d => {
+        const s = document.getElementById('centerStats');
+        if (!d.success) { s.innerHTML = '<div class="empty">加载失败</div>'; return; }
+        const cards = [['景点', d.attractions], ['美食', d.foods], ['酒店', d.hotels], ['覆盖城市', d.cities], ['行为反馈', d.feedbacks], ['画像用户', d.profiles]];
+        s.innerHTML = cards.map(c => '<div class="metric" style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 20px;min-width:110px">' +
+            '<div class="num" style="font-size:26px;font-weight:700;color:#3b82f6">' + c[1] + '</div>' +
+            '<div class="label" style="color:#64748b;font-size:12px;margin-top:4px">' + c[0] + '</div></div>').join('');
+    }).catch(() => {});
+    // 定价
+    fetch('/api/admin/pricing').then(r => r.json()).then(d => {
+        const b = document.getElementById('pricingBody');
+        const rows = d.rows || [];
+        if (!rows.length) { b.innerHTML = '<div class="empty">暂无数据（运行 data-pipeline/pricing.py）</div>'; return; }
+        b.innerHTML = '<table><thead><tr><th>城市</th><th>酒店价</th><th>门票价</th><th>系数</th></tr></thead><tbody>' +
+            rows.map(x => '<tr><td>' + esc(x.city) + '</td><td>¥' + x.hotel_price + '</td><td>¥' + x.ticket_price + '</td><td>' + esc(x.factors || '') + '</td></tr>').join('') + '</tbody></table>';
+    }).catch(() => {});
+    // 客流（SVG 折线：每城一条线）
+    fetch('/api/admin/forecast').then(r => r.json()).then(d => {
+        const b = document.getElementById('forecastBody');
+        const rows = d.rows || [];
+        if (!rows.length) { b.innerHTML = '<div class="empty">暂无数据（运行 data-pipeline/forecast.py）</div>'; return; }
+        const cities = [...new Set(rows.map(x => x.city))].slice(0, 6);
+        const days = [...new Set(rows.map(x => x.day))].sort();
+        let chart = '';
+        cities.forEach(c => {
+            const vals = days.map(day => { const row = rows.find(x => x.city === c && x.day === day); return row ? parseFloat(row.forecast_idx) : 0; });
+            const max = Math.max(...vals, 1);
+            const W = 260, H = 60;
+            const pts = vals.map((v, i) => (i * W / Math.max(days.length - 1, 1)) + ',' + (H - v / max * H)).join(' ');
+            chart += '<div style="margin-bottom:10px"><div style="color:#94a3b8;font-size:12px">' + esc(c) + '</div>' +
+                '<svg width="' + W + '" height="' + H + '" style="background:#0f172a;border-radius:6px">' +
+                '<polyline points="' + pts + '" fill="none" stroke="#3b82f6" stroke-width="1.5"/></svg></div>';
+        });
+        b.innerHTML = chart;
+    }).catch(() => {});
+    // 画像 + 反馈
+    fetch('/api/admin/profiles').then(r => r.json()).then(d => {
+        const b = document.getElementById('profilesBody');
+        let html = '';
+        const fb = (d.feedback || []).map(x => esc(x.action) + ':' + x.cnt).join(' · ') || '暂无反馈';
+        html += '<div style="color:#94a3b8;font-size:12px;margin-bottom:10px">反馈统计：' + fb + '</div>';
+        const ps = d.profiles || [];
+        if (!ps.length) { html += '<div class="empty">暂无画像（运行 data-pipeline/profile.py）</div>'; }
+        else {
+            html += '<table><thead><tr><th>用户</th><th>画像标签</th></tr></thead><tbody>' +
+                ps.map(x => '<tr><td>' + esc(x.username || ('#' + x.user_id)) + '</td><td>' + esc(x.tags || '') + '</td></tr>').join('') + '</tbody></table>';
+        }
+        b.innerHTML = html;
+    }).catch(() => {});
 }
