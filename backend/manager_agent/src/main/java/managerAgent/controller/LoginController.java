@@ -99,13 +99,6 @@ public class LoginController {
             result.put("message", "密码错误");
             return result;
         }
-        // ★P0：账号状态校验（注销/封禁禁止登录）
-        int status = user.get("status") == null ? 1 : ((Number) user.get("status")).intValue();
-        if (status != 1) {
-            result.put("success", false);
-            result.put("message", "账号已被禁用，请联系管理员");
-            return result;
-        }
         LOGIN_FAILS.remove(username); // 登录成功：清除失败记录
         session.setAttribute("userId", ((Number) user.get("id")).longValue()); // 登录成功：用户信息存入Session
         session.setAttribute("username", username);
@@ -116,9 +109,6 @@ public class LoginController {
             role = "admin";
         }
         session.setAttribute("role", role);
-        // ★P0：凭证版本号 + 账号状态入会话，LoginInterceptor 据此强制下线
-        session.setAttribute("pwdVersion", user.get("pwd_version") == null ? 0 : ((Number) user.get("pwd_version")).intValue());
-        session.setAttribute("status", status);
         result.put("success", true);
         result.put("message", "登录成功");
         result.put("username", username);
@@ -152,7 +142,6 @@ public class LoginController {
             result.put("success", true);
             result.put("username", username);
             result.put("role", session.getAttribute("role"));
-            result.put("userId", session.getAttribute("userId"));
         }
         return result;
     }

@@ -3,13 +3,13 @@ package tripPlannerAgent.agents;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.tool.Toolkit;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import utils.AgentUtils;
 import utils.Config;
 import utils.LimitedMemory;
-import utils.mcp.BaiduEnhancedToolFactory;
+import utils.mcp.AmapEnhancedToolFactory;
+import utils.mcp.AmapEnhancedToolFactory.AgentType;
 
 /**
  * 行程规划Agent
@@ -23,44 +23,25 @@ public class TripPlannerAgent {
 
         Toolkit toolkit = new Toolkit();
 
-        // ★框架标准MCP + 语义化增强：MCP客户端(10工具) + 人名友好转换工具(6工具)
-        BaiduEnhancedToolFactory.register(toolkit);
-
-        /* AgentScope框架自带注册中心AgentScopeA2aServer，
-           智能体卡片通过SpringBoot Bean自动注入（或用下方注释代码手动写入） */
+        // ★高德MCP：只暴露综合工具 query_trip（代码写死固定链，一次调用拿全部行程数据）
+        // 模型只调1次即得天气/景点/酒店/美食，不自由ReAct撮合散工具，砍掉多余轮次
+        AmapEnhancedToolFactory.register(toolkit, AgentType.TRIP);
 
         ReActAgent.Builder builder = AgentUtils.getReActAgentBuilder( // 行程规划Agent Builder
-                "TripPlannerAgent",
-                "擅长处理景点行程规划"
-        )
-                .memory(new LimitedMemory(Config.getInt("MEMORY_SIZE", 20))) // 限量记忆：单例Agent上下文无限增长会导致状态卡死/大模型400
-                .toolkit(toolkit) // 挂载工具包
-
-                ;
+                        "TripPlannerAgent",
+                        "擅长处理景点行程规划"
+                )
+                        .memory(new LimitedMemory(Config.getInt("MEMORY_SIZE", 20))) // 限量记忆：单例Agent上下文无限增长会导致状态卡死/大模型400
+                        .toolkit(toolkit) // 挂载工具包
+                        // ★工具使用铁律：用真实工具查询，严禁凭知识编造；工具失败(⚠️)如实上报
+                        .sysPrompt("你是TripPlannerAgent，一个专业的行程规划Agent。你只拥有一个综合工具 query_trip，它一次调用就会为你返回规划行程所需的全部真实数据（目的地天气/热门景点/住宿酒店/餐饮美食）。\n"
+                                + "★固定链铁律：规划行程前【必须且只需】调用 query_trip 一次获取全部真实数据，不要试图用其他方式凑数据。\n"
+                                + "★严禁编造：如果工具返回【⚠️...数据获取失败】，你【不得】伪造该数据替代，必须如实写明\"该数据获取失败\"或缺省该字段，不得编造不存在的景点/价格/评分。\n"
+                                + "★天数铁律：严格按照任务给定的天数规划，不得自动增减天数。\n"
+                                + "★最终输出铁律：你的最终回复必须是完整、可直接阅读的行程计划，包含每天具体安排、真实景点名、门票、酒店餐厅名。"
+                                + "禁止只输出\"已完成/总结\"等收尾概述；开头直接给内容，禁止\"我已加载/以下为您整理\"等引导语。\n"
+                        );
 
         return builder.build();
-
-        //=========== 手动写入注册中心，项目不用种方式 START ====
-
-//        //行程规划Agent 智能体卡片
-//        ConfigurableAgentCard agentCard =  new ConfigurableAgentCard.Builder()
-//                .name("TripPlannerAgent")
-//                .description("行程规划Agent")
-//                .build();
-//
-//        //将智能体卡片写入到AgentScope自带的注册中心
-//        AgentScopeA2aServer.builder(builder)
-//                .agentCard(agentCard)
-//                .deploymentProperties(
-//                       new DeploymentProperties(
-//                               "localhost",
-//                               8080)
-//                )
-//                .build();
-
-        //还需要AgentScopeA2aServer启动
-
-        //======== 手动写入注册中心，项目不用种方式 END ====
-
     }
 }

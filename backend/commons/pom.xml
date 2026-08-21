@@ -18,15 +18,15 @@
     </properties>
 
     <dependencies>
-        <!-- AgentScope 核心(提供 @Tool/@ToolParam 注解，BaiduMapTool 共用)。
+        <!-- AgentScope 核心(提供 @Tool/@ToolParam 注解 + MCP客户端类，AmapMapEnhancedTool 共用)。
              ⚠️ 不要用 agentscope-a2a-starter：会触发 A2A 自动配置要求 AgentRunner bean，
-             导致无 AgentRunner 的模块(如 commons 直接依赖时)启动失败 -->
+             导致无 AgentRunner 的模块启动失败 -->
         <dependency>
             <groupId>io.agentscope</groupId>
             <artifactId>agentscope-spring-boot-starter</artifactId>
             <version>${AgentScope.version}</version>
         </dependency>
-        <!-- Jackson JSON：BaiduMapTool 解析 MCP 响应所需 -->
+        <!-- Jackson JSON：AmapMapEnhancedTool 解析 MCP 响应所需 -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>

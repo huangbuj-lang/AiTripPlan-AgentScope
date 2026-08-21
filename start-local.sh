@@ -146,20 +146,25 @@ if [ -z "$(JAR routeMaking_agent)" ] || [ -z "$(JAR tripPlanner_agent)" ] || [ -
 fi
 
 # ---------- 3. 启动 Agent（顺序：路线 → 行程 → 主管） ----------
-start_agent() {  # $1=模块 $2=端口 $3=名称
+start_agent() {  # $1=模块 $2=端口 $3=名称 $4=AMAP_SEM_PERMITS
     if is_listening "$2"; then
         echo "✅ ${3} 已在运行（跳过）"
         return 0
     fi
     echo "🚀 启动 ${3}（$2）..."
-    nohup java --enable-preview -Xms256m -Xmx256m -jar \
+    local AMP=""
+    if [ -n "${4:-}" ]; then
+        AMP="AMAP_SEM_PERMITS=$4"
+        echo "   （高德并发份额 AMAP_SEM_PERMITS=$4，跨进程合计≤3）"
+    fi
+    nohup env $AMP java --enable-preview -Xms256m -Xmx256m -jar \
         "$PROJECT_DIR_WIN/backend/$1/target/$1-1.0-SNAPSHOT.jar" > "$LOG_DIR/$1.log" 2>&1 &
     wait_port "$2" "$3" 90 || return 1
 }
 
 export DEEPSEEK_API_KEY
-start_agent routeMaking_agent 8082 "路线Agent" || exit 1
-start_agent tripPlanner_agent 8085 "行程Agent" || exit 1
+start_agent routeMaking_agent 8082 "路线Agent" 2 || exit 1
+start_agent tripPlanner_agent 8085 "行程Agent" 1 || exit 1
 
 # 主管需要数据库：RDS_PASSWORD 未设置时交互式询问（不写死在脚本里）
 if [ -z "${RDS_PASSWORD:-}" ]; then

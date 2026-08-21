@@ -1,9 +1,7 @@
 package managerAgent.config;
 
-import jakarta.annotation.Resource;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.CacheControl;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -16,16 +14,11 @@ import java.util.concurrent.TimeUnit;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    @Resource
-    private JdbcTemplate jdbcTemplate;
-
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new LoginInterceptor(jdbcTemplate))
-                .addPathPatterns("/app", "/result", "/events", "/cancel",
-                        "/api/save-plan", "/api/my-plans", "/api/delete-plan", "/api/logout",
-                        "/api/profile/**", "/api/trips/**", "/api/forum/**", "/api/notifications/**", "/api/admin/**")
-                .excludePathPatterns("/api/login", "/api/register", "/api/check-login", "/api/share/**");
+        registry.addInterceptor(new LoginInterceptor())
+                .addPathPatterns("/app", "/result", "/events", "/cancel", "/api/save-plan", "/api/my-plans", "/api/delete-plan", "/api/logout", "/api/admin/**")
+                .excludePathPatterns("/api/login", "/api/register", "/api/check-login");
         // 管理接口：登录拦截器先拦（未登录401），再校验管理员角色（非管理员403）
         registry.addInterceptor(new AdminInterceptor())
                 .addPathPatterns("/api/admin/**");

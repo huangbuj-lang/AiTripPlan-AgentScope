@@ -49,9 +49,6 @@ function switchTab(tab) {
     else if (tab === 'tasks') { loadTasks(); startTasksTimer(); stopStatusTimer(); }
     else if (tab === 'breaker') { loadBreaker(); stopStatusTimer(); stopTasksTimer(); }
     else if (tab === 'data') { loadData(); stopStatusTimer(); stopTasksTimer(); }
-    else if (tab === 'moderation') { loadModeration(); stopStatusTimer(); stopTasksTimer(); }
-    else if (tab === 'business') { loadBusiness(); stopStatusTimer(); stopTasksTimer(); }
-    else if (tab === 'announce') { loadAnnouncements(); stopStatusTimer(); stopTasksTimer(); }
 }
 
 function startStatusTimer() { if (!statusTimer) statusTimer = setInterval(loadStatus, 5000); }
@@ -171,95 +168,4 @@ function deleteUser(id, name) {
 function deletePlan(id) {
     if (!confirm('确认删除行程 #' + id + ' ？此操作不可恢复。')) return;
     fetch('/api/admin/plans?id=' + id, { method: 'DELETE' }).then(r => r.json()).then(d => { toast(d.message, !d.success); loadPlans(); });
-}
-
-// ============ 内容审核 ============
-function loadModeration() {
-    fetch('/api/admin/moderation/queue').then(r => r.json()).then(d => {
-        const b = document.getElementById('moderationBody');
-        if (!d.success) { b.innerHTML = '<div class="empty">加载失败</div>'; return; }
-        const typeCn = t => t === 1 ? '帖子' : '评论';
-        // 待处理举报
-        let reportsHtml = (d.reports || []).map(x =>
-            '<tr><td>#' + x.id + '</td><td>' + esc(x.reporter || '—') + '</td><td>' + typeCn(x.target_type) + ' #' + x.target_id + '</td>' +
-            '<td>' + esc(x.reason) + '</td><td>' +
-            '<button class="btn-sm" onclick="resolveReport(' + x.id + ')">标记处理</button> ' +
-            '<button class="btn-danger" onclick="modAction(' + x.target_type + ',' + x.target_id + ',\'hide\')">隐藏</button></td></tr>').join('');
-        // AI 审核 review/block 记录
-        let recordsHtml = (d.records || []).map(x => {
-            const v = { 1: '存疑(review)', 2: '违规(block)' }[x.verdict] || 'pass';
-            return '<tr><td>#' + x.id + '</td><td>' + typeCn(x.target_type) + ' #' + x.target_id + '</td><td>' + v + '</td>' +
-                '<td>' + esc(x.reason || '') + '</td><td>' + (x.created_at || '') + '</td></tr>';
-        }).join('');
-        // 被隐藏内容
-        let hiddenPostsHtml = (d.hiddenPosts || []).map(x =>
-            '<tr><td>帖子 #' + x.id + '</td><td>' + esc(x.title || '') + '</td><td>' + esc(x.username || '—') + '</td>' +
-            '<td><button class="btn-sm" onclick="modAction(1,' + x.id + ',\'restore\')">恢复</button></td></tr>').join('');
-        let hiddenCommentsHtml = (d.hiddenComments || []).map(x =>
-            '<tr><td>评论 #' + x.id + '</td><td>' + esc(x.content || '').slice(0, 40) + '</td><td>' + esc(x.username || '—') + '</td>' +
-            '<td><button class="btn-sm" onclick="modAction(2,' + x.id + ',\'restore\')">恢复</button></td></tr>').join('');
-
-        b.innerHTML =
-            '<h3>待处理举报（' + (d.reports || []).length + '）</h3>' +
-            (reportsHtml ? '<table><thead><tr><th>ID</th><th>举报人</th><th>对象</th><th>理由</th><th>操作</th></tr></thead><tbody>' + reportsHtml + '</tbody></table>' : '<div class="empty">暂无举报</div>') +
-            '<h3 style="margin-top:24px">AI 审核记录</h3>' +
-            (recordsHtml ? '<table><thead><tr><th>ID</th><th>对象</th><th>判定</th><th>理由</th><th>时间</th></tr></thead><tbody>' + recordsHtml + '</tbody></table>' : '<div class="empty">暂无审核记录</div>') +
-            '<h3 style="margin-top:24px">被隐藏内容</h3>' +
-            (hiddenPostsHtml ? '<table><thead><tr><th>对象</th><th>标题</th><th>作者</th><th>操作</th></tr></thead><tbody>' + hiddenPostsHtml + '</tbody></table>' : '<div class="empty">无被隐藏帖子</div>') +
-            (hiddenCommentsHtml ? '<table style="margin-top:8px"><tbody>' + hiddenCommentsHtml + '</tbody></table>' : '');
-    }).catch(() => {});
-}
-
-function resolveReport(id) {
-    fetch('/api/admin/moderation/resolve', { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'id=' + id })
-        .then(r => r.json()).then(d => { toast(d.message, !d.success); loadModeration(); });
-}
-
-function modAction(type, id, action) {
-    fetch('/api/admin/moderation/action', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'targetType=' + type + '&targetId=' + id + '&action=' + action })
-        .then(r => r.json()).then(d => { toast(d.message, !d.success); loadModeration(); });
-}
-
-// ============ 业务看板 ============
-function loadBusiness() {
-    fetch('/api/admin/stats/business').then(r => r.json()).then(d => {
-        const b = document.getElementById('businessBody');
-        if (!d.success) { b.innerHTML = '<div class="empty">加载失败</div>'; return; }
-        const hot = (d.hotDestinations || []).map(x => '<tr><td>' + esc(x.destination) + '</td><td>' + x.cnt + '</td></tr>').join('');
-        b.innerHTML =
-            '<div class="metric-grid">' +
-            '<div class="metric"><div class="num">' + d.totalUsers + '</div><div class="label">总用户</div></div>' +
-            '<div class="metric"><div class="num">' + d.dau + '</div><div class="label">今日活跃(DAU)</div></div>' +
-            '<div class="metric"><div class="num">' + d.totalPlans + '</div><div class="label">累计行程</div></div>' +
-            '<div class="metric"><div class="num">' + d.todayPlans + '</div><div class="label">今日生成</div></div>' +
-            '<div class="metric"><div class="num">' + d.totalPosts + '</div><div class="label">累计发帖</div></div>' +
-            '<div class="metric"><div class="num">' + d.todayPosts + '</div><div class="label">今日发帖</div></div>' +
-            '</div>' +
-            '<h3 style="margin-top:24px">热门目的地 Top10</h3>' +
-            (hot ? '<table><thead><tr><th>目的地</th><th>生成次数</th></tr></thead><tbody>' + hot + '</tbody></table>' : '<div class="empty">暂无数据</div>');
-    }).catch(() => {});
-}
-
-// ============ 公告发布 ============
-function loadAnnouncements() {
-    fetch('/api/admin/announcements').then(r => r.json()).then(d => {
-        const b = document.getElementById('announceList');
-        const items = d.announcements || [];
-        if (!items.length) { b.innerHTML = '<div class="empty">暂无公告</div>'; return; }
-        b.innerHTML = items.map(a =>
-            '<div class="ann-item"><b>' + esc(a.title) + '</b>' +
-            '<span class="ann-meta">' + esc(a.username || '管理员') + ' · ' + (a.created_at || '') + '</span>' +
-            '<div>' + esc(a.content) + '</div></div>').join('');
-    }).catch(() => {});
-}
-
-function publishAnnouncement() {
-    const title = document.getElementById('annTitle').value.trim();
-    const content = document.getElementById('annContent').value.trim();
-    if (!title || !content) { toast('标题和内容不能为空', true); return; }
-    fetch('/api/admin/announcements', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'title=' + encodeURIComponent(title) + '&content=' + encodeURIComponent(content) })
-        .then(r => r.json()).then(d => {
-            toast(d.message, !d.success);
-            if (d.success) { document.getElementById('annTitle').value = ''; document.getElementById('annContent').value = ''; loadAnnouncements(); }
-        });
 }

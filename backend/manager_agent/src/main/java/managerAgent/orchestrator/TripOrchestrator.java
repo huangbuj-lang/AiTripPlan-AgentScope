@@ -1,5 +1,6 @@
 package managerAgent.orchestrator;
 
+import dto.PlanSet;
 import dto.Section;
 import dto.SectionItem;
 import dto.TripPlanData;
@@ -49,40 +50,109 @@ public class TripOrchestrator {
 
     /**
      * 执行编排：解析需求 → 并行调用专家 → 聚合为结构化行程。
-     * @param prefs 用户沉淀偏好（P0 注入，可为 null 表示未设置/本次不使用）
      */
-    public TripPlanData run(String userPrompt, TripRequest.Preferences prefs) {
-        // ① 需求解析（单次结构化 LLM 调用）
-        EventStore.add(sessionId, "解析", "正在解析旅行需求...");
-        TripRequest req = parseRequest(userPrompt);
-        // ★P0：偏好注入——在 parseRequest() 之后合并，不走 LLM 解析偏好（避免幻觉）
-        if (prefs != null && !prefs.isEmpty()) {
-            req.setPreferences(prefs);
-        }
-        EventStore.add(sessionId, "解析", "需求：" + req.getOrigin() + " → " + req.getDestination()
-                + "，" + req.getDays() + " 天" + (req.getPreference().isBlank() ? "" : "（" + req.getPreference() + "）")
-                + (req.getPreferences() == null || req.getPreferences().isEmpty() ? "" : "，偏好已注入"));
-        checkCancel();
+    public TripPlanData run(String userPrompt) {
+        return run(userPrompt, "", "", "");
+    }
 
-        // ② 并行 DAG：路线 + 行程 同时调用，无先后依赖
-        Future<String> routeFuture = PARALLEL_POOL.submit(() ->
-                remoteTool.callRouteMakingAgent(routeTask(req)));
-        Future<String> planFuture = PARALLEL_POOL.submit(() ->
-                remoteTool.callTripPlannerAgent(planTask(req)));
-        String routeResult = await(routeFuture, "路线Agent");
-        String planResult = await(planFuture, "行程Agent");
-        checkCancel();
-
+    /**
+     * 执行编排（带偏好参数）：解析需求 → 并行调用专家 → 聚合为结构化行程。
+     */
+    public TripPlanData run(String userPrompt, String walkTolerance, String chronotype, String museumRatio) {
+        ReqAndData rd = resolveAndFetch(userPrompt, walkTolerance, chronotype, museumRatio);
         // ③ 聚合：结构化 JSON（失败退回 markdown 原文兜底）
         EventStore.add(sessionId, "整合", "正在整合路线与行程数据...");
-        TripPlanData plan = aggregate(req, routeResult, planResult);
+        TripPlanData plan = aggregate(rd.req, rd.routeResult, rd.planResult);
         if (plan == null) {
-            plan = fallbackPlan(req, routeResult, planResult); // 兜底已含完整 markdown 原文
+            plan = fallbackPlan(rd.req, rd.routeResult, rd.planResult); // 兜底已含完整 markdown 原文
         } else {
             plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
         }
         EventStore.add(sessionId, "完成", "结构化行程生成完成");
         return plan;
+    }
+
+    /**
+     * 多方案编排（功能4 MVP）：解析 + 并行 DAG 与单方案共享，聚合阶段产出 3 套差异化方案
+     * （美食向 / 出片向 / 省钱向），供前端左右对比、选中后细化。
+     */
+    public PlanSet runMultiScheme(String userPrompt, String walkTolerance, String chronotype, String museumRatio) {
+        ReqAndData rd = resolveAndFetch(userPrompt, walkTolerance, chronotype, museumRatio);
+        EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
+        PlanSet set = aggregateMulti(rd.req, rd.routeResult, rd.planResult);
+        // 每套方案补降级 markdown（前端打印/导出用）
+        if (set != null) {
+            for (TripPlanData p : set.getPlans()) {
+                if (p != null && p.getMarkdown().isBlank()) {
+                    p.setMarkdown(renderMarkdown(p));
+                }
+            }
+        }
+        EventStore.add(sessionId, "完成", "多方案生成完成（" + (set == null ? 0 : set.getPlans().size()) + " 套）");
+        return set;
+    }
+
+    /** 解析需求 + 并行 DAG（单方案/多方案共享的前置步骤） */
+    private ReqAndData resolveAndFetch(String userPrompt, String walkTolerance, String chronotype, String museumRatio) {
+        // ① 需求解析（单次结构化 LLM 调用）
+        EventStore.add(sessionId, "解析", "正在解析旅行需求...");
+        TripRequest req = parseRequest(userPrompt);
+        // ★预检偏好注入：确定性勾选值直接覆盖，不依赖 LLM 猜测
+        if (walkTolerance != null && !walkTolerance.isBlank()) { req.setWalkTolerance(walkTolerance.trim()); }
+        if (chronotype != null && !chronotype.isBlank()) { req.setChronotype(chronotype.trim()); }
+        if (museumRatio != null && !museumRatio.isBlank()) { req.setMuseumRatio(museumRatio.trim()); }
+        EventStore.add(sessionId, "解析", "需求：" + req.getOrigin() + " → " + req.getDestination()
+                + "，" + req.getDays() + " 天" + (req.getPreference().isBlank() ? "" : "（" + req.getPreference() + "）")
+                + buildPreferenceLabel(req));
+        checkCancel();
+
+        // ★偏好分流：主管用 LLM 把用户文本偏好 分类成 行程/路线/聚合 三类，后续传给对应子Agent综合工具
+        if (req.getPreference() != null && !req.getPreference().isBlank()) {
+            classifyPreference(req);
+        }
+        // ★确定性编排分支：
+        //   跨城自驾(成都→重庆): 先路线(途经点)→行程(查沿途景点)
+        //   市内游(成都3日 / 无起点): 先行程(景点清单)→路线(查这些景点衔接)
+        //   两者方向相反,但都"先定空间/内容,再让另一个跟着对齐"
+        boolean crossCity = req.getOrigin() != null && !req.getOrigin().isBlank()
+                && req.getDestination() != null && !req.getDestination().isBlank()
+                && !req.getOrigin().trim().equals(req.getDestination().trim());
+        boolean cityTour = !crossCity;  // 单城 / 起点=终点 / 无起点 → 市内
+        if (crossCity) {
+            // 跨城: 路线先行
+            EventStore.add(sessionId, "路线", "跨城自驾，先规划路线提取途经城市...");
+            String routeResult = await(PARALLEL_POOL.submit(() ->
+                    remoteTool.callRouteMakingAgent(routeTask(req, ""))), "路线Agent");
+            checkCancel();
+            String waypoints = extractWaypoints(routeResult);
+            String planResult = await(PARALLEL_POOL.submit(() ->
+                    remoteTool.callTripPlannerAgent(planTask(req, waypoints))), "行程Agent");
+            checkCancel();
+            return new ReqAndData(req, routeResult, planResult);
+        }
+        // 市内: 行程先行 → 提取景点 → 路线按景点查衔接
+        EventStore.add(sessionId, "行程", "市内游，先规划行程提取景点清单...");
+        // ① 行程Agent先跑：输出景点行程
+        String planFirst = await(PARALLEL_POOL.submit(() ->
+                remoteTool.callTripPlannerAgent(planTask(req, ""))), "行程Agent");
+        checkCancel();
+        // ② 从行程文本提取景点名
+        String sights = extractSights(planFirst, req.getDestination());
+        // ③ 路线Agent针对"已定景点"查衔接（防止路线查了自己猜的景点/与行程对不上）
+        String routeResult2 = await(PARALLEL_POOL.submit(() ->
+                remoteTool.callRouteMakingAgent(routeTask(req, sights))), "路线Agent");
+        checkCancel();
+        return new ReqAndData(req, routeResult2, planFirst);
+    }
+
+    /** 解析+DAG 结果载体 */
+    private static class ReqAndData {
+        final TripRequest req;
+        final String routeResult;
+        final String planResult;
+        ReqAndData(TripRequest req, String routeResult, String planResult) {
+            this.req = req; this.routeResult = routeResult; this.planResult = planResult;
+        }
     }
 
     // ==================== ① 需求解析 ====================
@@ -129,27 +199,176 @@ public class TripOrchestrator {
         return req;
     }
 
+    /** 偏好标签（事件流展示用，如「步行≤1万米 · 早起 · 博物馆多」） */
+    private String buildPreferenceLabel(TripRequest req) {
+        StringBuilder sb = new StringBuilder();
+        if (!req.getWalkTolerance().isBlank()) { sb.append("步行≤").append(req.getWalkTolerance()).append("米"); }
+        if (!req.getChronotype().isBlank()) {
+            if (sb.length() > 0) { sb.append(" · "); }
+            sb.append("early".equals(req.getChronotype()) ? "早起" : "night".equals(req.getChronotype()) ? "夜猫子" : "作息不限");
+        }
+        if (!req.getMuseumRatio().isBlank()) {
+            if (sb.length() > 0) { sb.append(" · "); }
+            sb.append("博物馆").append("high".equals(req.getMuseumRatio()) ? "多" : "low".equals(req.getMuseumRatio()) ? "少" : "适中");
+        }
+        return sb.length() > 0 ? " ｜ " + sb : "";
+    }
+
+    /** 偏好约束（聚合 prompt 用，引导模型按偏好安排行程节奏） */
+    private String buildPreferencePrompt(TripRequest req) {
+        StringBuilder sb = new StringBuilder();
+        if (!req.getWalkTolerance().isBlank()) {
+            sb.append("\n- 步行忍耐度：每天步行不超过 ").append(req.getWalkTolerance()).append(" 米，据此安排景点密度与接驳方式");
+        }
+        if (!req.getChronotype().isBlank()) {
+            if ("early".equals(req.getChronotype())) {
+                sb.append("\n- 作息：用户偏好早起，行程安排在早上开始、晚上早点结束");
+            } else if ("night".equals(req.getChronotype())) {
+                sb.append("\n- 作息：用户是夜猫子，上午可安排较晚出发，晚上可安排夜游/夜市");
+            }
+        }
+        if (!req.getMuseumRatio().isBlank()) {
+            if ("high".equals(req.getMuseumRatio())) {
+                sb.append("\n- 博物馆占比：用户喜欢博物馆，行程中增加博物馆/展览类景点占比");
+            } else if ("low".equals(req.getMuseumRatio())) {
+                sb.append("\n- 博物馆占比：用户不喜欢博物馆，减少博物馆类景点，多安排户外/体验类");
+            }
+        }
+        return sb.toString();
+    }
+
     // ==================== ② 并行 DAG ====================
 
-    private String routeTask(TripRequest req) {
-        return "请规划从 " + req.getOrigin() + " 到 " + req.getDestination() + " 的自驾路线，"
-                + req.getDays() + " 天，包含每日行车路线、途经景点、驾驶时间与费用。"
-                + prefsSuffix(req);
-    }
-
-    private String planTask(TripRequest req) {
-        return "请规划 " + req.getDestination() + " " + req.getDays() + " 日游的景点与每日行程，"
-                + "包含景点、门票、住宿、餐饮美食" + (req.getPreference().isBlank() ? "" : "，偏好：" + req.getPreference())
-                + prefsSuffix(req) + "。";
-    }
-
-    /** ★P0：把用户沉淀偏好拼进提示词（路线 + 行程两个子 Agent 都带上，个性化收敛在编排层） */
-    private String prefsSuffix(TripRequest req) {
-        TripRequest.Preferences p = req.getPreferences();
-        if (p == null || p.isEmpty()) {
-            return "";
+    private String routeTask(TripRequest req, String sightList) {
+        // ★路线偏好 = 主管LLM分类出的 routePref（用户文本）+ 前端步行上限(walkTolerance)
+        java.util.List<String> routePrefs = new java.util.ArrayList<>();
+        if (req.getRoutePref() != null && !req.getRoutePref().isBlank()) routePrefs.add(req.getRoutePref().trim());
+        if (req.getWalkTolerance() != null && !req.getWalkTolerance().isBlank()) {
+            routePrefs.add("步行上限" + req.getWalkTolerance().trim() + "米");
         }
-        return "，用户偏好：" + p.toPromptText();
+        String routePrefStr = routePrefs.isEmpty() ? "" : String.join(" ", routePrefs);
+        // sightList 非空 → 市内游且已由行程Agent定好景点，路线按这些景点查衔接
+        String dest = (req.getDestination() == null || req.getDestination().isBlank()) ? "" : req.getDestination();
+        boolean noOrigin = req.getOrigin() == null || req.getOrigin().isBlank();
+        if (noOrigin || sightList != null && !sightList.isBlank()) {
+            // 市内/行程先行：路线Agent针对"行程已定的景点"查衔接，不再自己猜景点
+            String base = "这是 " + dest + " 的" + req.getDays() + "天市内/周边游（用户未提供出发地）。\n";
+            if (sightList != null && !sightList.isBlank()) {
+                base += "行程Agent已确定景点清单：" + sightList + "。\n"
+                        + "★请用 query_route_unified(mode=urban" + (routePrefStr.isBlank() ? "" : ", routePref=" + routePrefStr)
+                        + ") 只查询这些景点彼此之间的衔接方式"
+                        + "（短距步行/长距公交地铁），不要额外添加不在清单里的景点，也不要编造跨城里程。\n";
+            } else {
+                base += "请规划在市内及周边的行程：\n"
+                        + "★调用 query_route_unified，mode 固定传 urban" + (routePrefStr.isBlank() ? "" : "，routePref=" + routePrefStr)
+                        + "（市内衔接：步行/公交），查询市内相邻景点/地点间的衔接方式，不要编造跨城里程。\n";
+            }
+            base += "★严格限制：总行程必须正好 " + req.getDays() + " 天，不得增加天数。\n"
+                    + "最终回复：完整可读的市内行程，含每日安排、景点间衔接方式、大致耗时。";
+            return base;
+        }
+        return "请规划从 " + req.getOrigin() + " 到 " + dest + " 的自驾路线，"
+                + req.getDays() + " 天，包含每日行车路线、途经景点、驾驶时间与费用。\n"
+                + "★调用 query_route_unified，mode 参数driving" + (routePrefStr.isBlank() ? "" : "，routePref=" + routePrefStr)
+                + "（自驾路线与距离），查询各段自驾线路。\n"
+                + "★严格限制：总行程必须正好 " + req.getDays() + " 天，不得增加天数、不得扩展为更长的环线。\n"
+                + "如果 " + req.getDays() + " 天跑不完某条长线，请选择适合 " + req.getDays() + " 天的缩短路线（或减少景点），"
+                + "天数只允许少不允许多。";
+    }
+
+    private String planTask(TripRequest req, String waypoints) {
+        // ★行程偏好 = 主管LLM分类出的 tripPref（用户文本）+ 前端博物馆偏好(museumRatio)
+        java.util.List<String> tripPrefs = new java.util.ArrayList<>();
+        if (req.getTripPref() != null && !req.getTripPref().isBlank()) tripPrefs.add(req.getTripPref().trim());
+        if (req.getMuseumRatio() != null && !req.getMuseumRatio().isBlank()) {
+            if ("high".equals(req.getMuseumRatio())) tripPrefs.add("博物馆多");
+            else if ("low".equals(req.getMuseumRatio())) tripPrefs.add("博物馆少");
+        }
+        String prefStr = tripPrefs.isEmpty() ? "" : String.join(" ", tripPrefs);
+        if (waypoints != null && !waypoints.isBlank()) {
+            // ★跨城自驾：查沿途途经城市景点，不查两端城市
+            return "请规划从 " + req.getOrigin() + " 到 " + req.getDestination() + " 的" + req.getDays() + "天自驾行程，"
+                    + "重点规划【路途沿途】的景点。\n"
+                    + "★调用 query_trip 时，把途经城市传 waypoints 参数（逗号分隔）：" + waypoints + "，"
+                    + "只查这些途经点的景点/美食，不要查起点或终点城市内部的景点。\n"
+                    + "结合路线按 Day 每日给出途经景点行程与安排。"
+                    + (prefStr.isBlank() ? "" : "★把行程偏好作为 preference 参数传入：" + prefStr + "。");
+        }
+        return "请规划 " + req.getDestination() + " " + req.getDays() + " 日游的景点与每日行程，"
+                + "包含景点、门票、住宿、餐饮美食"
+                + (prefStr.isBlank() ? "" : "，偏好：" + prefStr) + "。\n"
+                + "★调用 query_trip 时，把上述偏好作为 preference 参数传入，"
+                + "让固定链按偏好查询更贴合的数据(如'亲子景点'/'美食餐厅')，不要忽略偏好查通用清单。";
+    }
+
+    /**
+     * 从路线Agent返回文本中提取途经城市名（如成都→重庆途中出现"大足"）。
+     * 启发式：抓带市/区/县/镇/州后缀的地名（2-6字），排除起点终点城市，最多取5个。
+     * 提取失败返回空串（调用方降级为单城景点），不阻塞主流程。
+     */
+    private String extractWaypoints(String routeResult) {
+        if (routeResult == null || routeResult.isBlank()) return "";
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("[\\u4e00-\\u9fa5]{2,6}?(?:市|区|县|镇|州)")
+                .matcher(routeResult);
+        while (m.find() && seen.size() < 5) {
+            seen.add(m.group());
+        }
+        // 剔除起终点城市名本身
+        seen.removeIf(n -> n.contains("起点") || n.contains("终点"));
+        return String.join(",", seen);
+    }
+
+    /**
+     * 从行程Agent返回文本中提取景点名。
+     * 启发式：行程Agent输出里景点通常带"地名+景区/园/宫/街/馆/湾/山/塔/桥/洞/观景台"等常见景点后缀，
+     * 抓取2-8字提及较多的片段。最多取8个，不足则返回空串（调用方降级为路线自己选景点）。
+     */
+    private String extractSights(String planResult, String dest) {
+        if (planResult == null || planResult.isBlank()) return "";
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("[\u4e00-\u9fa5]{2,8}?(?:景区|公园|古镇|山庄|博物馆|街|塔|山|湾|洞|寺|宫|观景台|馆|广场|坊|陵|岛|湖|院|园|桥|河)")
+                .matcher(planResult);
+        while (m.find() && seen.size() < 5) {
+            String name = m.group();
+            if (name.equals(dest)) continue; // 排除纯城市名
+            seen.add(name);
+        }
+        return String.join(",", seen);
+    }
+
+    /**
+     * ★主管偏好分类：用 1 次裸 LLM 把用户文本偏好分类到三个目标之一：
+     *   tripPref  → 行程Agent（亲子/美食/小众/博物馆）→ 传 query_trip 的 preference
+     *   routePref → 路线Agent（公交/骑行/步行/不走高速）→ 传 query_route_unified
+     *   aggPref   → 聚合编排（周末/悠闲/性价比），不传工具
+     * 只输出 JSON，字段名固定。解析失败则保守：全部留给聚合。
+     */
+    private void classifyPreference(TripRequest req) {
+        String sys = "你是旅行偏好分类器。把用户偏好分类到三个字段，只输出一个 JSON 对象，字段名固定：\n"
+                + "{\"tripPref\":\"适合行程Agent的偏好(与景点美食住宿相关，如亲子/美食/小众/博物馆)；无则空\",\n"
+                + "\"routePref\":\"适合路线Agent的偏好(与出行方式道路相关，如公交/骑行/步行/不走高速)；无则空\",\n"
+                + "\"aggPref\":\"不适合二者、只影响整体编排的偏好(如放松休闲/性价比紧凑/节假日)；无则空\"}\n"
+                + "只输出 JSON 不要多余文字。";
+        String out = callModelJson(sys, "用户偏好：" + req.getPreference());
+        try {
+            var node = JsonUtils.extractAndParse(out, java.util.Map.class);
+            if (node != null) {
+                req.setTripPref(str(node.get("tripPref")));
+                req.setRoutePref(str(node.get("routePref")));
+                req.setAggPref(str(node.get("aggPref")));
+                return;
+            }
+        } catch (Exception ignored) { }
+        // 解析失败兜底：全部留给聚合
+        req.setAggPref(req.getPreference());
+    }
+
+    /** 对象安全转字符串 */
+    private String str(Object o) {
+        return o == null ? "" : o.toString();
     }
 
     /** 检查中断请求（替代原 planHook 的事件级取消，编排器在步骤边界检查） */
@@ -176,6 +395,11 @@ public class TripOrchestrator {
     // ==================== ③ 聚合 ====================
 
     private TripPlanData aggregate(TripRequest req, String routeResult, String planResult) {
+        return aggregateWithStyle(req, routeResult, planResult, null);
+    }
+
+    /** 单套方案聚合（style=null 表示默认无风格；否则注入风格约束） */
+    private TripPlanData aggregateWithStyle(TripRequest req, String routeResult, String planResult, String style) {
         String sysPrompt = "你是行程聚合器。根据需求与专家数据，输出一个结构化 JSON 对象，字段名固定如下：\n"
                 + "{\"title\":\"行程标题\",\"destination\":\"目的地\",\"days\":天数,\"date\":\"日期\",\"weather\":\"天气\","
                 + "\"sections\":[{\"type\":\"timeline|transport|stay|tips\",\"title\":\"区块标题\",\"items\":[{\"time\":\"\","
@@ -183,12 +407,44 @@ public class TripOrchestrator {
                 + "\"way\":\"\",\"duration\":\"\",\"name\":\"\",\"price\":\"\",\"kind\":\"\",\"text\":\"\"}]}]}\n"
                 + "sections 按「每日行程(timeline)/交通(transport)/住宿餐饮(stay)/实用信息(tips)」组织，"
                 + "每天的行程放在一个 type=timeline 的 section 里，title 用「第N天」。"
-                + "内容必须具体（真实景点名/价格/餐厅酒店名）。除 JSON 外不要输出任何文字。";
-        String userPrompt = "用户需求：" + req.getRaw() + "\n\n【路线数据】\n" + routeResult + "\n\n【行程数据】\n" + planResult;
+                + "内容必须具体（真实景点名/价格/餐厅酒店名）。除 JSON 外不要输出任何文字。"
+                + buildStyleHint(style);
+        String userPrompt = "用户需求：" + req.getRaw()
+                + buildPreferencePrompt(req)  // ★预检偏好约束（步行/作息/博物馆占比）
+                + "\n\n【路线数据】\n" + clip(routeResult) + "\n\n【行程数据】\n" + clip(planResult);
         String text = callModelJson(sysPrompt, userPrompt);
         TripPlanData plan = JsonUtils.extractAndParse(text, TripPlanData.class);
         if (plan == null) {
+            // ★增量修正：首次整段解析失败时，不整段回灌原文，只带精简概览+修改指示重试一次
+            String fix = "你是行程聚合器。上次结构化 JSON 解析失败。请基于【用户需求】与【数据概要】只输出一份合法 JSON 行程（字段同前），重点是 sections 每天 timeline。数据较大已截断，可省次要 detail，保留每天真实安排。\n"
+                    + "【用户需求】" + req.getRaw() + "\n"
+                    + "【路线数据概要】\n" + clip(routeResult, 800) + "\n"
+                    + "【行程数据概要】\n" + clip(planResult, 1500);
+            text = callModelJson(fix, "请输出合法 JSON 行程。");
+            plan = JsonUtils.extractAndParse(text, TripPlanData.class);
+        }
+        if (plan == null) {
             return null;
+        }
+        // ★聚合评分（代码判断，不调LLM）：检查最终产物是否缺关键内容
+        //   缺字段 → 聚合Agent重试1次（带缺失提示，不重跑子Agent）→ 仍缺 → 返回null由外层兜底
+        String missing = aggregateGap(plan);
+        if (!missing.isBlank()) {
+            EventStore.add(sessionId, "整合", "聚合结果缺失(" + missing + ")，聚合Agent重试1次...");
+            String fix = "你是行程聚合器。上次聚合结果缺失：" + missing
+                    + "。请重新整合【用户需求】与【数据】，补齐缺失内容，输出完整合法 JSON 行程（字段同前）。\n"
+                    + "【用户需求】" + req.getRaw() + "\n"
+                    + "【路线数据概要】\n" + clip(routeResult, 800) + "\n"
+                    + "【行程数据概要】\n" + clip(planResult, 1500);
+            String retryText = callModelJson(fix, "请补齐缺失内容，输出完整合法 JSON 行程。");
+            TripPlanData retry = JsonUtils.extractAndParse(retryText, TripPlanData.class);
+            if (retry != null && aggregateGap(retry).isBlank()) {
+                plan = retry; // 重试补齐成功
+            } else {
+                // 仍缺失 → 返回null，外层 fallbackPlan 兜底（降级markdown）
+                EventStore.add(sessionId, "整合", "聚合重试后仍缺失，降级为原文兜底");
+                return null;
+            }
         }
         if (plan.getTitle().isBlank()) {
             plan.setTitle(req.getDestination() + req.getDays() + "日游");
@@ -200,6 +456,74 @@ public class TripOrchestrator {
             plan.setDays(req.getDays());
         }
         return plan;
+    }
+
+    /**
+     * 聚合评分（纯代码）：判断结构化行程是否缺失关键内容。
+     * 检查：sections 非空 + 至少一个 timeline(每日行程) 区块 + 标题/目的地非空。
+     * 返回缺失项描述（空串=合格）；不调LLM，只做结构化字段检查。
+     */
+    private String aggregateGap(TripPlanData plan) {
+        if (plan == null) return "整体为空";
+        java.util.List<String> gaps = new java.util.ArrayList<>();
+        if (plan.getSections() == null || plan.getSections().isEmpty()) {
+            gaps.add("sections(行程区块)为空");
+        } else {
+            boolean hasTimeline = plan.getSections().stream()
+                    .anyMatch(s -> "timeline".equals(s.getType()) && s.getItems() != null && !s.getItems().isEmpty());
+            if (!hasTimeline) gaps.add("缺少每日行程timeline区块");
+        }
+        if (plan.getTitle() == null || plan.getTitle().isBlank()) gaps.add("标题");
+        if (plan.getDestination() == null || plan.getDestination().isBlank()) gaps.add("目的地");
+        if (plan.getDays() < 1) gaps.add("天数");
+        return String.join("、", gaps);
+    }
+
+    /** 3 套差异化方案并行聚合（美食向/出片向/省钱向） */
+    private PlanSet aggregateMulti(TripRequest req, String routeResult, String planResult) {
+        String[][] styles = {
+                {"food", "美食向", "本次方案为「美食向」：以地道美食为主线，突出必吃餐厅、夜市、小吃街，行程围绕用餐地点安排，每个时段尽量给出具体餐厅/小吃推荐。"},
+                {"photo", "出片向", "本次方案为「出片向」：以拍照出片为主线，突出网红打卡点、绝美风景、日出日落最佳机位，每个景点标注拍摄建议。"},
+                {"budget", "省钱向", "本次方案为「省钱向」：以性价比为主线，突出免费景点、经济住宿、公共交通、平价美食，控制总预算。"},
+        };
+        // 并行提交 3 套聚合（PARALLEL_POOL 已 4 线程）
+        @SuppressWarnings("unchecked")
+        Future<TripPlanData>[] futures = new Future[3];
+        for (int i = 0; i < 3; i++) {
+            final int idx = i;
+            futures[i] = PARALLEL_POOL.submit(() ->
+                    aggregateWithStyle(req, routeResult, planResult, styles[idx][2]));
+        }
+        PlanSet set = new PlanSet();
+        int successCount = 0;
+        for (int i = 0; i < 3; i++) {
+            TripPlanData plan = null;
+            try {
+                plan = futures[i].get(180, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.error("方案「{}」聚合失败: {}", styles[i][1], e.getMessage());
+            }
+            if (plan == null) {
+                plan = fallbackPlan(req, routeResult, planResult); // 该套失败退回 markdown 兜底
+                plan.setTitle(req.getDestination() + req.getDays() + "日游（" + styles[i][1] + "）");
+            }
+            set.getPlans().add(plan);
+            set.getStyles().add(styles[i][0]);
+            set.getSlogans().add(styles[i][1]);
+            if (plan.getSections() != null && !plan.getSections().isEmpty()) {
+                successCount++;
+            }
+        }
+        // 全部结构化失败则返回 null（调用方兜底为单方案）
+        return successCount > 0 ? set : null;
+    }
+
+    /** 风格约束文案（style=null 返回空串） */
+    private String buildStyleHint(String style) {
+        if (style == null) {
+            return "";
+        }
+        return "\n【风格约束】" + style + "\n";
     }
 
     /** 聚合失败：退回原文 markdown，sections 留空供前端 markdown 兜底 */
@@ -263,6 +587,18 @@ public class TripOrchestrator {
         return sb.toString();
     }
 
+    /** 聚合输入精简：超长文本截断至 maxLen，固定 prompt 规模，防上下文爆炸/超时 */
+    private String clip(String s, int maxLen) {
+        if (s == null) return "";
+        if (s.length() <= maxLen) return s;
+        return s.substring(0, maxLen) + "\n…(数据过长已截断)…";
+    }
+
+    /** 聚合输入精简：默认上限 */
+    private String clip(String s) {
+        return clip(s, 6000);
+    }
+
     /** 结构化行程 → markdown（降级字段 + 旧前端兼容） */
     private String renderMarkdown(TripPlanData plan) {
         StringBuilder sb = new StringBuilder();
@@ -279,13 +615,9 @@ public class TripOrchestrator {
                             .append(it.getPlace()).append(" ").append(it.getActivity());
                     case "transport" -> sb.append(it.getFrom()).append(" → ").append(it.getTo())
                             .append("（").append(it.getWay()).append("，").append(it.getDuration()).append("）");
-                    case "stay" -> {
-                        String kind = it.getKind().isBlank() ? it.getCategory() : it.getKind();
-                        String detail = (kind + " " + it.getPrice()).trim();
-                        sb.append(it.getName());
-                        if (!detail.isBlank()) sb.append("（").append(detail).append("）");
-                    }
-                    case "tips" -> sb.append(it.getKind().isBlank() ? "" : it.getKind() + "：").append(it.getText());
+                    case "stay" -> sb.append(it.getName()).append("（").append(it.getCategory())
+                            .append(it.getPrice().isBlank() ? "" : " " + it.getPrice()).append("）");
+                    case "tips" -> sb.append(it.getKind()).append("：").append(it.getText());
                     default -> sb.append(it.getActivity()).append(it.getPlace()).append(it.getText());
                 }
                 sb.append("\n");

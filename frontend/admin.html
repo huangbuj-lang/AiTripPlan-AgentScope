@@ -28,9 +28,6 @@
         <button class="tab" data-tab="tasks" onclick="switchTab('tasks')">📋 任务监控</button>
         <button class="tab" data-tab="breaker" onclick="switchTab('breaker')">🔌 模型监控</button>
         <button class="tab" data-tab="data" onclick="switchTab('data')">🗄️ 数据管理</button>
-        <button class="tab" data-tab="moderation" onclick="switchTab('moderation')">🛡️ 内容审核</button>
-        <button class="tab" data-tab="business" onclick="switchTab('business')">📊 业务看板</button>
-        <button class="tab" data-tab="announce" onclick="switchTab('announce')">📢 公告发布</button>
     </nav>
 
     <main class="content">
@@ -77,39 +74,6 @@
                     <h3>行程表</h3>
                     <div id="plansBody" class="panel-body">加载中...</div>
                 </div>
-            </div>
-        </section>
-
-        <!-- 内容审核 -->
-        <section class="panel hidden" id="panel-moderation">
-            <div class="panel-head">
-                <h2>内容审核</h2>
-                <button class="btn-refresh" onclick="loadModeration()">刷新</button>
-            </div>
-            <div id="moderationBody" class="panel-body">加载中...</div>
-        </section>
-
-        <!-- 业务看板 -->
-        <section class="panel hidden" id="panel-business">
-            <div class="panel-head">
-                <h2>业务看板</h2>
-                <button class="btn-refresh" onclick="loadBusiness()">刷新</button>
-            </div>
-            <div id="businessBody" class="panel-body">加载中...</div>
-        </section>
-
-        <!-- 公告发布 -->
-        <section class="panel hidden" id="panel-announce">
-            <div class="panel-head">
-                <h2>公告发布</h2>
-            </div>
-            <div class="panel-body">
-                <div class="announce-form">
-                    <input id="annTitle" placeholder="公告标题" class="ann-input">
-                    <textarea id="annContent" placeholder="公告内容" class="ann-input" rows="4"></textarea>
-                    <button class="btn-primary" onclick="publishAnnouncement()">发布公告（全员推送）</button>
-                </div>
-                <div id="announceList" class="panel-body" style="margin-top:18px">加载中...</div>
             </div>
         </section>
     </main>
