@@ -2,6 +2,7 @@ package managerAgent.controller;
 
 import io.agentscope.core.nacos.a2a.discovery.NacosAgentCardResolver;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import managerAgent.hook.EventStore;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -167,6 +168,123 @@ public class AdminController {
         Map<String, Object> r = new HashMap<>();
         r.put("success", rows > 0);
         r.put("message", rows > 0 ? "已删除行程" : "行程不存在");
+        return r;
+    }
+    // ==================== 内容审核（阶段三） ====================
+
+    /** 审核队列：待处理举报 + AI 审核 review/block 记录 + 被隐藏内容 */
+    @GetMapping("/moderation/queue")
+    public Map<String, Object> moderationQueue() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("reports", jdbcTemplate.queryForList(
+                "SELECT r.id, r.reporter_id, u.username AS reporter, r.target_type, r.target_id, " +
+                "r.reason, r.status, r.created_at FROM reports r LEFT JOIN users u ON u.id = r.reporter_id " +
+                "WHERE r.status = 0 ORDER BY r.created_at DESC LIMIT 100"));
+        r.put("records", jdbcTemplate.queryForList(
+                "SELECT m.id, m.target_type, m.target_id, m.verdict, m.reason, m.model, m.created_at " +
+                "FROM moderation_records m WHERE m.verdict > 0 ORDER BY m.created_at DESC LIMIT 100"));
+        r.put("hiddenPosts", jdbcTemplate.queryForList(
+                "SELECT p.id, p.title, p.user_id, u.username, p.created_at FROM posts p " +
+                "LEFT JOIN users u ON u.id = p.user_id WHERE p.status = 0 ORDER BY p.created_at DESC LIMIT 100"));
+        r.put("hiddenComments", jdbcTemplate.queryForList(
+                "SELECT c.id, c.content, c.post_id, c.user_id, u.username, c.created_at FROM comments c " +
+                "LEFT JOIN users u ON u.id = c.user_id WHERE c.status = 0 ORDER BY c.created_at DESC LIMIT 100"));
+        r.put("success", true);
+        return r;
+    }
+
+    /** 处理举报（标记已处理） */
+    @PutMapping("/moderation/resolve")
+    public Map<String, Object> resolveReport(@RequestParam Long id) {
+        int rows = jdbcTemplate.update("UPDATE reports SET status = 1 WHERE id = ?", id);
+        Map<String, Object> r = new HashMap<>();
+        r.put("success", rows > 0);
+        r.put("message", rows > 0 ? "举报已标记处理" : "举报不存在");
+        return r;
+    }
+
+    /** 隐藏/恢复内容（targetType: 1帖子 2评论；action: hide|restore） */
+    @PostMapping("/moderation/action")
+    public Map<String, Object> moderationAction(@RequestParam int targetType,
+                                                @RequestParam Long targetId,
+                                                @RequestParam String action) {
+        String table = targetType == 1 ? "posts" : "comments";
+        int status = "hide".equals(action) ? 0 : 1;
+        int rows = jdbcTemplate.update("UPDATE " + table + " SET status = ? WHERE id = ?", status, targetId);
+        Map<String, Object> r = new HashMap<>();
+        r.put("success", rows > 0);
+        r.put("message", rows > 0 ? ("hide".equals(action) ? "已隐藏" : "已恢复") : "内容不存在");
+        return r;
+    }
+
+    // ==================== 业务看板（阶段三） ====================
+
+    /** 业务统计：用户/行程/DAU/热门目的地/论坛活跃 */
+    @GetMapping("/stats/business")
+    public Map<String, Object> businessStats() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("totalUsers", qInt("SELECT COUNT(*) FROM users"));
+        r.put("totalPlans", qInt("SELECT COUNT(*) FROM trip_plans"));
+        r.put("todayPlans", qInt("SELECT COUNT(*) FROM trip_plans WHERE DATE(create_time) = CURDATE()"));
+        r.put("totalPosts", qInt("SELECT COUNT(*) FROM posts WHERE status = 1"));
+        r.put("todayPosts", qInt("SELECT COUNT(*) FROM posts WHERE DATE(created_at) = CURDATE()"));
+        r.put("dau", qInt("SELECT COUNT(DISTINCT user_id) FROM (" +
+                "SELECT user_id FROM trip_plans WHERE DATE(create_time) = CURDATE() " +
+                "UNION SELECT user_id FROM posts WHERE DATE(created_at) = CURDATE()) t"));
+        r.put("hotDestinations", jdbcTemplate.queryForList(
+                "SELECT city AS destination, COUNT(*) AS cnt FROM trip_plans " +
+                "WHERE city IS NOT NULL AND city != '' " +
+                "GROUP BY city ORDER BY cnt DESC LIMIT 10"));
+        r.put("success", true);
+        return r;
+    }
+
+    private int qInt(String sql) {
+        Integer v = jdbcTemplate.queryForObject(sql, Integer.class);
+        return v == null ? 0 : v;
+    }
+
+    // ==================== 公告发布（阶段三） ====================
+
+    /** 公告列表 */
+    @GetMapping("/announcements")
+    public Map<String, Object> announcements() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("announcements", jdbcTemplate.queryForList(
+                "SELECT a.id, a.title, a.content, a.created_by, u.username, a.created_at " +
+                "FROM announcements a LEFT JOIN users u ON u.id = a.created_by ORDER BY a.created_at DESC LIMIT 50"));
+        r.put("success", true);
+        return r;
+    }
+
+    /** 发布公告 → 全员通知（type=5） + SSE 实时推送 */
+    @PostMapping("/announcements")
+    public Map<String, Object> createAnnouncement(@RequestParam String title,
+                                                  @RequestParam String content,
+                                                  HttpSession session) {
+        long adminId = ((Number) session.getAttribute("userId")).longValue();
+        Map<String, Object> r = new HashMap<>();
+        if (title == null || title.isBlank() || content == null || content.isBlank()) {
+            r.put("success", false);
+            r.put("message", "标题和内容不能为空");
+            return r;
+        }
+        jdbcTemplate.update(
+                "INSERT INTO announcements(title, content, created_by) VALUES (?, ?, ?)",
+                title.trim(), content, adminId);
+        // 全员推送：所有正常用户各发一条通知 + SSE 实时推
+        List<Long> userIds = jdbcTemplate.queryForList("SELECT id FROM users WHERE status = 1", Long.class);
+        for (Long uid : userIds) {
+            try {
+                jdbcTemplate.update(
+                        "INSERT INTO notifications(user_id, type, content, link_url) VALUES (?, 5, ?, NULL)",
+                        uid, title.trim());
+                NotificationHub.push(uid, "{\"type\":5,\"content\":\"" +
+                        title.trim().replace("\"", "\\\"") + "\",\"link\":\"\"}");
+            } catch (Exception ignored) { /* 单条失败不影响整体 */ }
+        }
+        r.put("success", true);
+        r.put("message", "公告已发布并推送给 " + userIds.size() + " 位用户");
         return r;
     }
 }

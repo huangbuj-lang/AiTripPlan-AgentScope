@@ -59,7 +59,20 @@ public class TripOrchestrator {
      * 执行编排（带偏好参数）：解析需求 → 并行调用专家 → 聚合为结构化行程。
      */
     public TripPlanData run(String userPrompt, String walkTolerance, String chronotype, String museumRatio) {
-        ReqAndData rd = resolveAndFetch(userPrompt, walkTolerance, chronotype, museumRatio);
+        return run(userPrompt, walkTolerance, chronotype, museumRatio, null);
+    }
+
+    /**
+     * 执行编排（带个人中心沉淀偏好 P0）：解析需求 → 偏好注入 → 并行调用专家 → 聚合。
+     */
+    public TripPlanData run(String userPrompt, TripRequest.Preferences prefs) {
+        return run(userPrompt, "", "", "", prefs);
+    }
+
+    /** 执行编排（预检偏好 + 个人中心沉淀偏好，prefs 可为 null）：解析需求 → 并行调用专家 → 聚合。 */
+    public TripPlanData run(String userPrompt, String walkTolerance, String chronotype, String museumRatio,
+                            TripRequest.Preferences prefs) {
+        ReqAndData rd = resolveAndFetch(userPrompt, walkTolerance, chronotype, museumRatio, prefs);
         // ③ 聚合：结构化 JSON（失败退回 markdown 原文兜底）
         EventStore.add(sessionId, "整合", "正在整合路线与行程数据...");
         TripPlanData plan = aggregate(rd.req, rd.routeResult, rd.planResult);
@@ -94,9 +107,19 @@ public class TripOrchestrator {
 
     /** 解析需求 + 并行 DAG（单方案/多方案共享的前置步骤） */
     private ReqAndData resolveAndFetch(String userPrompt, String walkTolerance, String chronotype, String museumRatio) {
+        return resolveAndFetch(userPrompt, walkTolerance, chronotype, museumRatio, null);
+    }
+
+    /** 解析需求 + 并行 DAG（单方案/多方案共享的前置步骤；prefs=个人中心沉淀偏好，可 null） */
+    private ReqAndData resolveAndFetch(String userPrompt, String walkTolerance, String chronotype, String museumRatio,
+                                       TripRequest.Preferences prefs) {
         // ① 需求解析（单次结构化 LLM 调用）
         EventStore.add(sessionId, "解析", "正在解析旅行需求...");
         TripRequest req = parseRequest(userPrompt);
+        // ★P0：个人中心沉淀偏好注入（与预检偏好并行，routeTask/planTask 会拼进偏好串）
+        if (prefs != null && !prefs.isEmpty()) {
+            req.setPreferences(prefs);
+        }
         // ★预检偏好注入：确定性勾选值直接覆盖，不依赖 LLM 猜测
         if (walkTolerance != null && !walkTolerance.isBlank()) { req.setWalkTolerance(walkTolerance.trim()); }
         if (chronotype != null && !chronotype.isBlank()) { req.setChronotype(chronotype.trim()); }
@@ -246,6 +269,9 @@ public class TripOrchestrator {
         if (req.getWalkTolerance() != null && !req.getWalkTolerance().isBlank()) {
             routePrefs.add("步行上限" + req.getWalkTolerance().trim() + "米");
         }
+        if (req.getPreferences() != null && !req.getPreferences().isEmpty()) {
+            routePrefs.add(req.getPreferences().toPromptText());
+        }
         String routePrefStr = routePrefs.isEmpty() ? "" : String.join(" ", routePrefs);
         // sightList 非空 → 市内游且已由行程Agent定好景点，路线按这些景点查衔接
         String dest = (req.getDestination() == null || req.getDestination().isBlank()) ? "" : req.getDestination();
@@ -283,6 +309,9 @@ public class TripOrchestrator {
         if (req.getMuseumRatio() != null && !req.getMuseumRatio().isBlank()) {
             if ("high".equals(req.getMuseumRatio())) tripPrefs.add("博物馆多");
             else if ("low".equals(req.getMuseumRatio())) tripPrefs.add("博物馆少");
+        }
+        if (req.getPreferences() != null && !req.getPreferences().isEmpty()) {
+            tripPrefs.add(req.getPreferences().toPromptText());
         }
         String prefStr = tripPrefs.isEmpty() ? "" : String.join(" ", tripPrefs);
         if (waypoints != null && !waypoints.isBlank()) {

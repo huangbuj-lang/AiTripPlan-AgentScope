@@ -1,6 +1,11 @@
 package managerAgent.controller;
 
 import dto.TripPlanData;
+import dto.TripRequest;
+import jakarta.annotation.Resource;
+import org.springframework.jdbc.core.JdbcTemplate;
+import java.util.List;
+import java.util.Map;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import managerAgent.hook.CancelledException;
@@ -19,6 +24,9 @@ import utils.SafeModel;
 @Slf4j
 @RestController
 public class AppController {
+
+    @Resource
+    private JdbcTemplate jdbcTemplate;
 
     // 全局并发任务数上限（环境变量配置，默认1）
     private static final int MAX_CONCURRENT_TASKS = Integer.parseInt(
@@ -48,6 +56,7 @@ public class AppController {
                       @RequestParam(name = "chronotype", required = false, defaultValue = "") String chronotype,
                       @RequestParam(name = "museumRatio", required = false, defaultValue = "") String museumRatio,
                       @RequestParam(name = "multiScheme", required = false, defaultValue = "false") String multiScheme,
+                      @RequestParam(name = "skipPrefs", required = false, defaultValue = "false") boolean skipPrefs,
                       HttpSession session) {
 
         // 获取并发槽位，失败则拒绝
@@ -70,7 +79,13 @@ public class AppController {
                     dto.PlanSet planSet = orchestrator.runMultiScheme(prompt, walkTolerance, chronotype, museumRatio);
                     EventStore.setResult(sessionId, JsonUtils.toJson(planSet)); // 缓存多方案 JSON
                 } else {
-                    TripPlanData plan = orchestrator.run(prompt, walkTolerance, chronotype, museumRatio); // 解析→并行DAG→聚合（带预检偏好）
+                    TripPlanData plan;
+                    if (userIdObj != null && !skipPrefs) { // ★P0：注入个人中心沉淀偏好（未跳过且已登录时）
+                        TripRequest.Preferences prefs = loadPreferences(((Number) userIdObj).longValue());
+                        plan = orchestrator.run(prompt, walkTolerance, chronotype, museumRatio, prefs);
+                    } else {
+                        plan = orchestrator.run(prompt, walkTolerance, chronotype, museumRatio); // 解析→并行DAG→聚合（带预检偏好）
+                    }
                     EventStore.setResult(sessionId, JsonUtils.toJson(plan)); // 缓存结构化 JSON 结果（含降级 markdown 字段）
                 }
             } catch (CancelledException e) {
@@ -197,6 +212,29 @@ public class AppController {
             log.error("高德 geocode 失败: {}", e.getMessage());
             resp.put("error", "调用失败: " + e.getMessage());
             return resp;
+        }
+    }
+/** ★P0：读取用户沉淀偏好（user_preferences 表 travel_style 等；关闭默认注入/无记录返回 null） */
+    private TripRequest.Preferences loadPreferences(long userId) {
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT travel_style, budget_level, pace, avoid_list, use_by_default FROM user_preferences WHERE user_id = ?", userId);
+            if (rows.isEmpty()) {
+                return null;
+            }
+            Map<String, Object> row = rows.get(0);
+            if (row.get("use_by_default") != null && ((Number) row.get("use_by_default")).intValue() != 1) {
+                return null; // 用户关闭了默认注入
+            }
+            TripRequest.Preferences p = new TripRequest.Preferences();
+            p.setTravelStyle(JsonUtils.parseStringList((String) row.get("travel_style")));
+            p.setBudgetLevel(row.get("budget_level") == null ? null : ((Number) row.get("budget_level")).intValue());
+            p.setPace(row.get("pace") == null ? null : ((Number) row.get("pace")).intValue());
+            p.setAvoid(JsonUtils.parseStringList((String) row.get("avoid_list")));
+            return p.isEmpty() ? null : p;
+        } catch (Exception e) {
+            log.warn("加载用户偏好失败: {}", e.getMessage());
+            return null;
         }
     }
 }

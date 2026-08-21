@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import utils.JsonUtils;
 
 /**
  * 行程保存接口（规划结果存入MySQL）
@@ -26,6 +27,7 @@ public class PlanController {
     public Map<String, Object> savePlan(@RequestParam String city,
                                         @RequestParam int days,
                                         @RequestParam String planContent,
+                                        @RequestParam(required = false) String planJson,
                                         HttpSession session) {
         Map<String, Object> result = new HashMap<>();
         Object userIdObj = session.getAttribute("userId");
@@ -35,9 +37,14 @@ public class PlanController {
             return result;
         }
         long userId = (Long) userIdObj;
-        jdbcTemplate.update( // 插入行程记录（关联当前用户）
-                "INSERT INTO trip_plans(user_id, city, days, plan_content) VALUES (?, ?, ?, ?)",
-                userId, city, days, planContent);
+        // 空串/非法 JSON 存 NULL（JSON 列不接受空串，非法 JSON 会触发 MySQL 500）
+        String json = (planJson == null || planJson.isBlank()) ? null : planJson;
+        if (json != null && JsonUtils.parse(json, Map.class) == null) {
+            json = null; // 非法 JSON：放弃结构化字段，仍保存 markdown
+        }
+        jdbcTemplate.update( // 插入行程记录（关联当前用户 + 结构化 JSON）
+                "INSERT INTO trip_plans(user_id, city, days, plan_content, plan_json) VALUES (?, ?, ?, ?, ?)",
+                userId, city, days, planContent, json);
         result.put("success", true);
         result.put("message", "保存成功！可在「我的行程」中查看");
         return result;

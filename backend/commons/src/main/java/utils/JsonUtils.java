@@ -89,4 +89,18 @@ public final class JsonUtils {
             return null;
         }
     }
+/**
+     * 解析 JSON 数组字符串为字符串列表（失败返回 null）。
+     * 用于 user_preferences 的 travel_style / avoid_list 等 JSON 列。
+     */
+    public static java.util.List<String> parseStringList(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return MAPPER.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {});
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

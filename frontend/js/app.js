@@ -15,6 +15,7 @@ let eventSource = null;    // SSE 实时事件流（阶段四 F-3，替代 /even
 let knownCount = 0;        // 已显示的事件数（保留，向后兼容）
 let lastEventCount = 0;    // 发送前的事件总数（用于增量显示）
 let lastResultMarkdown = ''; // 最近一次最终结果的 markdown 原文（保存行程用，避免存 HTML）
+let lastResultJson = '';      // 最近一次最终结果的结构化 JSON 原文（保存行程用，供分享/二次编辑）
 
 // ★会话隔离：每个窗口独立 sessionId（localStorage 持久），请求带上它避免多窗口互扰
 const sessionId = (function () {
@@ -34,6 +35,8 @@ function checkLogin() {
             if (data.success) {
                 document.getElementById('userName').textContent = '👤 ' + data.username;
                 document.getElementById('myPlansBtn').style.display = 'inline-block';
+                document.getElementById('forumBtn').style.display = 'inline-block';
+                document.getElementById('profileBtn').style.display = 'inline-block';
                 document.getElementById('logoutBtn').style.display = 'inline-block';
                 // ★管理员额外显示「管理端」入口
                 if (data.role === 'admin') {
@@ -117,7 +120,7 @@ function savePlan() {
     fetch('/api/save-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ city: city, days: days, planContent: payload })
+        body: new URLSearchParams({ city: city, days: days, planContent: payload, planJson: lastResultJson })
     })
         .then(r => r.json())
         .then(data => {
@@ -150,6 +153,8 @@ function showMyPlans() {
                     '</div>' +
                     '<div class="plan-card-actions">' +
                     '<button class="mini-btn" onclick="viewPlan(' + p.id + ')">查看</button> ' +
+                    '<button class="mini-btn" onclick="location.href=\'edit.html?id=' + p.id + '\'">编辑</button> ' +
+                    '<button class="mini-btn" onclick="sharePlan(' + p.id + ')">分享</button> ' +
                     '<button class="mini-btn danger" onclick="deletePlan(' + p.id + ')">删除</button>' +
                     '</div></div>'
                 ).join('');
@@ -166,6 +171,20 @@ function viewPlan(id) {
         .then(data => {
             const p = (data.plans || []).find(x => x.id === id);
             if (p) {
+                // ★第0步：优先用结构化 JSON 列渲染（供分享/二次编辑），缺失时退回内嵌JSON/markdown
+                let structuredCol = null;
+                if (p.plan_json) {
+                    try { structuredCol = typeof p.plan_json === 'string' ? JSON.parse(p.plan_json) : p.plan_json; }
+                    catch (e) { structuredCol = null; }
+                }
+                if (structuredCol && (structuredCol.sections || structuredCol.title)) {
+                    lastResultJson = typeof p.plan_json === 'string' ? p.plan_json : JSON.stringify(structuredCol);
+                    document.getElementById('resultBody').innerHTML = renderStructuredPlan(structuredCol);
+                    document.getElementById('saveBar').style.display = 'none';
+                    closeMyPlans();
+                    document.getElementById('resultBody').scrollIntoView({ behavior: 'smooth' });
+                    return;
+                }
                 let content = p.plan_content || '';
                 // ★F-8：新数据带结构化 JSON 标记 → 优先还原轨迹/卡片渲染（与生成时一致）
                 const structured = parsePlanJson(content);
@@ -213,6 +232,27 @@ function deletePlan(id) {
         .catch(() => { });
 }
 
+
+// ★P0：分享行程（生成/刷新只读分享链接）
+function sharePlan(id) {
+    fetch('/api/trips/' + id + '/share', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const url = location.origin + data.url;
+                const msg = '分享链接（免登录可看）：\n' + url;
+                const copy = confirm(msg + '\n\n点击「确定」复制链接到剪贴板？');
+                if (copy) {
+                    navigator.clipboard.writeText(url).then(() => {
+                        document.getElementById('saveMsg').textContent = '✅ 分享链接已复制';
+                    }).catch(() => { });
+                }
+            } else {
+                alert('分享失败：' + data.message);
+            }
+        })
+        .catch(() => { alert('分享失败，请重试'); });
+}
 // 关闭弹层
 function closeMyPlans() { document.getElementById('myPlansModal').style.display = 'none'; }
 
@@ -401,9 +441,11 @@ function fetchResult() {
                 document.getElementById('resultBody').innerHTML = renderPlanSet(structured);
             } else if (structured && (structured.sections || structured.title)) {
                 lastResultMarkdown = structured.markdown || ''; // 记录降级 markdown，供保存
+                lastResultJson = text; // 记录结构化 JSON 原文，供保存行程（分享/二次编辑）
                 document.getElementById('resultBody').innerHTML = renderStructuredPlan(structured);
             } else {
                 lastResultMarkdown = text; // 记录原文，供保存行程使用
+                lastResultJson = ''; // 非结构化结果，不保存 JSON
                 document.getElementById('resultBody').innerHTML = renderPlanSheet(text);
             }
             document.getElementById('status').textContent = '✅ 计划生成完成！';
