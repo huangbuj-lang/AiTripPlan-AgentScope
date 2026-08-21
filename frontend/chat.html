@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能客服 · AiTripPlan</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+  .chat-wrap { max-width: 720px; margin: 40px auto; background: #1e293b; border-radius: 14px; padding: 24px; }
+  h2 { margin: 0 0 16px; color: #fff; }
+  #msgs { height: 420px; overflow-y: auto; border: 1px solid #334155; border-radius: 10px; padding: 14px; margin-bottom: 14px; background: #0f172a; }
+  .msg { margin-bottom: 12px; line-height: 1.7; white-space: pre-wrap; }
+  .msg.user { color: #7dd3fc; text-align: right; }
+  .msg.ai { color: #cbd5e1; }
+  .chat-input { display: flex; gap: 10px; }
+  .chat-input input { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; padding: 12px 14px; font-size: 14px; }
+  .chat-input button { background: #3b82f6; color: #fff; border: none; border-radius: 8px; padding: 0 22px; font-size: 14px; font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="chat-wrap">
+  <h2>🤖 智能客服 · 旅游顾问</h2>
+  <div id="msgs"><div class="msg ai">你好！我是智能旅游顾问，可以问我景点、美食、酒店推荐，例如「成都有什么亲子景点？」</div></div>
+  <div class="chat-input">
+    <input id="input" placeholder="输入你的旅游问题..." onkeydown="if(event.key==='Enter')send()">
+    <button onclick="send()">发送</button>
+  </div>
+</div>
+<script>
+async function send() {
+  const input = document.getElementById('input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  const msgs = document.getElementById('msgs');
+  msgs.innerHTML += '<div class="msg user">' + msg.replace(/</g, '&lt;') + '</div>';
+  input.value = '';
+  msgs.innerHTML += '<div class="msg ai">思考中...</div>';
+  msgs.scrollTop = msgs.scrollHeight;
+  try {
+    const r = await fetch('http://localhost:8090/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg })
+    });
+    const d = await r.json();
+    const last = msgs.lastElementChild;
+    last.innerHTML = d.ok ? d.answer.replace(/</g, '&lt;').replace(/\n/g, '<br>')
+                          : '⚠️ ' + (d.error || '服务异常');
+  } catch (e) {
+    const last = msgs.lastElementChild;
+    last.innerHTML = '⚠️ 客服服务未启动（8090）';
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+</script>
+</body>
+</html>
