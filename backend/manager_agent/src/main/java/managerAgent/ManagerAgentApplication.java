@@ -1,26 +1,15 @@
 package managerAgent;
 
-import com.alibaba.nacos.api.exception.NacosException;
-import managerAgent.agents.ManagerAgent;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * 启动类（两种模式）
- * 默认：启动Spring Boot Web应用（HTTP入口 POST /app）
- * --run-now：直跑一次默认任务（命令行测试用）
+ * 启动类：启动 Spring Boot Web 应用（HTTP入口 POST /app）
  */
 @SpringBootApplication
 public class ManagerAgentApplication {
 
-    public static void main(String[] args) throws NacosException {
-
-        if (args.length > 0 && "--run-now".equals(args[0])) { // --run-now：直跑默认任务后退出（不启动Web）
-            ManagerAgent managerAgent = new ManagerAgent("default"); // 命令行直跑模式：默认会话
-            managerAgent.run();
-            return;
-        }
-
-        SpringApplication.  run(ManagerAgentApplication.class, args); // 默认：启动 Web 应用
+    public static void main(String[] args) {
+        SpringApplication.run(ManagerAgentApplication.class, args); // 启动 Web 应用
     }
 }
