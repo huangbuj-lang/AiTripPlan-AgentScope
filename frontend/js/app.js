@@ -15,7 +15,8 @@ let eventSource = null;    // SSE 实时事件流（阶段四 F-3，替代 /even
 let knownCount = 0;        // 已显示的事件数（保留，向后兼容）
 let lastEventCount = 0;    // 发送前的事件总数（用于增量显示）
 let lastResultMarkdown = ''; // 最近一次最终结果的 markdown 原文（保存行程用，避免存 HTML）
-let lastResultJson = '';      // 最近一次最终结果的结构化 JSON 原文（保存行程用，供分享/二次编辑）
+let lastResultJson = '';
+let personalMapUrl = ''; // 高德专属地图唤端链接（生成后景点点击跳这里）      // 最近一次最终结果的结构化 JSON 原文（保存行程用，供分享/二次编辑）
 
 // ★会话隔离：每个窗口独立 sessionId（localStorage 持久），请求带上它避免多窗口互扰
 const sessionId = (function () {
@@ -215,6 +216,9 @@ function viewPlan(id) {
                 }
                 // ★查看历史行程：保持与生成结果一致的操作条(保存/导出)
                 document.getElementById('saveBar').style.display = 'flex';
+            // ★有结构化数据才提供"专属地图"入口
+            document.getElementById('personalMapBtn').style.display =
+                (structured && structured.sections) ? 'inline-flex' : 'none';
                 document.getElementById('saveMsg').textContent = '';
                 closeMyPlans();
                 document.getElementById('resultBody').scrollIntoView({ behavior: 'smooth' });
@@ -1089,6 +1093,11 @@ function amapLink(place) {
 
 /** 点击景点：先调后端 /amap/geocode 拿经纬度 → 跳 marker 直接定位；失败降级搜索页 */
 function gotoAmap(fallbackUrl, name, city) {
+    // ★优先跳高德"专属地图"（本次行程的个性化地图）；无链接时走原定位/搜索逻辑
+    if (personalMapUrl) {
+        window.open(personalMapUrl, '_blank');
+        return;
+    }
     fetch('/amap/geocode?name=' + encodeURIComponent(name)
         + (city ? '&city=' + encodeURIComponent(city) : ''))
         .then(r => r.json())
@@ -1103,6 +1112,44 @@ function gotoAmap(fallbackUrl, name, city) {
             }
         })
         .catch(() => window.open(fallbackUrl, '_blank')); // 网络异常降级
+}
+
+/**
+ * ★生成高德"专属地图"：把当前结构化行程(每日地点序列)发给后端 → 调高德MCP生成唤端链接。
+ * 成功后显示链接按钮，且后续景点点击都跳这张专属地图。
+ */
+function openPersonalMap(ev) {
+    if (ev) ev.stopPropagation();
+    if (!currentPlanData || !currentPlanData.sections) { alert('请先生成结构化行程'); return; }
+    const btn = document.getElementById('personalMapBtn');
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 生成中...';
+    // 组装 days：从 timeline sections 提取每天地点序列
+    const days = [];
+    for (const s of currentPlanData.sections) {
+        if (s.type !== 'timeline') continue;
+        const places = [];
+        for (const it of (s.items || [])) {
+            const pl = (it.place || it.name || '').trim();
+            if (pl && !places.includes(pl)) places.push(pl);
+        }
+        if (places.length) days.push({ title: s.title || ('第' + (days.length+1) + '天'), places: places });
+    }
+    fetch('/api/amap/personal-map', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: currentPlanData.title || '行程规划',
+            destination: currentPlanData.destination || '', days: days })
+    })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-map-location-dot"></i> 高德专属地图';
+            if (d.ok && d.url) {
+                personalMapUrl = d.url;
+                window.open(d.url, '_blank'); // 直接打开
+            } else {
+                alert('生成失败：' + (d.error || '未知错误'));
+            }
+        })
+        .catch(() => { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-map-location-dot"></i> 高德专属地图'; alert('网络异常，请重试'); });
 }
 
 /** 按点数生成轨迹曲线路径 */

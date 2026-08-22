@@ -119,6 +119,7 @@
   <!-- 保存条(对称操作条:打印/导出 + 保存) -->
   <div id="saveBar" class="save-bar" style="display:none">
     <button class="mini-btn" onclick="toggleExportMenu(event)"><i class="fa-solid fa-print"></i> 打印 / 导出</button>
+    <button class="mini-btn" id="personalMapBtn" style="display:none" onclick="openPersonalMap(event)"><i class="fa-solid fa-map-location-dot"></i> 高德专属地图</button>
     <div class="export-menu" id="exportMenu" style="display:none">
       <a href="javascript:void(0)" onclick="exportPDF(event)"><i class="fa-regular fa-file-pdf"></i> 导出 PDF</a>
       <a href="javascript:void(0)" onclick="exportWord(event)"><i class="fa-regular fa-file-word"></i> 导出 Word</a>
