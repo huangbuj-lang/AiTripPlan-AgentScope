@@ -57,8 +57,8 @@ def main():
             if not pois:
                 miss += 1; continue
             biz = pois[0].get("business") or {}
-            tips = esc(biz.get("rectag"))
-            open_time = esc(biz.get("opentime_week") or biz.get("opentime_today"))
+            tips = esc(biz.get("rectag"))[:490]
+            open_time = esc(biz.get("opentime_week") or biz.get("opentime_today"))[:250]
             rating = biz.get("rating")
             sets = [f"tips='{tips}'", f"best_time='{open_time}'", "source='amap_v5'"]
             if rating:

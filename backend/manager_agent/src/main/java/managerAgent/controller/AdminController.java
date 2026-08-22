@@ -348,4 +348,61 @@ public class AdminController {
         r.put("success", true);
         return r;
     }
+/** 数据管线一键更新（异步执行 python3 data-pipeline/update_all.py，立即返回任务ID） */
+    private final java.util.Map<String, String> PIPELINE_JOBS = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ExecutorService PIPELINE_POOL = java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    @PostMapping("/pipeline/run")
+    public Map<String, Object> runPipeline() {
+        Map<String, Object> r = new HashMap<>();
+        for (String s : PIPELINE_JOBS.values()) {
+            if ("running".equals(s)) {
+                r.put("success", false);
+                r.put("message", "已有更新任务在执行中，请稍候");
+                return r;
+            }
+        }
+        String jobId = "pipe_" + System.currentTimeMillis();
+        PIPELINE_JOBS.put(jobId, "running");
+        String projectDir = System.getProperty("user.dir");
+        // manager_agent 工作目录为 backend/manager_agent，项目根在上两级
+        java.io.File script = new java.io.File(projectDir, "../../data-pipeline/update_all.py");
+        if (!script.exists()) {
+            script = new java.io.File("D:/hermes-agent/data-pipeline/update_all.py"); // 兜底（不应命中）
+        }
+        final String scriptPath;
+        try {
+            scriptPath = script.getCanonicalPath();
+        } catch (Exception e) {
+            PIPELINE_JOBS.remove(jobId);
+            r.put("success", false); r.put("message", "脚本路径错误");
+            return r;
+        }
+        PIPELINE_POOL.submit(() -> {
+            try {
+                ProcessBuilder pb = new ProcessBuilder("python3", scriptPath);
+                pb.directory(new java.io.File(scriptPath).getParentFile().getParentFile());
+                pb.redirectErrorStream(true);
+                pb.redirectOutput(new java.io.File(System.getProperty("java.io.tmpdir"), "atp_pipeline_" + jobId + ".log"));
+                Process p = pb.start();
+                p.waitFor();
+                PIPELINE_JOBS.put(jobId, "done");
+            } catch (Exception e) {
+                PIPELINE_JOBS.put(jobId, "error: " + e.getMessage());
+            }
+        });
+        r.put("success", true);
+        r.put("jobId", jobId);
+        r.put("message", "数据更新已在后台启动（采集→预处理→高德v5→等级→LLM，约30分钟）");
+        return r;
+    }
+
+    /** 查询更新任务状态 */
+    @GetMapping("/pipeline/status")
+    public Map<String, Object> pipelineStatus() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("jobs", PIPELINE_JOBS);
+        r.put("running", PIPELINE_JOBS.values().stream().anyMatch("running"::equals));
+        return r;
+    }
 }

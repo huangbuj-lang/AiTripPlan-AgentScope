@@ -83,14 +83,23 @@ def build(table, out_table, rules, use_rating=False):
         name_s = name.replace("'", "''"); city_s = city.replace("'", "''")
         types_s = (types or "").replace("'", "''")[:190]
         inserts.append(f"({_id},'{name_s}','{city_s}','{types_s}',{rating_f},'{label}','{level}','{cost or ''}')")
-    sql(f"DROP TABLE IF EXISTS {out_table}", fetch=False)
-    sql(f"""CREATE TABLE {out_table} (
+    # ★增量更新模式：不再DROP重建（会丢enrich补的tips/ticket_price等字段）
+    #   表带 UNIQUE(name,city)，INSERT...ON DUPLICATE KEY UPDATE 刷新基础字段、保留扩展字段
+    sql(f"""CREATE TABLE IF NOT EXISTS {out_table} (
         src_id BIGINT, name VARCHAR(100), city VARCHAR(50), types VARCHAR(200),
-        rating DECIMAL(3,1), label VARCHAR(30), level VARCHAR(10), cost VARCHAR(50)
+        rating DECIMAL(3,1), label VARCHAR(30), level VARCHAR(10), cost VARCHAR(50),
+        address VARCHAR(255), ticket_price VARCHAR(50), is_free TINYINT, visit_duration VARCHAR(50),
+        scenic_grade VARCHAR(10), intro VARCHAR(500), booking_required VARCHAR(100),
+        suitable_tags VARCHAR(100), tips VARCHAR(500), best_time VARCHAR(255), source VARCHAR(20) DEFAULT 'rule',
+        UNIQUE KEY uk_name_city (name, city)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", fetch=False)
+    base_cols = "src_id,name,city,types,rating,label,level,cost"
+    update_cols = ("src_id=VALUES(src_id), types=VALUES(types), rating=VALUES(rating), "
+                   "label=VALUES(label), level=VALUES(level), cost=VALUES(cost)")
     for i in range(0, len(inserts), 200):
-        sql(f"INSERT INTO {out_table} VALUES " + ",".join(inserts[i:i+200]), fetch=False)
-    print(f"✅ {out_table}: 清洗后 {len(inserts)} 条")
+        sql(f"INSERT INTO {out_table} ({base_cols}) VALUES " + ",".join(inserts[i:i+200]) +
+            f" ON DUPLICATE KEY UPDATE {update_cols}", fetch=False)
+    print(f"✅ {out_table}: 增量更新 {len(inserts)} 条（保留扩展字段）")
 
 build("attractions", "attractions_features", ATTR_RULES)
 build("foods", "foods_features", FOOD_RULES)

@@ -318,3 +318,26 @@ function loadDataCenter() {
         b.innerHTML = html;
     }).catch(() => {});
 }
+
+// ============ 数据管线一键更新 ============
+function runPipeline(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '启动中...'; }
+    fetch('/api/admin/pipeline/run', { method: 'POST' }).then(r => r.json()).then(d => {
+        toast(d.message || (d.success ? '已启动' : '失败'), !d.success);
+        if (d.success) {
+            if (btn) btn.textContent = '更新中...';
+            setTimeout(() => pollPipeline(btn), 5000);
+        } else if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udd04 更新数据'; }
+    }).catch(() => { toast('请求失败', true); if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udd04 更新数据'; } });
+}
+function pollPipeline(btn) {
+    fetch('/api/admin/pipeline/status').then(r => r.json()).then(d => {
+        if (d.running) { setTimeout(() => pollPipeline(btn), 15000); }
+        else {
+            const done = Object.values(d.jobs || {}).some(v => String(v).startsWith('done'));
+            toast(done ? '\u2705 数据更新完成' : '\u26a0\ufe0f 更新结束（有错误，看服务日志）', !done);
+            if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udd04 更新数据'; }
+            loadDataCenter();
+        }
+    }).catch(() => { if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udd04 更新数据'; } });
+}

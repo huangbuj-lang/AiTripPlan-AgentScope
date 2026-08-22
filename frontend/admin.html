@@ -118,7 +118,10 @@
         <section class="panel hidden" id="panel-center">
             <div class="panel-head">
                 <h2>数据中心</h2>
-                <button class="btn-refresh" onclick="loadDataCenter()">刷新</button>
+                <div>
+                    <button class="btn-refresh" id="pipeBtn" onclick="runPipeline(this)">🔄 更新数据</button>
+                    <button class="btn-refresh" onclick="loadDataCenter()">刷新</button>
+                </div>
             </div>
             <div id="centerStats" class="metric-grid" style="display:flex;flex-wrap:wrap;gap:12px"></div>
             <div style="display:flex;gap:20px;margin-top:18px;flex-wrap:wrap">
