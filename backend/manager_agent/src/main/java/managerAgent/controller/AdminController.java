@@ -351,6 +351,7 @@ public class AdminController {
 /** 数据管线一键更新（异步执行 python3 data-pipeline/update_all.py，立即返回任务ID） */
     private final java.util.Map<String, String> PIPELINE_JOBS = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ExecutorService PIPELINE_POOL = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private volatile Process PIPELINE_PROC; // 当前更新子进程
 
     @PostMapping("/pipeline/run")
     public Map<String, Object> runPipeline() {
@@ -385,8 +386,9 @@ public class AdminController {
                 pb.redirectErrorStream(true);
                 pb.redirectOutput(new java.io.File(System.getProperty("java.io.tmpdir"), "atp_pipeline_" + jobId + ".log"));
                 Process p = pb.start();
+                PIPELINE_PROC = p;
                 p.waitFor();
-                PIPELINE_JOBS.put(jobId, "done");
+                PIPELINE_JOBS.put(jobId, p.exitValue() == 0 ? "done" : "stopped_or_failed(exit=" + p.exitValue() + ")");
             } catch (Exception e) {
                 PIPELINE_JOBS.put(jobId, "error: " + e.getMessage());
             }
@@ -403,6 +405,24 @@ public class AdminController {
         Map<String, Object> r = new HashMap<>();
         r.put("jobs", PIPELINE_JOBS);
         r.put("running", PIPELINE_JOBS.values().stream().anyMatch("running"::equals));
+        return r;
+    }
+
+    /** 停止正在执行的数据更新任务（杀掉 python 子进程树） */
+    @PostMapping("/pipeline/stop")
+    public Map<String, Object> stopPipeline() {
+        Map<String, Object> r = new HashMap<>();
+        Process p = PIPELINE_PROC;
+        if (p != null && p.isAlive()) {
+            p.descendants().forEach(java.lang.ProcessHandle::destroyForcibly);
+            p.destroyForcibly();
+            r.put("success", true);
+            r.put("message", "已停止更新任务");
+            return r;
+        }
+        boolean hasRunning = PIPELINE_JOBS.values().stream().anyMatch("running"::equals);
+        r.put("success", hasRunning);
+        r.put("message", hasRunning ? "已发送停止请求" : "当前没有正在执行的更新任务");
         return r;
     }
 }

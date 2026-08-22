@@ -322,6 +322,8 @@ function loadDataCenter() {
 // ============ 数据管线一键更新 ============
 function runPipeline(btn) {
     if (btn) { btn.disabled = true; btn.textContent = '启动中...'; }
+    const stopBtn0 = document.getElementById('pipeStopBtn');
+    if (stopBtn0) stopBtn0.style.display = '';
     fetch('/api/admin/pipeline/run', { method: 'POST' }).then(r => r.json()).then(d => {
         toast(d.message || (d.success ? '已启动' : '失败'), !d.success);
         if (d.success) {
@@ -337,7 +339,15 @@ function pollPipeline(btn) {
             const done = Object.values(d.jobs || {}).some(v => String(v).startsWith('done'));
             toast(done ? '\u2705 数据更新完成' : '\u26a0\ufe0f 更新结束（有错误，看服务日志）', !done);
             if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udd04 更新数据'; }
+const sb = document.getElementById('pipeStopBtn'); if (sb) sb.style.display = 'none';
             loadDataCenter();
         }
     }).catch(() => { if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udd04 更新数据'; } });
+}
+
+function stopPipeline(btn) {
+    if (btn) { btn.disabled = true; }
+    fetch('/api/admin/pipeline/stop', { method: 'POST' }).then(r => r.json()).then(d => {
+        toast(d.message || '已发送停止请求', !d.success);
+    }).catch(() => toast('请求失败', true)).finally(() => { if (btn) btn.disabled = false; });
 }
