@@ -56,23 +56,40 @@ public class RemoteAgentTool {
         log.info("获取到的远程Agent描述：" + agent.getDescription());
         log.info("============");
 
-        // 打包任务为A2A消息并阻塞等待远程回复（带超时）
-        Msg response = agent.call(
-                Msg.builder()
-                        .role(MsgRole.USER)
-                        .content(TextBlock.builder()
-                                .text(task)
-                                .build())
-                        .build()
-        ).block(REMOTE_TIMEOUT);
-
-        String emptyMsg = label + "没有返回内容";
-        String result = (response != null && response.getTextContent() != null)
-                ? response.getTextContent()
-                : emptyMsg;
+        // ★A2A传输级重试：超时/异常/空返回 → 带失败信号重发1次（代码级，与子Agent内工具重试相互独立）
+        String emptyMsg0 = label + "没有返回内容";
+        String result = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            String taskToSend = task;
+            if (attempt > 1) {
+                taskToSend = task + "\n\n【重试提示】上一次调用超时或返回空。请务必调用你的工具完成查询并输出完整结果。";
+                EventStore.add(sessionId, "Agent结果", label + " ⚠️ 第1次调用失败(超时/空)，主管重发(第2次)...");
+                log.warn("{} 第1次A2A调用失败(超时/空/异常)，重发中", label);
+            }
+            try {
+                Msg response = agent.call(
+                        Msg.builder()
+                                .role(MsgRole.USER)
+                                .content(TextBlock.builder()
+                                        .text(taskToSend)
+                                        .build())
+                                .build()
+                ).block(REMOTE_TIMEOUT);
+                result = (response != null && response.getTextContent() != null)
+                        ? response.getTextContent()
+                        : emptyMsg0;
+            } catch (Exception e) {
+                log.warn("{} A2A调用异常(attempt={}): {}", label, attempt, e.getMessage());
+                result = emptyMsg0;
+            }
+            if (result != null && !result.isBlank() && !result.equals(emptyMsg0)) {
+                break; // 拿到有效结果
+            }
+        }
+        String emptyMsg = emptyMsg0;
         // 记录子Agent调用结果事件
         EventStore.add(sessionId, "Agent结果", result == null || result.isBlank() || result.equals(emptyMsg)
-                ? label + " ❌ 调用失败(返回空)"
+                ? label + " ❌ 调用失败(重试后仍空)"
                 : label + " ✅ 调用成功(返回" + result.length() + "字符)");
         log.info("============");
         log.info(label + "返回结果：" + result);
