@@ -72,16 +72,20 @@ public class AppController {
         TASK_POOL.submit(() -> { // 异步执行任务
             try {
                 TripOrchestrator orchestrator = new TripOrchestrator(sessionId); // 确定性编排器（会话隔离）
+                // ★用户画像注入：与用户输入放一起（登录且有画像时），其余链路不动
+                String profileLine = (userIdObj != null && !skipPrefs)
+                        ? loadProfileTags(((Number) userIdObj).longValue()) : "";
+                String finalPrompt = profileLine + prompt;
                 if ("true".equalsIgnoreCase(multiScheme)) { // ★多方案模式：生成3套差异化方案
-                    dto.PlanSet planSet = orchestrator.runMultiScheme(prompt);
+                    dto.PlanSet planSet = orchestrator.runMultiScheme(finalPrompt);
                     EventStore.setResult(sessionId, JsonUtils.toJson(planSet)); // 缓存多方案 JSON
                 } else {
                     TripPlanData plan;
                     if (userIdObj != null && !skipPrefs) { // ★P0：注入个人中心沉淀偏好（未跳过且已登录时）
                         TripRequest.Preferences prefs = loadPreferences(((Number) userIdObj).longValue());
-                        plan = orchestrator.run(prompt, prefs);
+                        plan = orchestrator.run(finalPrompt, prefs);
                     } else {
-                        plan = orchestrator.run(prompt); // 解析→偏好分类→并行DAG→聚合
+                        plan = orchestrator.run(finalPrompt); // 解析→偏好分类→并行DAG→聚合
                     }
                     EventStore.setResult(sessionId, JsonUtils.toJson(plan)); // 缓存结构化 JSON 结果（含降级 markdown 字段）
                 }
@@ -232,6 +236,34 @@ public class AppController {
         } catch (Exception e) {
             log.warn("加载用户偏好失败: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * ★读用户画像标签（user_profiles_tags），拼成"【用户画像】..."行注入主管（与用户输入放一起）。
+     * 无画像/异常返回空串，不影响主流程。
+     */
+    private String loadProfileTags(Long userId) {
+        if (userId == null) return "";
+        try {
+            var rows = jdbcTemplate.queryForList(
+                    "SELECT tags FROM user_profiles_tags WHERE user_id = ?", userId);
+            if (rows.isEmpty() || rows.get(0).get("tags") == null) return "";
+            Object raw = rows.get(0).get("tags");
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            Map<String, Object> tags = om.readValue(raw.toString(),
+                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { });
+            if (tags.isEmpty()) return "";
+            List<String> parts = tags.entrySet().stream()
+                    .sorted((a, b) -> Long.compare(
+                            ((Number) b.getValue()).longValue(), ((Number) a.getValue()).longValue()))
+                    .limit(8)
+                    .map(e -> e.getKey() + (e.getValue() instanceof Number n && n.longValue() > 1
+                            ? "×" + n.longValue() : ""))
+                    .collect(java.util.stream.Collectors.toList());
+            return "【用户画像】" + String.join("、", parts) + "\n";
+        } catch (Exception e) {
+            return "";
         }
     }
 }

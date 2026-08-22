@@ -536,24 +536,8 @@ public class TripOrchestrator {
 
     /** 请求 JSON 输出的单次裸 LLM 调用 */
     private String callModelJson(String sysPrompt, String userPrompt) {
-        Msg system = Msg.builder().role(MsgRole.SYSTEM)
-                .content(TextBlock.builder().text(sysPrompt).build()).build();
-        Msg user = Msg.builder().role(MsgRole.USER)
-                .content(TextBlock.builder().text(userPrompt).build()).build();
-        // 注入 response_format: json_object（若模型不支持则被忽略，靠 prompt + 鲁棒提取兜底）
-        GenerateOptions options = GenerateOptions.builder()
-                .additionalBodyParams(Map.of("response_format", Map.of("type", "json_object")))
-                .build();
-        try {
-            ChatResponse resp = model.stream(List.of(system, user), null, options)
-                    .blockLast(Duration.ofSeconds(120));
-            return textOf(resp);
-        } catch (CancelledException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("LLM 调用失败: {}", e.getMessage());
-            return "";
-        }
+        // ★统一出口：所有裸 LLM 调用走 LlmClient（改模型只动一处）
+        return utils.LlmClient.chatJson(sysPrompt, userPrompt);
     }
 
     /** 从 ChatResponse 提取文本（遍历 TextBlock） */
