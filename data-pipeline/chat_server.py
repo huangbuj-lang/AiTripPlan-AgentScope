@@ -18,8 +18,10 @@ for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
     if m:
         ENV[m.group(1)] = m.group(2).strip().strip('"').strip("'")
 
-DEEPSEEK_KEY = ENV.get("DEEPSEEK_API_KEY", "")
-MODEL = ENV.get("MODEL_NAME", "deepseek-v4-flash")
+from llm_config import get_llm_config  # ★统一模型配置（管理端保存后自动重启本服务生效）
+_CFG = get_llm_config()
+DEEPSEEK_KEY = _CFG["key"]
+MODEL = _CFG["name"]
 RDS_HOST = ENV.get("RDS_HOST", "127.0.0.1:3306")
 RDS_USER = ENV.get("RDS_USER", "root")
 RDS_PASS = ENV.get("RDS_PASSWORD", "")

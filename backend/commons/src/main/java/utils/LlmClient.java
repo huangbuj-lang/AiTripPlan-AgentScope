@@ -63,6 +63,11 @@ public final class LlmClient {
         }
     }
 
+    /** ★热更后调用：丢弃缓存模型实例，下次 model() 用 ModelConfigHolder 新配置重建 */
+    public static void reset() {
+        sharedModel = null;
+    }
+
     /** JSON 模式便捷重载 */
     public static String chatJson(String sysPrompt, String userPrompt) {
         return chat(sysPrompt, userPrompt, true, 120_000L);

@@ -52,19 +52,34 @@ public class AgentUtils {
      * 供 ReAct Agent 与确定性编排器的裸 LLM 调用复用。
      */
     public static io.agentscope.core.model.Model buildModel() {
-        // 从环境变量读取主模型与备用模型的 API Key
-        String deepseekKey = System.getenv("DEEPSEEK_API_KEY");
-        if (deepseekKey == null || deepseekKey.isBlank()) {
+        // ★热更配置中心：主模型 URL/KEY/NAME 从 ModelConfigHolder 读（管理端保存即更新）
+        String key = ModelConfigHolder.apiKey();
+        if (key == null || key.isBlank()) {
             throw new IllegalStateException(
-                    "未配置 DEEPSEEK_API_KEY 环境变量！请先执行: export DEEPSEEK_API_KEY=你的key，再启动 Agent");
+                    "未配置模型 API Key！请在管理端「模型监控」页填写，或 .env 配置 MODEL_API_KEY");
         }
         String qwenKey = System.getenv("DASHSCOPE_API_KEY"); // 备用模型 Key（可缺失）
 
-        io.agentscope.core.model.Model primary = buildDeepSeekModel(deepseekKey); // 主模型：DeepSeek
+        io.agentscope.core.model.Model primary = buildPrimaryModel(
+                ModelConfigHolder.baseUrl(), key, ModelConfigHolder.modelName());
         io.agentscope.core.model.Model fallback = (qwenKey != null && !qwenKey.isBlank())
                 ? buildQwenModel(qwenKey)   // 备用模型：Qwen（可缺失）
                 : null;
         return new SafeModel(primary, fallback); // 安全装饰器：限速+重试+熔断动态降级
+    }
+
+    /** 通用主模型构建（OpenAI 兼容接口，URL/KEY/NAME 可热更） */
+    private static io.agentscope.core.model.Model buildPrimaryModel(String baseUrl, String apiKey, String modelName) {
+        boolean isDeepSeek = baseUrl != null && baseUrl.contains("deepseek");
+        var b = io.agentscope.core.model.OpenAIChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey(apiKey)
+                .modelName(modelName)
+                .stream(false); // 关闭流式增量，保证完整输出
+        if (isDeepSeek) {
+            b.formatter(new DeepSeekToolFixFormatter()); // 仅 DeepSeek 需要 tool 配对修复
+        }
+        return b.build();
     }
 
     /**

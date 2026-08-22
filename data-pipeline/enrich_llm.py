@@ -22,9 +22,9 @@ RDS_USER = ENV.get("RDS_USER", "root")
 RDS_PASS = ENV.get("RDS_PASSWORD", "")
 
 # 本次专用 ox-alpha；以后项目统一模型走 .env 的 DEEPSEEK_API_KEY/MODEL_NAME
-OR_KEY = "sk-or-REPLACED"
-OR_URL = "https://openrouter.ai/api/v1/chat/completions"
-OR_MODEL = "stealth/ox-alpha"
+from llm_config import get_llm_config  # ★统一模型配置（管理端可热更）
+_CFG = get_llm_config()
+OR_KEY, OR_URL, OR_MODEL = _CFG["key"], _CFG["url"].rstrip("/") + "/chat/completions", _CFG["name"]
 
 def sql(query, fetch=True):
     host, port = (RDS_HOST.split(":") + ["3306"])[:2]

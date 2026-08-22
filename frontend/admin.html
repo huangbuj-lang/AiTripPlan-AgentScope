@@ -61,6 +61,27 @@
                 <button class="btn-refresh" onclick="loadBreaker()">刷新</button>
             </div>
             <div id="breakerBody" class="panel-body">加载中...</div>
+
+            <!-- ★模型配置热更：Java侧/Python侧 两组 -->
+            <div class="model-config-area" style="margin-top:18px">
+                <h3 style="margin:0 0 10px">⚙️ 模型配置（热生效）</h3>
+                <div style="display:flex; gap:24px; flex-wrap:wrap">
+                    <fieldset style="flex:1; min-width:320px; border:1px solid rgba(148,163,184,.3); border-radius:10px; padding:12px">
+                        <legend>Java 侧（核心链路）</legend>
+                        <label>URL<br><input id="mcJavaUrl" style="width:95%"></label><br>
+                        <label>Key<br><input id="mcJavaKey" type="password" placeholder="留空=不修改" style="width:95%"></label><br>
+                        <label>模型名<br><input id="mcJavaName" placeholder="如 deepseek-v4-flash" style="width:95%"></label>
+                    </fieldset>
+                    <fieldset style="flex:1; min-width:320px; border:1px solid rgba(148,163,184,.3); border-radius:10px; padding:12px">
+                        <legend>Python 侧（客服/数据管线）</legend>
+                        <label>URL<br><input id="mcPyUrl" style="width:95%"></label><br>
+                        <label>Key<br><input id="mcPyKey" type="password" placeholder="留空=不修改" style="width:95%"></label><br>
+                        <label>模型名<br><input id="mcPyName" placeholder="如 stealth/ox-alpha" style="width:95%"></label>
+                    </fieldset>
+                </div>
+                <button class="mini-btn" onclick="saveModelConfig()" style="margin-top:10px">💾 保存模型配置</button>
+                <span id="mcMsg" style="margin-left:10px;color:#94a3b8;font-size:12px"></span>
+            </div>
         </section>
 
         <!-- 数据管理 -->

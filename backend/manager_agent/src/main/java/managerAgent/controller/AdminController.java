@@ -107,6 +107,135 @@ public class AdminController {
     // ==================== 模型监控 ====================
 
     /** 熔断器状态 / 失败计数 / 主备模型 / 限速 QPS */
+    // ==================== ★模型配置热更（Java侧/Python侧两组） ====================
+
+    /** 读当前模型配置（key 打码显示） */
+    @GetMapping("/model-config")
+    public Map<String, Object> getModelConfig() {
+        Map<String, Object> r = new java.util.HashMap<>();
+        utils.ModelConfigHolder c = null; // 占位避免误用
+        String jk = utils.ModelConfigHolder.apiKey();
+        r.put("java", Map.of(
+                "url", utils.ModelConfigHolder.baseUrl(),
+                "name", utils.ModelConfigHolder.modelName(),
+                "keyMasked", jk == null || jk.length() < 10 ? "" : jk.substring(0, 6) + "****" + jk.substring(jk.length() - 4)));
+        Map<String, Object> py = readPyLlmConfig();
+        py.put("keyMasked", maskKey((String) py.get("key")));
+        py.remove("key");
+        r.put("python", py);
+        r.put("success", true);
+        return r;
+    }
+
+    /** 保存模型配置：写 .env + Java 热更 + 重启 chat_server（Python 侧） */
+    @PostMapping("/model-config")
+    public Map<String, Object> saveModelConfig(@RequestParam(required = false) String javaUrl,
+                                               @RequestParam(required = false) String javaKey,
+                                               @RequestParam(required = false) String javaName,
+                                               @RequestParam(required = false) String pyUrl,
+                                               @RequestParam(required = false) String pyKey,
+                                               @RequestParam(required = false) String pyName) {
+        Map<String, Object> r = new java.util.HashMap<>();
+        try {
+            StringBuilder note = new StringBuilder();
+            if (javaUrl != null && !javaUrl.isBlank()) {
+                // Java 侧：热更内存配置 + 写 .env（重启后仍生效）
+                utils.ModelConfigHolder.update(javaUrl, javaKey, javaName);
+                upsertEnv("MODEL_BASE_URL", javaUrl);
+                if (javaKey != null && !javaKey.isBlank()) upsertEnv("MODEL_API_KEY", javaKey);
+                if (javaName != null && !javaName.isBlank()) upsertEnv("MODEL_NAME", javaName);
+                managerAgent.tool.LlmClientReset.reset(); // 下次构建模型用新配置
+                note.append("Java侧已热更；");
+            }
+            if (pyUrl != null && !pyUrl.isBlank() || pyKey != null && !pyKey.isBlank()
+                    || pyName != null && !pyName.isBlank()) {
+                // Python 侧：写统一配置文件 llm_config.json + 重启 chat_server
+                savePyLlmConfig(pyUrl, pyKey, pyName);
+                restartChatServer();
+                note.append("Python侧已更新并重启客服服务；");
+            }
+            r.put("success", true);
+            r.put("message", note.length() == 0 ? "没有需要保存的修改" : note.toString());
+        } catch (Exception e) {
+            r.put("success", false);
+            r.put("message", "保存失败：" + e.getMessage());
+        }
+        return r;
+    }
+
+    /** 打码 key */
+    private String maskKey(String k) {
+        return (k == null || k.length() < 10) ? "" : k.substring(0, 6) + "****" + k.substring(k.length() - 4);
+    }
+
+    /** 写/更新 .env 中的键（保持其他行不变） */
+    private synchronized void upsertEnv(String key, String value) throws Exception {
+        java.io.File f = new java.io.File(System.getProperty("user.dir"), ".env");
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        boolean found = false;
+        if (f.exists()) {
+            for (String line : java.nio.file.Files.readAllLines(f.toPath())) {
+                if (line.startsWith(key + "=")) {
+                    lines.add(key + "=" + value);
+                    found = true;
+                } else {
+                    lines.add(line);
+                }
+            }
+        }
+        if (!found) lines.add(key + "=" + value);
+        java.nio.file.Files.write(f.toPath(), lines);
+    }
+
+    /** Python 侧统一配置文件 data-pipeline/llm_config.json */
+    private java.io.File pyConfigFile() {
+        return new java.io.File(System.getProperty("user.dir"), "data-pipeline/llm_config.json");
+    }
+
+    private Map<String, Object> readPyLlmConfig() {
+        Map<String, Object> m = new java.util.HashMap<>();
+        try {
+            java.io.File f = pyConfigFile();
+            if (f.exists()) {
+                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                m = om.readValue(f, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { });
+            }
+        } catch (Exception ignored) { }
+        m.putIfAbsent("url", "https://openrouter.ai/api/v1");
+        m.putIfAbsent("key", "");
+        m.putIfAbsent("name", "stealth/ox-alpha");
+        return m;
+    }
+
+    private void savePyLlmConfig(String url, String key, String name) throws Exception {
+        Map<String, Object> cur = readPyLlmConfig();
+        if (url != null && !url.isBlank()) cur.put("url", url.trim());
+        if (key != null && !key.isBlank()) cur.put("key", key.trim());
+        if (name != null && !name.isBlank()) cur.put("name", name.trim());
+        new com.fasterxml.jackson.databind.ObjectMapper()
+                .writerWithDefaultPrettyPrinter().writeValue(pyConfigFile(), cur);
+    }
+
+    /** 重启 chat_server（8090）：taskkill python? 不——只杀监听8090的进程再由 start 脚本拉起 */
+    private void restartChatServer() {
+        try {
+            java.io.File script = new java.io.File(System.getProperty("user.dir"),
+                    "../../start-chat.sh");
+            boolean useSh = script.exists();
+            ProcessBuilder pb;
+            if (useSh) {
+                pb = new ProcessBuilder("bash", script.getCanonicalPath(), "restart");
+            } else {
+                // 无脚本则直接杀掉8090进程，由用户下次手动启动
+                pb = new ProcessBuilder("bash", "-c",
+                        "netstat -ano | grep ':8090' | grep LISTENING | awk '{print $5}' | xargs -r taskkill /F /PID");
+            }
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(java.io.File.createTempFile("atp_chat_restart_", ".log"));
+            pb.start(); // 异步执行，不阻塞接口
+        } catch (Exception ignored) { }
+    }
+
     @GetMapping("/breaker")
     public Map<String, Object> breaker() {
         CircuitBreaker cb = CircuitBreaker.getInstance();

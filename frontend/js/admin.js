@@ -121,6 +121,7 @@ function forceCancel(sessionId) {
 function loadBreaker() {
     fetch('/api/admin/breaker').then(r => r.json()).then(d => {
         const b = document.getElementById('breakerBody');
+        loadModelConfig();
         const stateCn = { CLOSED: '正常（CLOSED）', OPEN: '熔断中（OPEN）', HALF_OPEN: '半开试探（HALF_OPEN）' }[d.state] || d.state;
         b.innerHTML =
             '<div class="breaker-state ' + d.state + '">熔断器状态：<b>' + stateCn + '</b></div>' +
@@ -350,4 +351,42 @@ function stopPipeline(btn) {
     fetch('/api/admin/pipeline/stop', { method: 'POST' }).then(r => r.json()).then(d => {
         toast(d.message || '已发送停止请求', !d.success);
     }).catch(() => toast('请求失败', true)).finally(() => { if (btn) btn.disabled = false; });
+}
+
+// ============ ★模型配置热更（Java侧/Python侧） ============
+function loadModelConfig() {
+    fetch('/api/admin/model-config').then(r => r.json()).then(d => {
+        if (!d.success) return;
+        document.getElementById('mcJavaUrl').value = d.java.url || '';
+        document.getElementById('mcJavaName').value = d.java.name || '';
+        document.getElementById('mcJavaKey').placeholder = d.java.keyMasked ? ('当前: ' + d.java.keyMasked + '（留空不修改）') : '留空=不修改';
+        document.getElementById('mcPyUrl').value = d.python.url || '';
+        document.getElementById('mcPyName').value = d.python.name || '';
+        document.getElementById('mcPyKey').placeholder = d.python.keyMasked ? ('当前: ' + d.python.keyMasked + '（留空不修改）') : '留空=不修改';
+    }).catch(() => {});
+}
+
+function saveModelConfig() {
+    const body = new URLSearchParams();
+    const ju = document.getElementById('mcJavaUrl').value.trim();
+    const jk = document.getElementById('mcJavaKey').value.trim();
+    const jn = document.getElementById('mcJavaName').value.trim();
+    const pu = document.getElementById('mcPyUrl').value.trim();
+    const pk = document.getElementById('mcPyKey').value.trim();
+    const pn = document.getElementById('mcPyName').value.trim();
+    if (ju) body.append('javaUrl', ju);
+    if (jk) body.append('javaKey', jk);
+    if (jn) body.append('javaName', jn);
+    if (pu) body.append('pyUrl', pu);
+    if (pk) body.append('pyKey', pk);
+    if (pn) body.append('pyName', pn);
+    fetch('/api/admin/model-config', { method: 'POST', body })
+        .then(r => r.json())
+        .then(d => {
+            const msg = document.getElementById('mcMsg');
+            msg.textContent = d.message || (d.success ? '已保存' : '保存失败');
+            msg.style.color = d.success ? '#2dd4bf' : '#e17055';
+            loadModelConfig();
+        })
+        .catch(() => { document.getElementById('mcMsg').textContent = '网络错误'; });
 }

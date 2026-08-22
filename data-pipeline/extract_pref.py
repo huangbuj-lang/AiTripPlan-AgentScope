@@ -15,9 +15,7 @@ for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
     if m:
         ENV[m.group(1)] = m.group(2).strip().strip('"').strip("'")
 
-OR_KEY = "sk-or-REPLACED"
-OR_URL = "https://openrouter.ai/api/v1/chat/completions"
-OR_MODEL = "stealth/ox-alpha"
+from llm_config import chat as _llm_chat  # ★统一模型配置（管理端可热更）
 RDS_HOST = ENV.get("RDS_HOST", "127.0.0.1:3306")
 RDS_USER = ENV.get("RDS_USER", "root")
 RDS_PASS = ENV.get("RDS_PASSWORD", "")
@@ -38,24 +36,24 @@ def sql(query, fetch=True):
     return [line.split("\t") for line in r.stdout.strip().splitlines()] if r.stdout.strip() else []
 
 def ask_llm(content):
-    body = json.dumps({"model": OR_MODEL, "temperature": 0.2,
-        "messages": [
-            {"role": "system", "content":
-                "从旅行行程文本中提取反映用户偏好的标准标签。只输出 JSON 数组的字符串，"
-                "标签只能从这个集合选：" + ",".join(STANDARD_TAGS) +
-                "。最多 3 个，按出现强度排序；无法判断输出 []。只输出 JSON 数组。"},
-            {"role": "user", "content": content[:3000]}],
-        "max_tokens": 2000}).encode()
-    req = urllib.request.Request(OR_URL, data=body,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {OR_KEY}"})
-    with urllib.request.urlopen(req, timeout=90) as r:
-        resp = json.loads(r.read().decode())
-    msg = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content")
-    if not msg:
-        print("LLM empty response:", str(resp)[:200])
+    sys = ("从旅行行程文本中提取反映用户偏好的标准标签。只输出 JSON 数组的字符串，"
+           "标签只能从这个集合选：" + ",".join(STANDARD_TAGS) +
+           "。最多 3 个，按出现强度排序；无法判断输出 []。只输出 JSON 数组。")
+    try:
+        out = _llm_chat([{"role": "system", "content": sys},
+                         {"role": "user", "content": content[:3000]}],
+                        temperature=0.2, max_tokens=2000, timeout=90)
+    except Exception as e:
+        print("LLM call failed:", e)
         return []
-    m = re.search(r"\[.*\]", msg, re.S)
-    return json.loads(m.group()) if m else []
+    if not out:
+        print("LLM empty response")
+        return []
+    m = re.search(r"\[.*\]", out, re.S)
+    try:
+        return json.loads(m.group()) if m else []
+    except Exception:
+        return []
 
 def esc(s):
     return (s or "").replace("\\", "").replace("'", "''")

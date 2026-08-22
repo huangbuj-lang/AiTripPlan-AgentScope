@@ -12,7 +12,7 @@ public final class ProfileHook {
     public static void trigger(long userId) {
         try {
             java.io.File script = new java.io.File(System.getProperty("user.dir"),
-                    "../../data-pipeline/profile.py");
+                    "data-pipeline/profile.py");
             if (!script.exists()) return;
             final ProcessBuilder pb = new ProcessBuilder("python", script.getCanonicalPath(),
                     "--user", String.valueOf(userId));
