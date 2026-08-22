@@ -46,7 +46,10 @@ public class PlanController {
                 "INSERT INTO trip_plans(user_id, city, days, plan_content, plan_json) VALUES (?, ?, ?, ?, ?)",
                 userId, city, days, planContent, json);
         result.put("success", true);
-        result.put("message", "保存成功！可在「我的行程」中查看");
+        result.put("message", "保存成功
+        result.put("planId", newPlanId);
+        // ★画像增量：异步用 LLM 从保存的行程内容提取偏好标签，追加到该用户画像（用户无感）
+        triggerPreferenceExtract(userId, newPlanId, planContent);！可在「我的行程」中查看");
         return result;
     }
 
@@ -114,6 +117,30 @@ public class PlanController {
                     pr.waitFor();
                 } catch (Exception ignored) { }
             }, "profile-rebuild-" + userId).start();
+        } catch (Exception ignored) { }
+    }
+
+    /**
+     * ★画像增量：异步调用 data-pipeline/extract_pref.py，
+     * 用 LLM 从保存的行程内容提取偏好标签并写入该用户画像（用户无感，失败静默）。
+     */
+    private void triggerPreferenceExtract(long userId, long planId, String planContent) {
+        try {
+            if (planContent == null || planContent.isBlank()) return;
+            java.io.File script = new java.io.File(System.getProperty("user.dir"),
+                    "../../data-pipeline/extract_pref.py");
+            if (!script.exists()) return;
+            String contentArg = planContent.length() > 3000 ? planContent.substring(0, 3000) : planContent;
+            final ProcessBuilder pb = new ProcessBuilder("python", script.getCanonicalPath(),
+                    "--user", String.valueOf(userId), "--content", contentArg);
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(java.io.File.createTempFile("atp_extract_", ".log"));
+            new Thread(() -> {
+                try {
+                    Process pr = pb.start();
+                    pr.waitFor();
+                } catch (Exception ignored) { }
+            }, "pref-extract-" + planId).start();
         } catch (Exception ignored) { }
     }
 }
