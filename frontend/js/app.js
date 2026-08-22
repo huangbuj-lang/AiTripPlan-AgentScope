@@ -216,9 +216,8 @@ function viewPlan(id) {
                 }
                 // ★查看历史行程：保持与生成结果一致的操作条(保存/导出)
                 document.getElementById('saveBar').style.display = 'flex';
-            // ★有结构化数据才提供"专属地图"入口
-            document.getElementById('personalMapBtn').style.display =
-                (structured && structured.sections) ? 'inline-flex' : 'none';
+                // ★查看历史行程：无结构化JSON，专属地图不可用
+                document.getElementById('personalMapBtn').style.display = 'none';
                 document.getElementById('saveMsg').textContent = '';
                 closeMyPlans();
                 document.getElementById('resultBody').scrollIntoView({ behavior: 'smooth' });
@@ -380,6 +379,9 @@ function fetchResult() {
             document.getElementById('sendBtn').disabled = false;
             // ★ 结果出来了，显示"保存到我的行程"操作条
             document.getElementById('saveBar').style.display = 'flex';
+            // ★有结构化数据才提供"专属地图"入口
+            document.getElementById('personalMapBtn').style.display =
+                (structured && structured.sections) ? 'inline-flex' : 'none';
             document.getElementById('saveMsg').textContent = '';
         })
         .catch(() => { /* 网络抖动，下轮重试 */ });
