@@ -282,15 +282,3 @@ footer { text-align: center; margin-top: 52px; color: #9DAFA8; font-size: 12px; 
 @media (prefers-reduced-motion: reduce) {
   .earth .spin, .earth, .cloud, .balloon, .stop .dot { animation: none; }
 }
-
-/* 反馈闭环：采纳/收藏条 */
-.feedback-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  margin-top: 12px;
-  background: rgba(59,130,246,.08);
-  border: 1px dashed rgba(59,130,246,.35);
-  border-radius: 10px;
-}

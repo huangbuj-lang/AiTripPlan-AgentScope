@@ -124,7 +124,6 @@ function savePlan() {
     })
         .then(r => r.json())
         .then(data => {
-            if (data.success && data.planId) { currentPlanId = data.planId; }
             document.getElementById('saveMsg').textContent =
                 data.success ? '✅ ' + data.message : '❌ ' + data.message;
             if (!data.success && data.message.includes('登录')) location.href = 'login.html';
@@ -155,8 +154,6 @@ function showMyPlans() {
                     '<div class="plan-card-actions">' +
                     '<button class="mini-btn" onclick="viewPlan(' + p.id + ')">查看</button> ' +
                     '<button class="mini-btn" onclick="location.href=\'edit.html?id=' + p.id + '\'">编辑</button> ' +
-                    '<button class="mini-btn" data-act="adopt" data-pid="' + p.id + '" onclick="fbClick(this)">👍 采纳</button> ' +
-                    '<button class="mini-btn" data-act="like" data-pid="' + p.id + '" onclick="fbClick(this)">⭐ 收藏</button> ' +
                     '<button class="mini-btn" onclick="sharePlan(' + p.id + ')">分享</button> ' +
                     '<button class="mini-btn danger" onclick="deletePlan(' + p.id + ')">删除</button>' +
                     '</div></div>'
@@ -169,7 +166,6 @@ function showMyPlans() {
 
 // 查看某条行程（把内容渲染到主页结果区）
 function viewPlan(id) {
-    currentPlanId = id;
     fetch('/api/my-plans')
         .then(r => r.json())
         .then(data => {
@@ -1042,7 +1038,6 @@ function switchPlan(i) {
 let currentPlanData = null;
 
 /** 将结构化 TripPlanData 渲染为「轨迹 + 天卡片」结构 */
-let currentPlanId = null; // 最近查看/保存的行程ID（反馈用）
 function renderStructuredPlan(plan) {
     if (!plan) return '<div class="empty">（空响应）</div>';
     currentPlanData = plan;
@@ -1061,13 +1056,7 @@ function renderStructuredPlan(plan) {
     if (plan.days) html += '<span>🗓 <b>' + plan.days + '</b> 天</span>';
     if (plan.date) html += '<span>📅 ' + escapeHtml(plan.date) + '</span>';
     if (plan.weather) html += '<span>🌤 ' + escapeHtml(plan.weather) + '</span>';
-    html += '</div>';
-    // ★反馈闭环：采纳/收藏（未保存的方案 planId 为空，仅记录行为）
-    html += '<div class="feedback-bar">'
-        + '<span style="color:#64748b;font-size:12px">这个方案满意吗？</span> '
-        + '<button class="mini-btn" data-act="adopt" onclick="fbClick(this)">👍 采纳</button> '
-        + '<button class="mini-btn" data-act="like" onclick="fbClick(this)">⭐ 收藏</button>'
-        + '</div></div>';
+    html += '</div></div>';
 
     // 无 timeline 区块：整单走 markdown 兜底（历史行程兼容）
     if (days.length === 0) {
@@ -1500,24 +1489,3 @@ function initPrintButton() {
     update();
 }
 initPrintButton();
-// ==================== ★反馈闭环：采纳/收藏 ====================
-function fbClick(btn) {
-    sendFeedback(btn.getAttribute('data-act'), btn.getAttribute('data-pid') || window.currentPlanId || '', btn);
-}
-async function sendFeedback(action, planId, btn) {
-    try {
-        const body = new URLSearchParams({ action: action });
-        if (planId) body.append('planId', planId);
-        const r = await fetch('/api/feedback?' + body.toString(), { method: 'POST' });
-        const d = await r.json();
-        if (d.success) {
-            if (btn) { btn.textContent = action === 'adopt' ? '✅ 已采纳' : '✅ 已收藏'; btn.disabled = true; }
-        } else {
-            alert(d.message || '反馈失败');
-            if (btn) btn.disabled = false;
-        }
-    } catch (e) {
-        alert('网络错误，反馈失败');
-        if (btn) btn.disabled = false;
-    }
-}
