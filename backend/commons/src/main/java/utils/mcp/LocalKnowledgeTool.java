@@ -57,7 +57,7 @@ public class LocalKnowledgeTool {
         if (intents.isEmpty()) {
             intents.add("景点"); intents.add("美食"); intents.add("酒店");
         }
-        StringBuilder sb = new StringBuilder("【本地知识库|").append(city).append("】");
+        StringBuilder sb = new StringBuilder("【本地知识库|").append(city).append("】（时长/提示为通用参考，非实时评价）");
         boolean any = false;
         try (Connection conn = getConnection()) {
             for (String intent : intents) {
@@ -66,8 +66,12 @@ public class LocalKnowledgeTool {
                     if (t[0].equals(intent)) { table = t[1]; break; }
                 }
                 if (table == null) continue;
-                String sql = "SELECT name, label, rating, level FROM " + table
-                        + " WHERE city = ? ORDER BY rating DESC LIMIT 6";
+                boolean isAttraction = "attractions_features".equals(table);
+                String sql = isAttraction
+                        ? "SELECT name, label, rating, level, suggest_duration, tips, best_time FROM " + table
+                          + " WHERE city = ? ORDER BY rating DESC LIMIT 6"
+                        : "SELECT name, label, rating, level, NULL, NULL, NULL FROM " + table
+                          + " WHERE city = ? ORDER BY rating DESC LIMIT 6";
                 try (PreparedStatement ps = conn.prepareStatement(sql)) {
                     ps.setString(1, city);
                     try (ResultSet rs = ps.executeQuery()) {
@@ -78,6 +82,12 @@ public class LocalKnowledgeTool {
                               .append("（类型:").append(nvl(rs.getString("label")))
                               .append(" 评分:").append(nvl(rs.getString("rating")))
                               .append(" 档次:").append(nvl(rs.getString("level"))).append("）");
+                            String dur = rs.getString("suggest_duration");
+                            String tips = rs.getString("tips");
+                            String best = rs.getString("best_time");
+                            if (dur != null && !dur.isBlank()) sb.append(" 建议时长:").append(dur);
+                            if (best != null && !best.isBlank()) sb.append(" 最佳时段:").append(best);
+                            if (tips != null && !tips.isBlank()) sb.append(" 参考提示:").append(tips);
                             any = true;
                         }
                     }
