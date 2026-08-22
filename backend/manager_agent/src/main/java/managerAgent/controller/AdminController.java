@@ -145,7 +145,14 @@ public class AdminController {
                 if (javaKey != null && !javaKey.isBlank()) upsertEnv("MODEL_API_KEY", javaKey);
                 if (javaName != null && !javaName.isBlank()) upsertEnv("MODEL_NAME", javaName);
                 managerAgent.tool.LlmClientReset.reset(); // 下次构建模型用新配置
-                note.append("Java侧已热更；");
+                // ★子Agent(8082/8085)是独立JVM，模型配置启动时固化——写完.env后异步重启它们才用新模型
+                java.lang.Thread t2 = new Thread(() -> {
+                    try { Thread.sleep(800); } catch (Exception ignore) {}
+                    restartSubAgents();
+                });
+                t2.setDaemon(true);
+                t2.start();
+                note.append("Java侧已热更；子Agent正在重启以加载新模型；");
             }
             if (pyUrl != null && !pyUrl.isBlank() || pyKey != null && !pyKey.isBlank()
                     || pyName != null && !pyName.isBlank()) {
@@ -169,7 +176,29 @@ public class AdminController {
     }
 
     /** 写/更新 .env 中的键（保持其他行不变） */
-    private synchronized void upsertEnv(String key, String value) throws Exception {
+/**
+     * ★重启全部本地服务(含子Agent 8082/8085)：独立JVM进程的模型配置在启动时固化，
+     * 管理端热更只影响主管进程——统一调 start-local.sh stop+start 让全链路换模型。
+     */
+    private synchronized void restartSubAgents() {
+        try {
+            String base = System.getProperty("user.dir");
+            ProcessBuilder stop = new ProcessBuilder("bash", "start-local.sh", "stop");
+            stop.directory(new java.io.File(base));
+            stop.redirectErrorStream(true);
+            stop.start().waitFor();
+            ProcessBuilder start = new ProcessBuilder("bash", "start-local.sh");
+            start.directory(new java.io.File(base));
+            start.redirectErrorStream(true);
+            start.start().waitFor();
+            log.info("全服务已重启(子Agent加载新模型配置)");
+        } catch (Exception e) {
+            log.warn("重启子Agent异常: {}", e.getMessage());
+        }
+    }
+
+
+        private synchronized void upsertEnv(String key, String value) throws Exception {
         java.io.File f = new java.io.File(System.getProperty("user.dir"), ".env");
         java.util.List<String> lines = new java.util.ArrayList<>();
         boolean found = false;
