@@ -16,7 +16,8 @@ let knownCount = 0;        // 已显示的事件数（保留，向后兼容）
 let lastEventCount = 0;    // 发送前的事件总数（用于增量显示）
 let lastResultMarkdown = ''; // 最近一次最终结果的 markdown 原文（保存行程用，避免存 HTML）
 let lastResultJson = '';
-let personalMapUrl = ''; // 高德专属地图唤端链接（生成后景点点击跳这里）      // 最近一次最终结果的结构化 JSON 原文（保存行程用，供分享/二次编辑）
+let personalMapUrl = ''; // 高德APP专属地图唤端链接（手机打开）
+let personalWebUrl = ''; // 高德网页版路线链接（浏览器直接可看）      // 最近一次最终结果的结构化 JSON 原文（保存行程用，供分享/二次编辑）
 
 // ★会话隔离：每个窗口独立 sessionId（localStorage 持久），请求带上它避免多窗口互扰
 const sessionId = (function () {
@@ -1095,7 +1096,11 @@ function amapLink(place) {
 
 /** 点击景点：先调后端 /amap/geocode 拿经纬度 → 跳 marker 直接定位；失败降级搜索页 */
 function gotoAmap(fallbackUrl, name, city) {
-    // ★优先跳高德"专属地图"（本次行程的个性化地图）；无链接时走原定位/搜索逻辑
+    // ★优先跳高德行程地图：webUrl=网页版路线(浏览器可看)；appUrl=APP专属地图(手机)
+    if (personalWebUrl) {
+        window.open(personalWebUrl, '_blank');
+        return;
+    }
     if (personalMapUrl) {
         window.open(personalMapUrl, '_blank');
         return;
@@ -1145,8 +1150,13 @@ function openPersonalMap(ev) {
         .then(d => {
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-map-location-dot"></i> 高德专属地图';
             if (d.ok && d.url) {
-                personalMapUrl = d.url;
-                window.open(d.url, '_blank'); // 直接打开
+                personalMapUrl = d.url; // amapuri:// 手机高德APP打开
+                personalWebUrl = d.webUrl || ''; // 网页版路线(浏览器可看)
+                if (personalWebUrl) {
+                    window.open(personalWebUrl, '_blank'); // 电脑直接看网页版
+                } else {
+                    window.open(personalMapUrl, '_blank');
+                }
             } else {
                 alert('生成失败：' + (d.error || '未知错误'));
             }

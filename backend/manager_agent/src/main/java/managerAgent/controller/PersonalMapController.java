@@ -61,6 +61,31 @@ public class PersonalMapController {
             }
             if (lineList.isEmpty()) { resp.put("error", "没有可定位的地点"); return resp; }
 
+            // ★同时生成浏览器可开的网页版路线链接（uri.amap.com/navigation, callnative=0 强制网页版）
+            try {
+                List<String> allPts = new ArrayList<>();
+                for (Map<String, Object> line : lineList) {
+                    for (Object o : (List<?>) line.get("pointInfoList")) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> pt = (Map<String, Object>) o;
+                        allPts.add(pt.get("lon") + "," + pt.get("lat") + "," + pt.get("name"));
+                    }
+                }
+                if (!allPts.isEmpty()) {
+                    StringBuilder nav = new StringBuilder("https://uri.amap.com/navigation?");
+                    nav.append("from=").append(URLEncoder.encode(allPts.get(0), "UTF-8"));
+                    StringBuilder via = new StringBuilder();
+                    for (int i = 1; i < allPts.size() - 1 && i <= 9; i++) {
+                        if (via.length() > 0) via.append(";");
+                        via.append(URLEncoder.encode(allPts.get(i), "UTF-8"));
+                    }
+                    if (via.length() > 0) nav.append("&via=").append(via);
+                    nav.append("&to=").append(URLEncoder.encode(allPts.get(allPts.size() - 1), "UTF-8"));
+                    nav.append("&mode=car&src=aitripplan&coordinate=gaode&callnative=0");
+                    resp.put("webUrl", nav.toString());
+                }
+            } catch (Exception ignore) { }
+
             // JSON-RPC 直调高德 MCP
             Map<String, Object> args = new HashMap<>();
             args.put("orgName", "AiTripPlan");
