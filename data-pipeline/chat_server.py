@@ -74,6 +74,36 @@ def chat_llm(message, intent, city, context):
 def health():
     return {"ok": True, "service": "chat", "model": MODEL}
 
+@app.get("/local-knowledge")
+def local_knowledge(city: str = "", preference: str = "", limit: int = 6):
+    """本地知识库查询：从特征表按 城市+偏好 检索景点/美食/酒店（行程Agent并行调用）。"""
+    if not city:
+        return {"ok": False, "error": "city 必填"}
+    out = {"city": city, "preference": preference or "", "items": []}
+    tables = {"景点": "attractions_features", "美食": "foods_features", "酒店": "hotels_features"}
+    # 用 preference 关键词决定查哪几类；无偏好则三类都给
+    p = preference or ""
+    intents = []
+    if any(k in p for k in ["美食", "吃", "餐厅", "火锅", "小吃"]):
+        intents.append("美食")
+    if any(k in p for k in ["酒店", "住", "住宿", "宾馆"]):
+        intents.append("酒店")
+    if any(k in p for k in ["景点", "景区", "亲子", "自然", "人文", "儿童"]):
+        intents.append("景点")
+    if not intents:
+        intents = ["景点", "美食", "酒店"]
+    for name in intents:
+        table = tables[name]
+        rows = sql_fetch(
+            f"SELECT name, label, rating, level FROM {table} "
+            f"WHERE city='{city}' ORDER BY rating DESC LIMIT {limit}")
+        items = [{"name": r[0], "label": r[1], "rating": r[2], "level": r[3]} for r in rows if len(r) >= 4]
+        if items:
+            out["items"].extend(items)
+    if not out["items"]:
+        return {"ok": True, "city": city, "items": [], "note": "该城市暂无本地数据，请依赖高德实时查询"}
+    return {"ok": True, "city": city, "items": out["items"]}
+
 @app.post("/chat")
 def chat(req: ChatReq):
     if not DEEPSEEK_KEY:

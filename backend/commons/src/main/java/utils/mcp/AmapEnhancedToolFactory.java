@@ -62,13 +62,17 @@ public class AmapEnhancedToolFactory {
         // 注册全部复合工具
         toolkit.registration().tool(new AmapCompositeTool(mcp)).apply();
         // ★按Agent类型裁剪：只保留该Agent的固定链综合工具，砍掉多余的散工具供模型撮合
-        Set<String> keep = type == AgentType.ROUTE ? ROUTE_KEEP : TRIP_KEEP;
-        for (String t : ALL_COMPOSITE) {
-            if (!keep.contains(t)) {
-                try { toolkit.removeTool(t); } catch (Exception ignored) { }
+                Set<String> keep = type == AgentType.ROUTE ? ROUTE_KEEP : TRIP_KEEP;
+                for (String t : ALL_COMPOSITE) {
+                    if (!keep.contains(t)) {
+                        try { toolkit.removeTool(t); } catch (Exception ignored) { }
+                    }
+                }
+                // ★行程Agent 额外挂载本地知识库工具（并行补充：特征表真实数据）。路线Agent 不挂。
+                if (type != AgentType.ROUTE) {
+                    try { toolkit.registration().tool(new LocalKnowledgeTool()).apply(); } catch (Exception ignored) { }
+                }
             }
-        }
-    }
 
     private static McpClientWrapper getMcp() {
         if (MCP == null) {
