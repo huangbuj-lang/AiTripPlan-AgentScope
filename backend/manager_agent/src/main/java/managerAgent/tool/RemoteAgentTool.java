@@ -30,7 +30,7 @@ public class RemoteAgentTool {
 
     // 远程Agent代理缓存：按 name 复用 A2aAgent（避免反复重建 Nacos 连接）
     private static final ConcurrentHashMap<String, A2aAgent> AGENT_CACHE = new ConcurrentHashMap<>();
-    private static final Duration REMOTE_TIMEOUT = Duration.ofSeconds(180); // 远程调用超时
+    private static final Duration REMOTE_TIMEOUT = Duration.ofSeconds(240); // 远程调用超时（放宽：避免子Agent内部重试耗时被误杀）
 
     /** 按 name 获取（缓存复用）A2A 远程Agent代理 */
     private A2aAgent getAgent(String name) throws NacosException {
