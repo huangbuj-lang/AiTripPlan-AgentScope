@@ -36,6 +36,9 @@ public class FeedbackController {
         jdbcTemplate.update(
                 "INSERT INTO plan_feedback(user_id, plan_id, action) VALUES (?, ?, ?)",
                 userId, planId, a);
+        if (userId > 0) {
+            managerAgent.tool.ProfileHook.trigger(userId); // ★反馈影响 高采纳/爱收藏 标签
+        }
         result.put("success", true);
         result.put("message", "反馈已记录");
         return result;

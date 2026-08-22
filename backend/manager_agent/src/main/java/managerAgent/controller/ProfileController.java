@@ -178,6 +178,7 @@ public class ProfileController {
                 "ON DUPLICATE KEY UPDATE travel_style=VALUES(travel_style), budget_level=VALUES(budget_level), " +
                 "pace=VALUES(pace), avoid_list=VALUES(avoid_list), use_by_default=VALUES(use_by_default)",
                 uid, style, budgetLevel, pace, avoid, useByDefault == null ? 1 : useByDefault);
+        managerAgent.tool.ProfileHook.trigger(uid); // ★主动偏好变化→画像即时更新
         result.put("success", true);
         result.put("message", "偏好已保存");
         return result;
