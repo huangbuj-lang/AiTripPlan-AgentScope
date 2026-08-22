@@ -85,8 +85,35 @@ public class PlanController {
         long userId = (Long) userIdObj;
         int rows = jdbcTemplate.update(
                 "DELETE FROM trip_plans WHERE id = ? AND user_id = ?", id, userId);
+        if (rows > 0) {
+            triggerProfileRebuild(userId); // ★删除后重算该用户画像（剩余数据全量聚合，共同偏好不误删）
+        }
         result.put("success", rows > 0);
         result.put("message", rows > 0 ? "已删除" : "删除失败（行程不存在或无权删除）");
         return result;
+    }
+
+    /**
+     * ★画像增量维护：异步调用 data-pipeline/profile.py --user <id> 单用户全量重算。
+     * 失败静默（不影响主流程）。
+     */
+    private void triggerProfileRebuild(long userId) {
+        try {
+            java.io.File script = new java.io.File(System.getProperty("user.dir"),
+                    "../../data-pipeline/profile.py");
+            if (!script.exists()) {
+                return;
+            }
+            final ProcessBuilder pb = new ProcessBuilder("python", script.getCanonicalPath(),
+                    "--user", String.valueOf(userId));
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(java.io.File.createTempFile("atp_profile_", ".log"));
+            new Thread(() -> {
+                try {
+                    Process pr = pb.start();
+                    pr.waitFor();
+                } catch (Exception ignored) { }
+            }, "profile-rebuild-" + userId).start();
+        } catch (Exception ignored) { }
     }
 }

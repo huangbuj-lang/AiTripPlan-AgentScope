@@ -59,6 +59,22 @@ def build_tags(user_id):
             tags[f"风格-{style}"] = min(hit + 1, 5)
     return tags
 
+def rebuild_user(user_id):
+    """★单用户画像全量重算：删除行程/反馈变化后由主管Java触发。
+    重算=从该用户剩余的全部数据重新聚合，天然处理共同偏好（不会因删一条行程误删标签）。"""
+    sql("""CREATE TABLE IF NOT EXISTS user_profiles_tags (
+        user_id BIGINT PRIMARY KEY, tags JSON, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", fetch=False)
+    tags = build_tags(user_id)
+    if not tags:
+        sql(f"DELETE FROM user_profiles_tags WHERE user_id={user_id}", fetch=False)
+        print(f"user {user_id}: no tags, cleared")
+        return
+    tj = json.dumps(tags, ensure_ascii=False).replace("'", "''")
+    sql(f"INSERT INTO user_profiles_tags(user_id, tags) VALUES ({user_id}, '{tj}') "
+        f"ON DUPLICATE KEY UPDATE tags=VALUES(tags)", fetch=False)
+    print(f"user {user_id}: {tags}")
+
 def main():
     sql("""CREATE TABLE IF NOT EXISTS user_profiles_tags (
         user_id BIGINT PRIMARY KEY, tags JSON, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -75,4 +91,9 @@ def main():
     print(f"🎉 画像完成，共 {len(users)} 个用户")
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) >= 3 and sys.argv[1] == "--user":
+        rebuild_user(int(sys.argv[2]))  # ★单用户全量重算（删除行程后由Java调用）
+    else:
+        main()
+
