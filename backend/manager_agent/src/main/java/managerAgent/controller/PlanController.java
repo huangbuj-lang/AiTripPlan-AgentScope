@@ -42,14 +42,24 @@ public class PlanController {
         if (json != null && JsonUtils.parse(json, Map.class) == null) {
             json = null; // 非法 JSON：放弃结构化字段，仍保存 markdown
         }
-        jdbcTemplate.update( // 插入行程记录（关联当前用户 + 结构化 JSON）
-                "INSERT INTO trip_plans(user_id, city, days, plan_content, plan_json) VALUES (?, ?, ?, ?, ?)",
-                userId, city, days, planContent, json);
+        // 插入行程记录，取回自增 id 供画像提取/反馈使用
+        final String jsonF = json;
+        org.springframework.jdbc.support.KeyHolder kh =
+                new org.springframework.jdbc.support.GeneratedKeyHolder();
+        jdbcTemplate.update(con -> {
+            var ps = con.prepareStatement(
+                    "INSERT INTO trip_plans(user_id, city, days, plan_content, plan_json) VALUES (?, ?, ?, ?, ?)",
+                    java.sql.Statement.RETURN_GENERATED_KEYS);
+            ps.setObject(1, userId); ps.setObject(2, city); ps.setObject(3, days);
+            ps.setObject(4, planContent); ps.setObject(5, jsonF);
+            return ps;
+        }, kh);
+        long newPlanId = kh.getKey() != null ? kh.getKey().longValue() : -1L;
         result.put("success", true);
-        result.put("message", "保存成功
+        result.put("message", "保存成功！可在「我的行程」中查看");
         result.put("planId", newPlanId);
         // ★画像增量：异步用 LLM 从保存的行程内容提取偏好标签，追加到该用户画像（用户无感）
-        triggerPreferenceExtract(userId, newPlanId, planContent);！可在「我的行程」中查看");
+        triggerPreferenceExtract(userId, newPlanId, planContent);
         return result;
     }
 
