@@ -27,11 +27,17 @@
             <version>${AgentScope.version}</version>
         </dependency>
         <!-- Jackson JSON：AmapMapEnhancedTool 解析 MCP 响应所需 -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-        <!-- 单元测试：JUnit 5（版本由 spring-boot-dependencies 管理） -->
+                <dependency>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </dependency>
+                <!-- MySQL 驱动：LocalKnowledgeTool 直接连接特征表（本地知识库），免去 8090 Python 中转 -->
+                <dependency>
+                    <groupId>com.mysql</groupId>
+                    <artifactId>mysql-connector-j</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
+                <!-- 单元测试：JUnit 5（版本由 spring-boot-dependencies 管理） -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
