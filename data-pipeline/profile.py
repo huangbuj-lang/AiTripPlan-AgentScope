@@ -45,7 +45,7 @@ def build_tags(user_id):
             pass
     # 2) 生成城市偏好（trip_plans）
     cities = collections.Counter(r[0] for r in sql(f"SELECT city FROM trip_plans WHERE user_id={user_id} AND city IS NOT NULL"))
-    for city, cnt in cities.most_common(3):
+    for city, cnt in cities.most_common(5):
         tags[f"常去-{city}"] = min(cnt, 5)
     # 3) 行为反馈（plan_feedback）
     acts = collections.Counter(r[0] for r in sql(f"SELECT action FROM plan_feedback WHERE user_id={user_id}"))

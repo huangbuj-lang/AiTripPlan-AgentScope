@@ -60,6 +60,8 @@ public class PlanController {
         result.put("planId", newPlanId);
         // ★画像增量：异步用 LLM 从保存的行程内容提取偏好标签，追加到该用户画像（用户无感）
         triggerPreferenceExtract(userId, newPlanId, planContent);
+        // ★画像增量：保存行程 → "常去-城市"标签即时重算（与删除行程对称）
+        managerAgent.tool.ProfileHook.trigger(userId);
         return result;
     }
 
