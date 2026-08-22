@@ -267,8 +267,9 @@ checkLogin();
 function send() {
     const prompt = document.getElementById('prompt').value.trim();
     if (!prompt) { alert('请输入旅行需求！'); return; }
-    // ★预检卡片：生成前弹出偏好勾选（历史偏好已回填默认值），可选跳过
-    showPrecheck();
+    // ★偏好选项卡已整体移除（含方案对比）：直接提交，multiScheme 固定 false；
+    //   偏好来源 = 用户输入文本 + 个人中心沉淀（主管统一分类）
+    doSubmit(prompt, 'false');
 }
 
 /**
@@ -292,56 +293,6 @@ function cancelTask() {
         .catch(() => { /* 网络抖动，忽略 */ });
 }
 
-// ==================== ★预检卡片（功能1：意图拆解）+ 偏好记忆（功能5） ====================
-
-/** 当前选中的偏好（内存态，提交时读取） */
-let currentPref = { scheme: 'single' }; // ★仅保留方案对比；步行/作息/博物馆选项卡已删，偏好由用户输入+个人中心提供
-
-/** 弹出预检卡片：回填历史偏好，绑定选项点击 */
-function showPrecheck() {
-    // 重置选中态
-    document.querySelectorAll('.precheck-opt').forEach(b => b.classList.remove('active'));
-    currentPref = { scheme: 'single' };
-    // 默认单方案高亮
-    highlightOpt('schemeOpts', 'single');
-    document.getElementById('precheckModal').style.display = 'flex';
-    // 绑定选项点击（每次弹出重新绑定）
-    bindPrecheckOpts('schemeOpts', 'scheme');
-}
-
-/** 高亮历史回填的选项 */
-function highlightOpt(groupId, value) {
-    if (!value) return;
-    document.querySelectorAll('#' + groupId + ' .precheck-opt').forEach(b => {
-        if (b.getAttribute('data-v') === value) b.classList.add('active');
-    });
-}
-
-/** 绑定一组选项的点击（单选） */
-function bindPrecheckOpts(groupId, key) {
-    document.querySelectorAll('#' + groupId + ' .precheck-opt').forEach(b => {
-        b.onclick = function () {
-            document.querySelectorAll('#' + groupId + ' .precheck-opt').forEach(x => x.classList.remove('active'));
-            b.classList.add('active');
-            currentPref[key] = b.getAttribute('data-v');
-        };
-    });
-}
-
-/** 关闭预检卡片 */
-function closePrecheck() {
-    document.getElementById('precheckModal').style.display = 'none';
-}
-
-/** 确认生成：skip=true 跳过偏好（全不限）；否则带勾选偏好提交 */
-function submitWithPreference(skip) {
-    document.getElementById('precheckModal').style.display = 'none';
-    const prompt = document.getElementById('prompt').value.trim();
-    if (!prompt) { alert('请输入旅行需求！'); return; }
-    const multi = currentPref.scheme === 'multi' ? 'true' : 'false';
-    // ★偏好改为 用户输入提取 + 个人中心沉淀 两来源（主管统一分类），选项卡已删
-    doSubmit(prompt, multi);
-}
 
 /** 实际提交任务（原 send 的提交逻辑，增加偏好参数） */
 function doSubmit(prompt, multi) {

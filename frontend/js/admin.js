@@ -273,9 +273,7 @@ function loadDataCenter() {
         const s = document.getElementById('centerStats');
         if (!d.success) { s.innerHTML = '<div class="empty">加载失败</div>'; return; }
         const cards = [['景点', d.attractions], ['美食', d.foods], ['酒店', d.hotels], ['覆盖城市', d.cities], ['行为反馈', d.feedbacks], ['画像用户', d.profiles]];
-        s.innerHTML = cards.map(c => '<div class="metric" style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 20px;min-width:110px">' +
-            '<div class="num" style="font-size:26px;font-weight:700;color:#3b82f6">' + c[1] + '</div>' +
-            '<div class="label" style="color:#64748b;font-size:12px;margin-top:4px">' + c[0] + '</div></div>').join('');
+        s.innerHTML = cards.map(c => '<div class="metric"><div class="num">' + c[1] + '</div><div class="label">' + c[0] + '</div></div>').join('');
     }).catch(() => {});
     // 定价
     fetch('/api/admin/pricing').then(r => r.json()).then(d => {
@@ -300,7 +298,7 @@ function loadDataCenter() {
             const pts = vals.map((v, i) => (i * W / Math.max(days.length - 1, 1)) + ',' + (H - v / max * H)).join(' ');
             chart += '<div style="margin-bottom:10px"><div style="color:#94a3b8;font-size:12px">' + esc(c) + '</div>' +
                 '<svg width="' + W + '" height="' + H + '" style="background:#0f172a;border-radius:6px">' +
-                '<polyline points="' + pts + '" fill="none" stroke="#3b82f6" stroke-width="1.5"/></svg></div>';
+                '<polyline points="' + pts + '" fill="none" stroke="#2FBF9F" stroke-width="1.5"/></svg></div>';
         });
         b.innerHTML = chart;
     }).catch(() => {});
@@ -385,7 +383,7 @@ function saveModelConfig() {
         .then(d => {
             const msg = document.getElementById('mcMsg');
             msg.textContent = d.message || (d.success ? '已保存' : '保存失败');
-            msg.style.color = d.success ? '#2dd4bf' : '#e17055';
+            msg.style.color = d.success ? '#2FBF9F' : '#E8797B';
             loadModelConfig();
         })
         .catch(() => { document.getElementById('mcMsg').textContent = '网络错误'; });
