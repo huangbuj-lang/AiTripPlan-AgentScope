@@ -295,32 +295,17 @@ function cancelTask() {
 // ==================== ★预检卡片（功能1：意图拆解）+ 偏好记忆（功能5） ====================
 
 /** 当前选中的偏好（内存态，提交时读取） */
-let currentPref = { walkTolerance: '', chronotype: '', museumRatio: '', scheme: 'single' };
+let currentPref = { scheme: 'single' }; // ★仅保留方案对比；步行/作息/博物馆选项卡已删，偏好由用户输入+个人中心提供
 
 /** 弹出预检卡片：回填历史偏好，绑定选项点击 */
 function showPrecheck() {
     // 重置选中态
     document.querySelectorAll('.precheck-opt').forEach(b => b.classList.remove('active'));
-    currentPref = { walkTolerance: '', chronotype: '', museumRatio: '', scheme: 'single' };
+    currentPref = { scheme: 'single' };
     // 默认单方案高亮
     highlightOpt('schemeOpts', 'single');
-    // 拉取历史偏好回填默认值（隐形学习：下次不用重新勾选）
-    fetch('/api/get-preference')
-        .then(r => r.json())
-        .then(d => {
-            if (d.success) {
-                currentPref = { walkTolerance: d.walkTolerance || '', chronotype: d.chronotype || '', museumRatio: d.museumRatio || '', scheme: currentPref.scheme };
-                highlightOpt('walkOpts', d.walkTolerance);
-                highlightOpt('chronoOpts', d.chronotype);
-                highlightOpt('museumOpts', d.museumRatio);
-            }
-        })
-        .catch(() => { /* 未登录或网络问题：不填默认值 */ });
     document.getElementById('precheckModal').style.display = 'flex';
     // 绑定选项点击（每次弹出重新绑定）
-    bindPrecheckOpts('walkOpts', 'walkTolerance');
-    bindPrecheckOpts('chronoOpts', 'chronotype');
-    bindPrecheckOpts('museumOpts', 'museumRatio');
     bindPrecheckOpts('schemeOpts', 'scheme');
 }
 
@@ -353,22 +338,13 @@ function submitWithPreference(skip) {
     document.getElementById('precheckModal').style.display = 'none';
     const prompt = document.getElementById('prompt').value.trim();
     if (!prompt) { alert('请输入旅行需求！'); return; }
-    const walk = skip ? '' : (currentPref.walkTolerance || '');
-    const chrono = skip ? '' : (currentPref.chronotype || '');
-    const museum = skip ? '' : (currentPref.museumRatio || '');
-    const multi = (!skip && currentPref.scheme === 'multi') ? 'true' : 'false';
-    // ★偏好持久化：非跳过时保存（隐形学习）；跳过不覆盖历史偏好
-    if (!skip) {
-        fetch('/api/save-preference?walkTolerance=' + encodeURIComponent(walk)
-            + '&chronotype=' + encodeURIComponent(chrono)
-            + '&museumRatio=' + encodeURIComponent(museum), { method: 'POST' })
-            .catch(() => { /* 保存失败不影响生成 */ });
-    }
-    doSubmit(prompt, walk, chrono, museum, multi);
+    const multi = currentPref.scheme === 'multi' ? 'true' : 'false';
+    // ★偏好改为 用户输入提取 + 个人中心沉淀 两来源（主管统一分类），选项卡已删
+    doSubmit(prompt, multi);
 }
 
 /** 实际提交任务（原 send 的提交逻辑，增加偏好参数） */
-function doSubmit(prompt, walk, chrono, museum, multi) {
+function doSubmit(prompt, multi) {
     if (polling) { clearInterval(polling); polling = null; }
     if (eventSource) { eventSource.close(); eventSource = null; }
     if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
@@ -382,9 +358,6 @@ function doSubmit(prompt, walk, chrono, museum, multi) {
 
     // ① 提交任务（带偏好参数）
     fetch('/app?prompt=' + encodeURIComponent(prompt) + '&sessionId=' + encodeURIComponent(sessionId)
-        + '&walkTolerance=' + encodeURIComponent(walk)
-        + '&chronotype=' + encodeURIComponent(chrono)
-        + '&museumRatio=' + encodeURIComponent(museum)
         + '&multiScheme=' + encodeURIComponent(multi), { method: 'POST' })
         .then(r => r.text())
         .then(msg => {

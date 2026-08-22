@@ -52,9 +52,6 @@ public class AppController {
     @RequestMapping(value = "/app", method = RequestMethod.POST)
     public String app(@RequestParam(name = "prompt", required = false, defaultValue = "帮我制定2026年元旦,深圳到惠州3日游自驾游计划，请包含吃住行，天气，酒店，餐饮美食。") String prompt,
                       @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
-                      @RequestParam(name = "walkTolerance", required = false, defaultValue = "") String walkTolerance,
-                      @RequestParam(name = "chronotype", required = false, defaultValue = "") String chronotype,
-                      @RequestParam(name = "museumRatio", required = false, defaultValue = "") String museumRatio,
                       @RequestParam(name = "multiScheme", required = false, defaultValue = "false") String multiScheme,
                       @RequestParam(name = "skipPrefs", required = false, defaultValue = "false") boolean skipPrefs,
                       HttpSession session) {
@@ -76,15 +73,15 @@ public class AppController {
             try {
                 TripOrchestrator orchestrator = new TripOrchestrator(sessionId); // 确定性编排器（会话隔离）
                 if ("true".equalsIgnoreCase(multiScheme)) { // ★多方案模式：生成3套差异化方案
-                    dto.PlanSet planSet = orchestrator.runMultiScheme(prompt, walkTolerance, chronotype, museumRatio);
+                    dto.PlanSet planSet = orchestrator.runMultiScheme(prompt);
                     EventStore.setResult(sessionId, JsonUtils.toJson(planSet)); // 缓存多方案 JSON
                 } else {
                     TripPlanData plan;
                     if (userIdObj != null && !skipPrefs) { // ★P0：注入个人中心沉淀偏好（未跳过且已登录时）
                         TripRequest.Preferences prefs = loadPreferences(((Number) userIdObj).longValue());
-                        plan = orchestrator.run(prompt, walkTolerance, chronotype, museumRatio, prefs);
+                        plan = orchestrator.run(prompt, prefs);
                     } else {
-                        plan = orchestrator.run(prompt, walkTolerance, chronotype, museumRatio); // 解析→并行DAG→聚合（带预检偏好）
+                        plan = orchestrator.run(prompt); // 解析→偏好分类→并行DAG→聚合
                     }
                     EventStore.setResult(sessionId, JsonUtils.toJson(plan)); // 缓存结构化 JSON 结果（含降级 markdown 字段）
                 }
