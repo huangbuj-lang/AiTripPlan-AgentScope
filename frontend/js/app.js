@@ -1175,7 +1175,9 @@ function openDayMap(dayIdx, cb) {
         .then(r => r.json())
         .then(res => {
             dayMapBusy = false;
-            if (btn) btn.innerHTML = orig;
+            // ★恢复时重新按id查节点(闭包里的btn可能因行程重渲染已成死节点,导致按钮卡在转圈)
+            const cur = document.getElementById('dayMapBtn_' + dayIdx);
+            if (cur) cur.innerHTML = '<i class="fa-solid fa-map-location-dot"></i>';
             if (msg) msg.textContent = '';
             if (res.ok && res.webUrl) {
                 dayMapUrls[dayIdx] = res.webUrl;
@@ -1189,7 +1191,8 @@ function openDayMap(dayIdx, cb) {
         })
         .catch(() => {
             dayMapBusy = false;
-            if (btn) btn.innerHTML = orig;
+            const cur = document.getElementById('dayMapBtn_' + dayIdx);
+            if (cur) cur.innerHTML = '<i class="fa-solid fa-map-location-dot"></i>';
             if (msg) msg.textContent = '⚠️ 网络异常，请重试';
             if (cb) cb(false);
         });

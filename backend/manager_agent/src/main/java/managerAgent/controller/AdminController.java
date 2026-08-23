@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Iterator;
 
 /**
  * 管理端接口（均需 admin 角色，由 AdminInterceptor 校验）。
@@ -36,7 +37,8 @@ public class AdminController {
         Map<String, Object> r = new HashMap<>();
 
         Map<String, Object> manager = new HashMap<>();
-        manager.put("name", "ManagerAgent");
+        manager.put("name", "Orchestrator"); // 主管（确定性编排器 TripOrchestrator）
+        manager.put("label", "主管");
         manager.put("status", "running");
         manager.put("port", 8081);
         r.put("manager", manager);
@@ -56,8 +58,8 @@ public class AdminController {
         r.put("nacos", nacos);
 
         List<Map<String, Object>> agents = new ArrayList<>();
-        agents.add(agentStatus("RouteMakingAgent", 8082));
-        agents.add(agentStatus("TripPlannerAgent", 8085));
+        agents.add(agentStatus("RouteMakingAgent", 8082, "路线"));
+        agents.add(agentStatus("TripPlannerAgent", 8085, "行程"));
         r.put("agents", agents);
 
         r.put("success", true);
@@ -65,9 +67,10 @@ public class AdminController {
     }
 
     /** 单个远程 Agent 的注册状态（查 Nacos 名片是否存在） */
-    private Map<String, Object> agentStatus(String name, int port) {
+    private Map<String, Object> agentStatus(String name, int port, String label) {
         Map<String, Object> a = new HashMap<>();
         a.put("name", name);
+        a.put("label", label); // 中文标签：路线/行程
         a.put("port", port);
         boolean registered = false;
         try {
@@ -344,6 +347,20 @@ public class AdminController {
                 "SELECT p.id, p.user_id, u.username, p.city, p.days, " +
                         "LEFT(p.plan_content, 200) AS preview, p.create_time " +
                         "FROM trip_plans p LEFT JOIN users u ON p.user_id = u.id ORDER BY p.id DESC");
+        // ★城市归一化：用户输入("成都三日")→标准城市名("成都")，前缀最长匹配 attractions 城市库
+        java.util.List<String> stdCities = jdbcTemplate.queryForList(
+                "SELECT DISTINCT city FROM attractions WHERE city IS NOT NULL AND city != ''", String.class);
+        for (Map<String, Object> pl : plans) {
+            Object c = pl.get("city");
+            if (c == null) continue;
+            String raw = String.valueOf(c).trim();
+            if (stdCities.contains(raw)) continue;
+            String best = null;
+            for (String s : stdCities) {
+                if (raw.startsWith(s) && (best == null || s.length() > best.length())) best = s;
+            }
+            if (best != null) pl.put("city", best);
+        }
         Map<String, Object> r = new HashMap<>();
         r.put("success", true);
         r.put("plans", plans);
@@ -487,6 +504,217 @@ public class AdminController {
         }
     }
 
+    /**
+     * ★数据统计明细：点击管理端统计卡片后查看具体数据。
+     * type=attractions/foods/hotels/cities/profiles
+     * 返回 {success, title, columns:[...], rows:[[...],...]}，前端弹窗渲染表格。
+     */
+    @GetMapping("/data-detail")
+    public Map<String, Object> dataDetail(@RequestParam String type) {
+        Map<String, Object> r = new HashMap<>();
+        r.put("success", false);
+        try {
+            List<Map<String, Object>> rows;
+            List<String> columns;
+            String title;
+            switch (type) {
+                case "attractions":
+                    title = "景点数据明细";
+                    columns = List.of("名称", "城市", "评分", "参考费用", "地址");
+                    // 参考费用优先取特征表真实票价（高德enrich），无则退主表cost
+                    rows = jdbcTemplate.queryForList(
+                            "SELECT a.id AS id, a.name AS name, a.city AS city, a.rating AS rating, "
+                          + "COALESCE(NULLIF(af.ticket_price, ''), NULLIF(a.cost, '')) AS cost, a.address AS address "
+                          + "FROM attractions a LEFT JOIN attractions_features af ON af.src_id = a.id "
+                          + "ORDER BY a.city, a.rating DESC LIMIT 500");
+                    break;
+                case "foods":
+                    title = "美食数据明细";
+                    columns = List.of("名称", "城市", "评分", "人均", "地址");
+                    rows = jdbcTemplate.queryForList(
+                            "SELECT id, name, city, rating, cost, address FROM foods ORDER BY city, rating DESC LIMIT 500");
+                    break;
+                case "hotels":
+                    title = "酒店数据明细";
+                    columns = List.of("名称", "城市", "评分", "参考价", "地址");
+                    // 参考价取特征表cost（高德biz_ext，仅少量有值），其余显示"-"（OTA无公开房价源）
+                    rows = jdbcTemplate.queryForList(
+                            "SELECT h.id AS id, h.name AS name, h.city AS city, h.rating AS rating, "
+                          + "COALESCE(NULLIF(hf.cost, ''), NULLIF(h.cost, '')) AS cost, h.address AS address "
+                          + "FROM hotels h LEFT JOIN hotels_features hf ON hf.src_id = h.id "
+                          + "ORDER BY h.city, h.rating DESC LIMIT 500");
+                    break;
+                case "cities":
+                    title = "覆盖城市明细";
+                    columns = List.of("城市", "景点数", "美食数", "酒店数");
+                    rows = jdbcTemplate.queryForList(
+                            "SELECT a.city AS city, "
+                          + "(SELECT COUNT(*) FROM attractions x WHERE x.city=a.city) AS attractions, "
+                          + "(SELECT COUNT(*) FROM foods f WHERE f.city=a.city) AS foods, "
+                          + "(SELECT COUNT(*) FROM hotels h WHERE h.city=a.city) AS hotels "
+                          + "FROM (SELECT DISTINCT city FROM attractions) a ORDER BY a.city LIMIT 200");
+                    break;
+                case "profiles":
+                    title = "用户画像明细";
+                    columns = List.of("用户ID", "画像标签(JSON)", "更新时间");
+                    rows = jdbcTemplate.queryForList(
+                            "SELECT user_id, tags, updated_at FROM user_profiles_tags ORDER BY updated_at DESC LIMIT 200");
+                    break;
+                default:
+                    r.put("error", "未知类型: " + type);
+                    return r;
+            }
+            r.put("success", true);
+            r.put("title", title);
+            // columns 顺序与 SELECT 顺序一致：重新按 columns 长度对齐（row.keySet() 无序风险 → 直接用 values() 的原始顺序不可靠）
+            // 为稳妥起见这里直接把行转成对象数组交给前端按 key 显示
+            List<List<Object>> aligned = new ArrayList<>();
+            for (Map<String, Object> row : rows) {
+                List<Object> line = new ArrayList<>();
+                // ★首格=隐藏主键id（前端编辑用），columns 展示时跳过
+                line.add(row.get("id") == null ? "-" : row.get("id").toString());
+                for (String col : columns) {
+                    Object v = row.get(colKey(type, col));
+                    line.add(v == null ? "-" : v.toString());
+                }
+                aligned.add(line);
+            }
+            r.put("columns", columns);
+            // ★画像明细特殊处理：标签JSON解析为"标签×次数"顿号串（不显示原始JSON），时间只留秒级
+            if ("profiles".equals(type)) {
+                List<List<Object>> pretty = new ArrayList<>();
+                for (List<Object> line : aligned) {
+                    List<Object> out = new ArrayList<>(line); // [用户ID, tagsJSON, updatedAt]
+                    if (out.size() >= 3) {
+                        String tags = String.valueOf(out.get(1));
+                        StringBuilder prettyTags = new StringBuilder();
+                        try {
+                            Iterator<Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> it =
+                                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(tags).fields();
+                            while (it.hasNext()) {
+                                Map.Entry<String, com.fasterxml.jackson.databind.JsonNode> e2 = it.next();
+                                if (prettyTags.length() > 0) prettyTags.append("、");
+                                prettyTags.append(e2.getKey()).append("×").append(e2.getValue().asInt());
+                            }
+                        } catch (Exception ignore) { }
+                        out.set(1, prettyTags.length() > 0 ? prettyTags.toString() : tags);
+                        out.set(2, String.valueOf(out.get(2)).replaceAll("\\.\\d+$", "")); // 去掉毫秒
+                    }
+                    pretty.add(out);
+                }
+                r.put("rows", pretty);
+            } else {
+                r.put("rows", aligned);
+            }
+        } catch (Exception e) {
+            r.put("error", e.getMessage());
+        }
+        return r;
+    }
+
+    /** 明细列名 → SQL 返回 key 映射（中文列头对应数据库字段） */
+    private String colKey(String type, String col) {
+        switch (col) {
+            case "名称": return "name";
+            case "城市": return "city";
+            case "评分": return "rating";
+            case "参考费用": return "cost";
+            case "人均": return "cost";
+            case "参考价": return "cost";
+            case "地址": return "address";
+            case "景点数": return "attractions";
+            case "美食数": return "foods";
+            case "酒店数": return "hotels";
+            case "类型": return "action";
+            case "用户ID": return "user_id";
+            case "行程ID": return "plan_id";
+            case "时间": return "created_at";
+            case "画像标签(JSON)": return "tags";
+            case "更新时间": return "updated_at";
+            default: return col;
+        }
+    }
+
+    /**
+     * ★手动编辑数据统计明细（景点/美食/酒店）：管理员修正爬取数据
+     * type=attractions/foods/hotels，field=name/city/rating/cost/address
+     * 注意：cost 字段写入特征表（定价读特征表），其余写主表
+     */
+    @PostMapping("/data-detail/edit")
+    public Map<String, Object> editDataDetail(@RequestParam String type, @RequestParam Long id,
+                                              @RequestParam String field, @RequestParam String value) {
+        Map<String, Object> r = new HashMap<>();
+        r.put("success", false);
+        if (!java.util.Set.of("attractions", "foods", "hotels").contains(type)) {
+            r.put("message", "类型不支持"); return r;
+        }
+        if (!java.util.Set.of("name", "city", "rating", "cost", "address").contains(field)) {
+            r.put("message", "字段不支持: " + field); return r;
+        }
+        try {
+            String val = (value == null ? "" : value.trim());
+            if (field.equals("cost")) {
+                // 定价读特征表：景点→ticket_price，酒店→cost；主表cost也同步
+                String featureSql;
+                if (type.equals("attractions")) {
+                    featureSql = "UPDATE attractions_features SET ticket_price='" + val.replace("'", "''")
+                            + "' WHERE src_id=" + id;
+                } else {
+                    featureSql = "UPDATE hotels_features SET cost='" + val.replace("'", "''")
+                            + "' WHERE src_id=" + id;
+                }
+                jdbcTemplate.update(featureSql);
+                jdbcTemplate.update("UPDATE " + tableName(type) + " SET cost='" + val.replace("'", "''") + "' WHERE id=" + id);
+            } else {
+                String col = field.equals("name") ? "name" : field;
+                jdbcTemplate.update("UPDATE " + tableName(type) + " SET " + col + "='" + val.replace("'", "''")
+                        + "' WHERE id=" + id);
+            }
+            r.put("success", true);
+            r.put("message", "已保存");
+        } catch (Exception e) {
+            r.put("message", "保存失败: " + e.getMessage());
+        }
+        return r;
+    }
+
+    /** 数据统计手动编辑辅助：表名白名单 */
+    private String tableName(String type) {
+        return type.equals("attractions") ? "attractions" : type.equals("foods") ? "foods" : "hotels";
+    }
+
+    /** 动态定价专用刷新：只跑 pricing.py（秒级），不碰采集管线，手改数据不会被覆盖 */
+    @PostMapping("/pricing/run")
+    public Map<String, Object> runPricing() {
+        Map<String, Object> r = new HashMap<>();
+        try {
+            String projectDir = System.getProperty("user.dir");
+            // ★多候选路径：user.dir 可能是项目根或 backend/manager_agent，都试
+            java.io.File script = null;
+            for (String rel : new String[]{"data-pipeline/pricing.py", "../../data-pipeline/pricing.py"}) {
+                java.io.File f = new java.io.File(projectDir, rel);
+                if (f.exists()) { script = f; break; }
+            }
+            if (script == null) {
+                java.io.File fallback = new java.io.File(projectDir + "/../data-pipeline/pricing.py");
+                if (fallback.exists()) script = fallback;
+            }
+            if (script == null) { r.put("success", false); r.put("message", "找不到 pricing.py"); return r; }
+            ProcessBuilder pb = new ProcessBuilder("python3", script.getCanonicalPath());
+            pb.directory(new java.io.File(script.getCanonicalPath()).getParentFile().getParentFile());
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            boolean done = p.waitFor(120, java.util.concurrent.TimeUnit.SECONDS);
+            if (!done) { p.destroyForcibly(); r.put("success", false); r.put("message", "定价更新超时"); return r; }
+            r.put("success", p.exitValue() == 0);
+            r.put("message", p.exitValue() == 0 ? "定价已更新" : "定价脚本退出码 " + p.exitValue());
+        } catch (Exception e) {
+            r.put("success", false);
+            r.put("message", "执行失败: " + e.getMessage());
+        }
+        return r;
+    }
+
     /** 数据管线统计：各表行数（表不存在返回0） */
     @GetMapping("/data-stats")
     public Map<String, Object> dataStats() {
@@ -495,7 +723,6 @@ public class AdminController {
         r.put("foods", qIntSafe("SELECT COUNT(*) FROM foods"));
         r.put("hotels", qIntSafe("SELECT COUNT(*) FROM hotels"));
         r.put("cities", qIntSafe("SELECT COUNT(DISTINCT city) FROM attractions"));
-        r.put("feedbacks", qIntSafe("SELECT COUNT(*) FROM plan_feedback"));
         r.put("profiles", qIntSafe("SELECT COUNT(*) FROM user_profiles_tags"));
         r.put("success", true);
         return r;
@@ -514,7 +741,7 @@ public class AdminController {
     @GetMapping("/pricing")
     public Map<String, Object> pricing() {
         Map<String, Object> r = new HashMap<>();
-        r.put("rows", qRowsSafe("SELECT city, hotel_base, hotel_price, ticket_base, ticket_price, factors FROM pricing_output ORDER BY hotel_price DESC"));
+        r.put("rows", qRowsSafe("SELECT city, hotel_base, hotel_price, food_base, food_price, ticket_base, ticket_price, factors FROM pricing_output ORDER BY hotel_price DESC"));
         r.put("success", true);
         return r;
     }
@@ -528,12 +755,11 @@ public class AdminController {
         return r;
     }
 
-    /** 用户画像 + 反馈统计 */
+    /** 用户画像 */
     @GetMapping("/profiles")
     public Map<String, Object> profiles() {
         Map<String, Object> r = new HashMap<>();
         r.put("profiles", qRowsSafe("SELECT t.user_id, u.username, t.tags FROM user_profiles_tags t LEFT JOIN users u ON u.id = t.user_id"));
-        r.put("feedback", qRowsSafe("SELECT action, COUNT(*) cnt FROM plan_feedback GROUP BY action"));
         r.put("success", true);
         return r;
     }

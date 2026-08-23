@@ -158,7 +158,7 @@ function loadPlans() {
         let rows = d.plans.map(p => {
             return '<tr><td>' + p.id + '</td><td>' + (p.username ? esc(p.username) : '—') + '</td>' +
                 '<td>' + (p.city ? esc(p.city) : '—') + '</td><td>' + (p.days != null ? p.days : '—') + '</td>' +
-                '<td><span class="preview" title="' + esc(p.preview) + '">' + esc(p.preview) + '</span></td>' +
+                '<td class="preview-cell"><span class="preview" title="' + esc(p.preview) + '">' + esc(p.preview) + '</span></td>' +
                 '<td><button class="btn-danger" onclick="deletePlan(' + p.id + ')">删除</button></td></tr>';
         }).join('');
         b.innerHTML = '<table><thead><tr><th>ID</th><th>用户</th><th>城市</th><th>天数</th><th>内容预览</th><th>操作</th></tr></thead><tbody>' + rows + '</tbody></table>';
@@ -267,55 +267,267 @@ function publishAnnouncement() {
 }
 
 // ============ 数据中心（数据管线可视化） ============
+/** 动态定价专用刷新：只跑 pricing.py（秒级），完成后刷新定价表 */
+function runPricing() {
+    const btn = document.getElementById('pricingRunBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '更新中...'; }
+    fetch('/api/admin/pricing/run', { method: 'POST' }).then(r => r.json()).then(d => {
+        toast(d.message || (d.success ? '定价已更新' : '更新失败'), !d.success);
+        if (d.success) loadDataCenter();
+    }).catch(() => toast('请求失败', true)).finally(() => {
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 更新数据'; }
+    });
+}
+
 function loadDataCenter() {
     // 统计卡片
     fetch('/api/admin/data-stats').then(r => r.json()).then(d => {
         const s = document.getElementById('centerStats');
         if (!d.success) { s.innerHTML = '<div class="empty">加载失败</div>'; return; }
-        const cards = [['景点', d.attractions], ['美食', d.foods], ['酒店', d.hotels], ['覆盖城市', d.cities], ['行为反馈', d.feedbacks], ['画像用户', d.profiles]];
-        s.innerHTML = cards.map(c => '<div class="metric"><div class="num">' + c[1] + '</div><div class="label">' + c[0] + '</div></div>').join('');
+        const cards = [['景点', d.attractions, 'attractions'], ['美食', d.foods, 'foods'], ['酒店', d.hotels, 'hotels'], ['覆盖城市', d.cities, 'cities'], ['画像用户', d.profiles, 'profiles']];
+        s.innerHTML = cards.map(c => '<div class="metric" style="cursor:pointer" title="点击查看明细" onclick="showDataDetail(\'' + c[2] + '\')"><div class="num">' + c[1] + '</div><div class="label">' + c[0] + '</div></div>').join('');
     }).catch(() => {});
     // 定价
     fetch('/api/admin/pricing').then(r => r.json()).then(d => {
         const b = document.getElementById('pricingBody');
         const rows = d.rows || [];
         if (!rows.length) { b.innerHTML = '<div class="empty">暂无数据（运行 data-pipeline/pricing.py）</div>'; return; }
-        b.innerHTML = '<table><thead><tr><th>城市</th><th>酒店价</th><th>门票价</th><th>系数</th></tr></thead><tbody>' +
-            rows.map(x => '<tr><td>' + esc(x.city) + '</td><td>¥' + x.hotel_price + '</td><td>¥' + x.ticket_price + '</td><td>' + esc(x.factors || '') + '</td></tr>').join('') + '</tbody></table>';
+        b.innerHTML = '<table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:12.5px"><colgroup><col style="width:19%"><col style="width:17%"><col style="width:17%"><col style="width:17%"><col style="width:30%"></colgroup><thead><tr style="color:#94a3b8;text-align:left;border-bottom:1px solid #334155"><th style="padding:6px 10px;text-align:center">城市</th><th style="padding:6px 10px;text-align:center">酒店/晚 现价/基准</th><th style="padding:6px 10px;text-align:center">餐饮/人 现价/基准</th><th style="padding:6px 10px;text-align:center">门票/次 现价/基准</th><th style="padding:6px 10px;text-align:center">定价系数</th></tr></thead><tbody>' +
+            rows.map(x => { let f = ''; try { const j = JSON.parse(x.factors || '{}'); f = ['热度','节假日','天气'].map((n,i) => { const v = [j.heat||1, j.holiday||1, j.weather||1][i]; return '<span title="' + n + '" style="display:inline-block;margin:1px 4px 1px 0;padding:1px 6px;border-radius:9px;font-size:11px;white-space:nowrap;background:' + (v>1.001?'rgba(251,191,36,.12)':'rgba(100,116,139,.12)') + ';color:' + (v>1.001?'#fbbf24':'#64748b') + '">' + n + ' ×' + v.toFixed(2) + '</span>'; }).join(''); } catch(e) {} return '<tr style="border-bottom:1px solid rgba(51,65,85,.5)"><td style="padding:7px 10px;font-weight:600;text-align:center">' + esc(x.city) + '</td><td style="padding:7px 10px;text-align:center"><b style="color:#2FBF9F">¥' + x.hotel_price + '</b> <span style="color:#64748b;font-size:11px">/ ¥' + x.hotel_base + '</span></td><td style="padding:7px 10px;text-align:center"><b style="color:#2FBF9F">¥' + (x.food_price != null ? x.food_price : '-') + '</b> <span style="color:#64748b;font-size:11px">/ ¥' + (x.food_base != null ? x.food_base : '-') + '</span></td><td style="padding:7px 10px;text-align:center"><b style="color:#2FBF9F">¥' + x.ticket_price + '</b> <span style="color:#64748b;font-size:11px">/ ¥' + x.ticket_base + '</span></td><td style="padding:7px 10px;font-size:11px;text-align:center">' + f + '</td></tr>'; }).join('') + '</tbody></table>';
     }).catch(() => {});
-    // 客流（SVG 折线：每城一条线）
+    // 客流预测：ECharts 图表（城市趋势折线 / 单日对比柱状 / 城市×日期热力），右上角胶囊切换
+    window._fcRows = null; window._fcDim = 'city'; window._fcDayIdx = 0;
+    const nav0 = document.getElementById('fcDayNav'); if (nav0) nav0.style.display = 'none';
     fetch('/api/admin/forecast').then(r => r.json()).then(d => {
-        const b = document.getElementById('forecastBody');
-        const rows = d.rows || [];
-        if (!rows.length) { b.innerHTML = '<div class="empty">暂无数据（运行 data-pipeline/forecast.py）</div>'; return; }
-        const cities = [...new Set(rows.map(x => x.city))].slice(0, 6);
-        const days = [...new Set(rows.map(x => x.day))].sort();
-        let chart = '';
-        cities.forEach(c => {
-            const vals = days.map(day => { const row = rows.find(x => x.city === c && x.day === day); return row ? parseFloat(row.forecast_idx) : 0; });
-            const max = Math.max(...vals, 1);
-            const W = 260, H = 60;
-            const pts = vals.map((v, i) => (i * W / Math.max(days.length - 1, 1)) + ',' + (H - v / max * H)).join(' ');
-            chart += '<div style="margin-bottom:10px"><div style="color:#94a3b8;font-size:12px">' + esc(c) + '</div>' +
-                '<svg width="' + W + '" height="' + H + '" style="background:#0f172a;border-radius:6px">' +
-                '<polyline points="' + pts + '" fill="none" stroke="#2FBF9F" stroke-width="1.5"/></svg></div>';
-        });
-        b.innerHTML = chart;
+        window._fcRows = d.rows || [];
+        renderFcTable();
     }).catch(() => {});
-    // 画像 + 反馈
-    fetch('/api/admin/profiles').then(r => r.json()).then(d => {
-        const b = document.getElementById('profilesBody');
-        let html = '';
-        const fb = (d.feedback || []).map(x => esc(x.action) + ':' + x.cnt).join(' · ') || '暂无反馈';
-        html += '<div style="color:#94a3b8;font-size:12px;margin-bottom:10px">反馈统计：' + fb + '</div>';
-        const ps = d.profiles || [];
-        if (!ps.length) { html += '<div class="empty">暂无画像（运行 data-pipeline/profile.py）</div>'; }
-        else {
-            html += '<table><thead><tr><th>用户</th><th>画像标签</th></tr></thead><tbody>' +
-                ps.map(x => '<tr><td>' + esc(x.username || ('#' + x.user_id)) + '</td><td>' + esc(x.tags || '') + '</td></tr>').join('') + '</tbody></table>';
+
+    /** 渲染当前图表（一次只显示一个） */
+    let _fcChart = null;
+    function renderFcTable() {
+        const el = document.getElementById('fcChart');
+        if (!el) return;
+        const rows = window._fcRows || [];
+        if (!rows.length) { el.innerHTML = '<div style="padding:60px;text-align:center;color:#64748b">暂无数据（点上方「🔄 更新数据」运行管线）</div>'; return; }
+        if (typeof echarts === 'undefined') { el.innerHTML = '<div style="padding:60px;text-align:center;color:#64748b">图表库加载失败</div>'; return; }
+        if (_fcChart) { _fcChart.dispose(); _fcChart = null; }
+        _fcChart = echarts.init(el);
+        const dayMap = ['周日','周一','周二','周三','周四','周五','周六'];
+        const fmtDay = v => { const dt = new Date(String(v).replace(' ', 'T')); return (dt.getMonth()+1) + '/' + dt.getDate() + ' ' + dayMap[dt.getDay()]; };
+        const dim = window._fcDim;
+
+        if (dim === 'city') {
+            // ===== 折线图：每城市一条线，X=7天，看趋势 =====
+            const days = [...new Set(rows.map(x => x.day))].sort();
+            const cities = [...new Set(rows.map(x => x.city))];
+            const palette = ['#2FBF9F','#5B8FF9','#f59e0b','#ef4444','#9b59b6','#00c1d4','#ff9f43','#7bed9f','#e84393','#a4b0be','#f39c12','#1abc9c','#e67e22','#74b9ff','#badc58'];
+            _fcChart.setOption({
+                backgroundColor: 'transparent',
+                tooltip: { trigger: 'axis' },
+                legend: { type: 'scroll', top: 6, textStyle: { color: '#94a3b8', fontSize: 11 }, pageIconColor: '#94a3b8', pageIconSize: 11, pageTextStyle: { color: '#94a3b8' } },
+                grid: { left: 42, right: 20, top: 58, bottom: 28 },
+                xAxis: { type: 'category', data: days.map(fmtDay), axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#94a3b8' } },
+                yAxis: { type: 'value', name: '客流指数', nameTextStyle: { color: '#94a3b8' }, splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#94a3b8' } },
+                series: cities.map((c, i) => ({
+                    name: c, type: 'line', smooth: true, symbol: 'circle', symbolSize: 6,
+                    data: days.map(dy => { const f = rows.find(x => x.city === c && String(x.day) === String(dy)); return f ? parseFloat(f.forecast_idx) : null; }),
+                    lineStyle: { width: 2, color: palette[i % palette.length] },
+                    itemStyle: { color: palette[i % palette.length] }
+                }))
+            });
+        } else if (dim === 'date') {
+            // ===== 柱状图：单日各城市对比，标题两侧按钮翻日期 =====
+            const days = [...new Set(rows.map(x => x.day))].sort();
+            if (window._fcDayIdx >= days.length) window._fcDayIdx = 0;
+            const dy = days[window._fcDayIdx];
+            const drows = rows.filter(x => String(x.day) === String(dy))
+                .map(x => ({ c: x.city, v: parseFloat(x.forecast_idx) }))
+                .sort((a, b) => b.v - a.v);
+            _fcChart.setOption({
+                backgroundColor: 'transparent',
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                grid: { left: 42, right: 20, top: 40, bottom: 62 },
+                xAxis: { type: 'category', data: drows.map(x => x.c), axisLabel: { color: '#94a3b8', rotate: 40, fontSize: 10, interval: 0 }, axisLine: { lineStyle: { color: '#334155' } } },
+                yAxis: { type: 'value', name: '客流指数', nameTextStyle: { color: '#94a3b8' }, splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#94a3b8' } },
+                dataZoom: [{ type: 'slider', height: 16, bottom: 8, borderColor: '#334155', backgroundColor: '#0b1222', fillerColor: 'rgba(47,191,159,.15)', handleStyle: { color: '#2FBF9F' }, textStyle: { color: '#94a3b8' } }],
+                series: [{
+                    type: 'bar', barMaxWidth: 26,
+                    data: drows.map(x => ({ value: x.v, itemStyle: { color: x.v >= 1.2 ? '#ef4444' : (x.v >= 0.8 ? '#f59e0b' : '#2FBF9F'), borderRadius: [4, 4, 0, 0] } })),
+                    label: { show: true, position: 'top', color: '#94a3b8', fontSize: 10, formatter: p => p.value.toFixed(2) }
+                }]
+            });
+            const nav = document.getElementById('fcDayNav');
+            const lbl = document.getElementById('fcDayLabel');
+            if (nav) nav.style.display = 'flex';
+            if (lbl) lbl.textContent = fmtDay(dy);
+        } else {
+            // ===== 热力图：城市×日期，颜色=客流指数 =====
+            const days = [...new Set(rows.map(x => x.day))].sort();
+            const cities = [...new Set(rows.map(x => x.city))];
+            const data = [];
+            rows.forEach(x => {
+                const ci = cities.indexOf(x.city), di = days.indexOf(String(x.day));
+                if (ci >= 0 && di >= 0) data.push([di, ci, parseFloat(x.forecast_idx)]);
+            });
+            _fcChart.setOption({
+                backgroundColor: 'transparent',
+                tooltip: { formatter: p => cities[p.data[1]] + '<br>' + fmtDay(days[p.data[0]]) + '：' + p.data[2].toFixed(2) },
+                grid: { left: 130, right: 70, top: 16, bottom: 46 },
+                xAxis: { type: 'category', data: days.map(fmtDay), splitArea: { show: true }, axisLabel: { color: '#94a3b8', fontSize: 10 }, axisLine: { show: false } },
+                yAxis: { type: 'category', data: cities, splitArea: { show: true }, axisLabel: { color: '#cbd5e1', fontSize: 11 }, axisLine: { show: false } },
+                visualMap: { min: 0.8, max: 1.6, calculable: true, orient: 'vertical', right: 8, top: 'center',
+                    textStyle: { color: '#94a3b8' },
+                    inRange: { color: ['#2FBF9F', '#f59e0b', '#ef4444'] } },
+                series: [{ type: 'heatmap', data: data,
+                    label: { show: true, color: '#e2e8f0', fontSize: 10, formatter: p => p.data[2].toFixed(2) },
+                    itemStyle: { borderColor: '#0f172a', borderWidth: 2, borderRadius: 3 } }]
+            });
         }
-        b.innerHTML = html;
-    }).catch(() => {});
+    }
+
+    /** 维度切换（右上角胶囊按钮） */
+    function fcSwitchDim(dim) {
+        window._fcDim = dim;
+        const nav = document.getElementById('fcDayNav');
+        if (nav) nav.style.display = (dim === 'date') ? 'flex' : 'none';
+        document.querySelectorAll('.fc-tab').forEach(t => {
+            const on = t.dataset.dim === dim;
+            t.style.color = on ? '#2FBF9F' : '#94a3b8';
+            t.style.borderColor = on ? '#2FBF9F' : '#334155';
+        });
+        renderFcTable();
+    }
+    window.fcSwitchDim = fcSwitchDim;
+    /** 单日对比：翻日期 */
+    window._fcDayShift = function(delta) {
+        const rows = window._fcRows || [];
+        const total = [...new Set(rows.map(x => x.day))].length;
+        window._fcDayIdx = ((window._fcDayIdx || 0) + delta + total) % total;
+        renderFcTable();
+    };
+
+}
+
+// ==================== 数据统计明细弹窗 ====================
+/** 点击统计卡片：拉取明细并弹窗展示（带搜索过滤） */
+function showDataDetail(type) {
+    const mask = document.getElementById('dataDetailMask');
+    const titleEl = document.getElementById('ddTitle');
+    const bodyEl = document.getElementById('ddBody');
+    const searchBox = document.getElementById('ddSearch');
+    if (!mask || !bodyEl) return;
+    titleEl.textContent = '加载中...';
+    bodyEl.innerHTML = '<div class="empty">加载中...</div>';
+    searchBox.value = '';
+    searchBox.style.display = 'none';
+    mask.style.display = 'flex';
+    fetch('/api/admin/data-detail?type=' + type).then(r => r.json()).then(d => {
+        if (!d.success) { titleEl.textContent = '明细'; bodyEl.innerHTML = '<div class="empty">加载失败：' + esc(d.error || '') + '</div>'; return; }
+        titleEl.textContent = d.title + '（' + (d.rows || []).length + ' 条）';
+        window._ddData = d;
+        window._ddType = type;
+        renderDetailTable('');
+        if (['attractions','foods','hotels','cities','profiles'].includes(type)) searchBox.style.display = 'inline-block';
+    }).catch(() => { titleEl.textContent = '明细'; bodyEl.innerHTML = '<div class="empty">网络异常</div>'; });
+}
+/** 关闭弹窗 */
+function closeDataDetail() {
+    document.getElementById('dataDetailMask').style.display = 'none';
+}
+/** 渲染明细（kw=搜索关键词；profiles 走标签云，其余走表格） */
+function renderDetailTable(kw) {
+    const bodyEl = document.getElementById('ddBody');
+    const d = window._ddData || {};
+    if (window._ddType === 'profiles') { renderProfilesCloud(kw); return; }
+    let rows = d.rows || [];
+    kw = (kw || '').trim().toLowerCase();
+    if (kw) rows = rows.filter(r => r.some(cell => String(cell).toLowerCase().includes(kw)));
+    if (!rows.length) { bodyEl.innerHTML = '<div class="empty">无匹配数据</div>'; return; }
+    const cols = (d.columns || []).map(c => c === '画像标签(JSON)' ? '画像标签' : c);
+    const editable = ['attractions','foods','hotels'].includes(window._ddType);
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12.5px;color:#e2e8f0">'
+        + '<thead><tr style="color:#94a3b8;text-align:left;border-bottom:1px solid #334155">'
+        + cols.map(c => '<th style="padding:6px 10px">' + esc(c) + '</th>').join('')
+        + (editable ? '<th style="padding:6px 10px;width:60px">操作</th>' : '') + '</tr></thead><tbody>';
+    rows.forEach(r => {
+        const rid = String(r[0]); // 首格=隐藏主键id
+        const cells = r.slice(1);
+        html += '<tr style="border-bottom:1px solid rgba(51,65,85,.5)">'
+            + cells.map((v, i) => {
+                let st = 'padding:6px 10px;max-width:260px;overflow-wrap:break-word;word-break:break-word';
+                if (i === 0) st += ';font-weight:600;white-space:nowrap';
+                return '<td style="' + st + '">' + esc(v) + '</td>';
+            }).join('')
+            + (editable ? '<td style="padding:6px 10px;text-align:center"><button class="btn-edit" title="编辑" style="padding:4px 8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#2FBF9F;cursor:pointer;line-height:1" onclick="editDetailRow(\'' + window._ddType + '\',\'' + rid + '\',this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button></td>' : '')
+            + '</tr>';
+    });
+    bodyEl.innerHTML = html + '</tbody></table>';
+}
+/** 行内编辑：整行单元格变输入框 */
+function editDetailRow(type, id, btn) {
+    const tr = btn.closest('tr');
+    const tds = [...tr.querySelectorAll('td')];
+    tds.slice(0, -1).forEach(td => {
+        const v = td.textContent;
+        td.innerHTML = '<input value="' + esc(v) + '" style="width:92%;padding:4px 8px;background:#0b1222;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12.5px">';
+    });
+    btn.textContent = '保存';
+    btn.style.color = '#22c55e';
+    btn.onclick = () => saveDetailRow(type, id, btn);
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '取消';
+    cancelBtn.style.cssText = 'padding:3px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#94a3b8;cursor:pointer;font-size:12px;margin-left:4px';
+    cancelBtn.onclick = () => showDataDetail(type);
+    btn.parentNode.appendChild(cancelBtn);
+}
+/** 保存：逐字段提交 */
+function saveDetailRow(type, id, btn) {
+    const tr = btn.closest('tr');
+    const tds = [...tr.querySelectorAll('td')];
+    const inputs = tds.slice(0, -2).map(td => td.querySelector('input'));
+    const d = window._ddData || {};
+    const cols = (d.columns || []).map(c => c === '画像标签(JSON)' ? '画像标签' : c);
+    const fieldMap = { '名称': 'name', '城市': 'city', '评分': 'rating', '参考费用': 'cost', '人均': 'cost', '参考价': 'cost', '地址': 'address' };
+    const tasks = [];
+    inputs.forEach((inp, i) => {
+        const col = cols[i];
+        const f = fieldMap[col];
+        if (!f || !inp) return;
+        tasks.push(fetch('/api/admin/data-detail/edit?type=' + type + '&id=' + id + '&field=' + f + '&value=' + encodeURIComponent(inp.value.trim())).then(r => r.json()));
+    });
+    Promise.all(tasks).then(results => {
+        const ok = results.every(x => x && x.success);
+        toast(ok ? '✅ 已保存' : '⚠️ 部分保存失败', !ok);
+        showDataDetail(type);
+    }).catch(() => { toast('保存失败', true); showDataDetail(type); });
+}
+
+/** 画像标签云渲染（弹窗内，配色与标签前缀一致：常去=青绿/风格=紫/偏好=蓝/爱收藏=粉/高采纳=黄） */
+function renderProfilesCloud(kw) {
+    const bodyEl = document.getElementById('ddBody');
+    const rows = window._ddData.rows || [];
+    kw = (kw || '').trim().toLowerCase();
+    const list = kw ? rows.filter(r => r.some(cell => String(cell).toLowerCase().includes(kw))) : rows;
+    if (!list.length) { bodyEl.innerHTML = '<div class="empty">无匹配数据</div>'; return; }
+    let html = '';
+    list.forEach(r => {
+        html += '<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:600;color:#e2e8f0;margin-bottom:6px">👤 用户 #' + esc(String(r[0])) + '</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
+        try {
+            const tags = JSON.parse(r[1]);
+            Object.entries(tags).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
+                let bg = 'rgba(47,191,159,.15)', color = '#2FBF9F';
+                if (k.startsWith('风格-')) { bg = 'rgba(168,85,247,.15)'; color = '#a855f7'; }
+                else if (k.startsWith('爱收藏')) { bg = 'rgba(251,113,133,.15)'; color = '#fb7185'; }
+                else if (k.startsWith('高采纳')) { bg = 'rgba(251,191,36,.15)'; color = '#fbbf24'; }
+                else if (k.startsWith('偏好-')) { bg = 'rgba(96,165,250,.15)'; color = '#60a5fa'; }
+                html += '<span style="padding:3px 10px;border-radius:11px;font-size:12px;background:' + bg + ';color:' + color + '">'
+                    + esc(k) + (v > 1 ? ' <b>×' + v + '</b>' : '') + '</span>';
+            });
+        } catch (e) { html += '<span style="color:#94a3b8">' + esc(String(r[1])) + '</span>'; }
+        html += '<div style="font-size:11px;color:#64748b;margin-top:4px;white-space:nowrap">更新时间 ' + esc(String(r[2])) + '</div></div></div>';
+    });
+    bodyEl.innerHTML = html;
 }
 
 // ============ 数据管线一键更新 ============

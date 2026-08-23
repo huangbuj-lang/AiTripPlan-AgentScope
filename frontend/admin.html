@@ -151,23 +151,44 @@
                     <button class="btn-refresh" onclick="loadDataCenter()">刷新</button>
                 </div>
             </div>
-            <div id="centerStats" class="metric-grid" style="display:flex;flex-wrap:wrap;gap:12px"></div>
-            <div style="display:flex;gap:20px;margin-top:18px;flex-wrap:wrap">
-              <div style="flex:1;min-width:320px">
-                <h3 style="color:#cbd5e1;font-size:14px;margin:8px 0">动态定价（基准×系数）</h3>
-                <div id="pricingBody" class="panel-body" class="inset-box">加载中...</div>
-              </div>
-              <div style="flex:1;min-width:320px">
-                <h3 style="color:#cbd5e1;font-size:14px;margin:8px 0">客流预测（未来7天指数）</h3>
-                <div id="forecastBody" class="panel-body" style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px;max-height:300px;overflow:auto">加载中...</div>
+            <!-- ★管线状态条：实时显示管线运行状态 -->
+            <div id="pipelineBar" style="display:flex;align-items:center;gap:10px;background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#cbd5e1">
+                <span id="pipeStateDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e;display:inline-block"></span>
+                <span id="pipeStateText">管线空闲 · 数据为上次更新结果</span>
+            </div>
+            <h3 style="color:#cbd5e1;font-size:13px;margin:6px 0 8px">📊 数据统计</h3>
+            <div id="centerStats" class="metric-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px"><h3 style="color:#cbd5e1;font-size:13px;margin:0">💰 动态定价（基准价 × 系数 → 现价；酒店=占位·晚，餐饮=真实人均，门票=真实挂牌均值）</h3><button onclick="runPricing()" id="pricingRunBtn" style="padding:5px 14px;background:#2FBF9F;border:none;border-radius:8px;color:#06281F;font-size:12.5px;font-weight:600;cursor:pointer">🔄 更新数据</button></div>
+            <div id="pricingBody" style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px;max-height:340px;overflow:auto">加载中...</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px">
+              <h3 style="color:#cbd5e1;font-size:13px;margin:0">📈 客流预测（未来7天客流指数）</h3>
+              <div id="fcTabs" style="display:flex;gap:6px">
+                <button class="fc-tab active" data-dim="city"   onclick="fcSwitchDim('city')"   style="padding:4px 12px;border-radius:8px;border:1px solid #2FBF9F;background:#0b1222;color:#2FBF9F;font-size:12px;cursor:pointer">📈 城市趋势</button>
+                <button class="fc-tab" data-dim="date"  onclick="fcSwitchDim('date')"  style="padding:4px 12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:12px;cursor:pointer">📊 单日对比</button>
+                <button class="fc-tab" data-dim="level" onclick="fcSwitchDim('level')" style="padding:4px 12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:12px;cursor:pointer">🔥 城市×日期热力</button>
               </div>
             </div>
-            <h3 style="color:#cbd5e1;font-size:14px;margin:16px 0 8px">用户画像 + 反馈</h3>
-            <div id="profilesBody" class="panel-body" class="inset-box">加载中...</div>
+            <div id="forecastBody" style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px"><div style="position:relative"><div id="fcDayNav" style="display:none;position:absolute;top:4px;left:50%;transform:translateX(-50%);z-index:5;display:none;align-items:center;gap:8px"><button onclick="window._fcDayShift(-1)" style="padding:2px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#94a3b8;cursor:pointer;font-size:13px;line-height:1.4">◀</button><span id="fcDayLabel" style="color:#e2e8f0;font-size:13px;font-weight:600;min-width:70px;text-align:center">—</span><button onclick="window._fcDayShift(1)" style="padding:2px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#94a3b8;cursor:pointer;font-size:13px;line-height:1.4">▶</button></div><div id="fcChart" style="width:100%;height:420px"></div></div></div>
         </section>
     </main>
 </div>
 
-<script src="js/admin.js?v=20260822"></script>
+<!-- 数据统计明细弹窗 -->
+<div id="dataDetailMask" style="display:none;position:fixed;inset:0;background:rgba(2,6,23,.72);z-index:999;align-items:center;justify-content:center">
+  <div style="background:#0f172a;border:1px solid #334155;border-radius:14px;width:min(1200px,94vw);max-height:82vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #334155">
+      <b id="ddTitle" style="color:#e2e8f0;font-size:15px">明细</b>
+      <div style="display:flex;gap:10px;align-items:center">
+        <input id="ddSearch" placeholder="搜索名称/城市..." oninput="renderDetailTable(this.value)"
+               style="display:none;width:200px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:12.5px;outline:none">
+        <button onclick="closeDataDetail()" style="padding:6px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#cbd5e1;cursor:pointer;font-size:12.5px">关闭</button>
+      </div>
+    </div>
+    <div id="ddBody" style="overflow:auto;padding:6px 10px 14px"></div>
+  </div>
+</div>
+
+<script src="js/echarts.min.js"></script>
+<script src="js/admin.js?v=20260824j"></script>
 </body>
 </html>

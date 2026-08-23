@@ -16,6 +16,11 @@ STEPS = [
     ("高德v5经验(rectag/开放时间)", "enrich.py", True),
     ("景区等级(5A名录)", "enrich_grade.py", True),
     ("LLM补充(门票/时长/简介等)", "enrich_llm.py", "--skip-llm" not in sys.argv),
+    # ★数据源变动后自动刷新看板派生数据（无参批量脚本；extract_pref.py 是单用户按需脚本，
+    #   已由 PlanController.savePlan 异步调用，不在此列）
+    ("动态定价(三行基准:酒店/餐饮/门票)", "pricing.py", True),
+    ("客流预测(未来7天指数)", "forecast.py", True),
+    ("用户画像聚合(行为→标签)", "profile.py", True),
 ]
 
 def run(script):

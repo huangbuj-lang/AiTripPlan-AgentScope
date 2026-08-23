@@ -26,15 +26,47 @@ def sql(query, fetch=True):
     if not fetch: return []
     return [line.split("\t") for line in r.stdout.strip().splitlines()] if r.stdout.strip() else []
 
+# 用户输入城市归一化："成都三日"/"成都七日自行车"/"14日香港"→标准城市
+# ① 标准库前缀最长匹配 ② 剥掉数字+日/天/周前缀与旅行词尾再匹配 ③ 仍无则保留原名
+import re as _re
+def normalize_city(raw, std_cities):
+    if not raw:
+        return None
+    raw = str(raw).strip()
+    if raw in std_cities:
+        return raw
+    cands = [c for c in std_cities if raw.startswith(c)]
+    if cands:
+        return max(cands, key=len)
+    # 剥离 "14日"/"0.5周" 前缀 + 旅行词尾 → "香港"/"西藏"
+    stripped = _re.sub(r'^\d+(\.\d+)?(日|天|周)?', '', raw)
+    stripped = _re.sub(r'\d+(\.\d+)?(日|天|周)', '', stripped)  # 中间的数字日/周：西藏14日→西藏
+    stripped = _re.sub(r'[两三四五六七八九十]+(日|天|周)', '', stripped)  # 中文数字：西藏两周→西藏
+    stripped = _re.sub(r'(自行车|自驾|自驾车|游|行|旅|旅行|美食|蜜月|漫游|朝圣|深度游|周末|亲子游|行程|计划)$', '', stripped)
+    if stripped:
+        # 优先标准库；标准库没有也返回剥离后的干净城市名（如"香港"/"西藏"），保证按城市聚合
+        if stripped in std_cities:
+            return stripped
+        cands2 = [c for c in std_cities if stripped.startswith(c)]
+        if cands2:
+            return max(cands2, key=len)
+        return stripped if len(stripped) >= 2 else raw
+    return raw
+
 def main():
     sql("""CREATE TABLE IF NOT EXISTS forecast_output (
         city VARCHAR(50), day DATE, forecast_idx DECIMAL(6,2), PRIMARY KEY(city, day)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", fetch=False)
     rows = sql("SELECT city, DATE(create_time) d FROM trip_plans WHERE city IS NOT NULL AND create_time >= DATE_SUB(NOW(), INTERVAL 90 DAY)")
+    # ★城市归一化：用户输入("成都三日")合并到标准城市("成都")，与定价表口径一致
+    std_cities = {r[0] for r in sql("SELECT DISTINCT city FROM attractions WHERE city IS NOT NULL AND city!=''")}
     daily = {}
     for r in rows:
-        daily.setdefault(r[0], {}).setdefault(r[1], 0)
-        daily[r[0]][r[1]] += 1
+        c = normalize_city(r[0], std_cities)
+        if not c:
+            continue
+        daily.setdefault(c, {}).setdefault(r[1], 0)
+        daily[c][r[1]] += 1
     if not daily:
         print("⚠️ 历史数据不足（<90天无行程），无法预测"); return
     today = datetime.date.today()
@@ -52,6 +84,13 @@ def main():
             wf = 1.3 if datetime.date.fromisoformat(day).weekday() >= 5 else 1.0
             idx = round(avg * trend * wf, 2)
             out.append((city, day, idx))
+    # ★清理过期预测行：只保留今天之后（未来7天范围），旧的"上次预测"残留删除
+    sql("DELETE FROM forecast_output WHERE day < DATE_SUB(CURDATE(), INTERVAL -1 DAY)", fetch=False)
+    # ★清理历史脏行（旧版按用户输入存的，如"成都三日"）
+    for r in sql("SELECT DISTINCT city FROM forecast_output"):
+        if r[0] not in std_cities:
+            sql(f"DELETE FROM forecast_output WHERE city='{r[0].replace(chr(39), chr(39)*2)}'", fetch=False)
+            print(f"  🧹 清理历史脏行: {r[0]}")
     for city, day, idx in out:
         sql(f"INSERT INTO forecast_output(city, day, forecast_idx) VALUES ('{city}', '{day}', {idx}) "
             f"ON DUPLICATE KEY UPDATE forecast_idx=VALUES(forecast_idx)", fetch=False)

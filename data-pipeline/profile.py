@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-⑥ 用户画像：聚合 行为数据(trip_plans/plan_feedback/posts/post_likes/user_preferences)
+⑥ 用户画像：聚合 行为数据(trip_plans/posts/post_likes/user_preferences)
    → 生成画像标签 → 写 user_profiles_tags（独立表，不动现有代码）
 用法: python3 data-pipeline/profile.py
 """
@@ -47,10 +47,6 @@ def build_tags(user_id):
     cities = collections.Counter(r[0] for r in sql(f"SELECT city FROM trip_plans WHERE user_id={user_id} AND city IS NOT NULL"))
     for city, cnt in cities.most_common(5):
         tags[f"常去-{city}"] = min(cnt, 5)
-    # 3) 行为反馈（plan_feedback）
-    acts = collections.Counter(r[0] for r in sql(f"SELECT action FROM plan_feedback WHERE user_id={user_id}"))
-    if acts.get("adopt", 0) > 0: tags["高采纳"] = min(acts["adopt"], 5)
-    if acts.get("like", 0) > 0: tags["爱收藏"] = min(acts["like"], 5)
     # 4) 发帖/收藏内容风格（posts + post_likes）
     texts = [r[0] or "" for r in sql(f"SELECT title FROM posts WHERE user_id={user_id}")]
     texts += [r[0] or "" for r in sql(f"SELECT content FROM posts WHERE user_id={user_id}")]
