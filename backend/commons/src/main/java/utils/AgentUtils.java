@@ -6,7 +6,6 @@ import io.agentscope.core.agent.Event;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.TextBlock;
-import io.agentscope.core.model.DashScopeChatModel;
 import io.agentscope.core.model.OpenAIChatModel;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
@@ -34,17 +33,18 @@ public class AgentUtils {
     }
 
     /**
-     * 构建备用模型：Qwen（DashScope）
+     * 构建备用模型：OpenAI 兼容接口（默认阿里 DashScope 兼容模式 qwen）。
+     * URL/KEY/NAME 从 ModelConfigHolder 读（管理端可热更），支持任意 OpenAI 兼容服务。
      */
     private static io.agentscope.core.model.Model buildQwenModel(String apiKey) {
-        return DashScopeChatModel.builder()
+        var b = OpenAIChatModel.builder()
                 .apiKey(apiKey) // API Key
-                .modelName(Config.get("FALLBACK_MODEL_NAME", "qwen3.7-max")) // 语言模型
-                // 关闭思考模式，加快响应
-                .enableThinking(false)
+                .baseUrl(utils.ModelConfigHolder.fbBaseUrl()) // OpenAI 兼容接口地址（可热更）
+                .modelName(utils.ModelConfigHolder.fbModelName()) // 语言模型（可热更）
                 // 关闭流式增量，保证完整输出
                 .stream(false)
                 .build();
+        return b;
     }
 
     /**
@@ -58,7 +58,7 @@ public class AgentUtils {
             throw new IllegalStateException(
                     "未配置模型 API Key！请在管理端「模型监控」页填写，或 .env 配置 MODEL_API_KEY");
         }
-        String qwenKey = System.getenv("DASHSCOPE_API_KEY"); // 备用模型 Key（可缺失）
+        String qwenKey = utils.ModelConfigHolder.fbApiKey(); // 备用模型 Key（热更中心，初始读 FALLBACK_MODEL_API_KEY/DASHSCOPE_API_KEY）
 
         io.agentscope.core.model.Model primary = buildPrimaryModel(
                 ModelConfigHolder.baseUrl(), key, ModelConfigHolder.modelName());

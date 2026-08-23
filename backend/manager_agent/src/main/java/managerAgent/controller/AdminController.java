@@ -109,16 +109,21 @@ public class AdminController {
     /** 熔断器状态 / 失败计数 / 主备模型 / 限速 QPS */
     // ==================== ★模型配置热更（Java侧/Python侧两组） ====================
 
-    /** 读当前模型配置（key 打码显示） */
+    /** 读当前模型配置（key 打码显示；含主模型/备用模型/Python侧三组） */
     @GetMapping("/model-config")
     public Map<String, Object> getModelConfig() {
         Map<String, Object> r = new java.util.HashMap<>();
-        utils.ModelConfigHolder c = null; // 占位避免误用
         String jk = utils.ModelConfigHolder.apiKey();
         r.put("java", Map.of(
                 "url", utils.ModelConfigHolder.baseUrl(),
                 "name", utils.ModelConfigHolder.modelName(),
-                "keyMasked", jk == null || jk.length() < 10 ? "" : jk.substring(0, 6) + "****" + jk.substring(jk.length() - 4)));
+                "keyMasked", maskKey(jk)));
+        // ★备用模型组（熔断降级用，OpenAI 兼容接口）
+        String fk = utils.ModelConfigHolder.fbApiKey();
+        r.put("fallback", Map.of(
+                "url", utils.ModelConfigHolder.fbBaseUrl(),
+                "name", utils.ModelConfigHolder.fbModelName(),
+                "keyMasked", maskKey(fk)));
         Map<String, Object> py = readPyLlmConfig();
         py.put("keyMasked", maskKey((String) py.get("key")));
         py.remove("key");
@@ -127,21 +132,27 @@ public class AdminController {
         return r;
     }
 
-    /** 保存模型配置：写 .env + Java 热更 + 重启 chat_server（Python 侧） */
+    /** 保存模型配置：写 .env + Java 热更 + 重启子Agent/chat_server。主模型/备用模型均为"任一字段非空即保存该组" */
     @PostMapping("/model-config")
     public Map<String, Object> saveModelConfig(@RequestParam(required = false) String javaUrl,
                                                @RequestParam(required = false) String javaKey,
                                                @RequestParam(required = false) String javaName,
+                                               @RequestParam(required = false) String fbUrl,
+                                               @RequestParam(required = false) String fbKey,
+                                               @RequestParam(required = false) String fbName,
                                                @RequestParam(required = false) String pyUrl,
                                                @RequestParam(required = false) String pyKey,
                                                @RequestParam(required = false) String pyName) {
         Map<String, Object> r = new java.util.HashMap<>();
         try {
             StringBuilder note = new StringBuilder();
-            if (javaUrl != null && !javaUrl.isBlank()) {
-                // Java 侧：热更内存配置 + 写 .env（重启后仍生效）
+            boolean javaChanged = (javaUrl != null && !javaUrl.isBlank())
+                    || (javaKey != null && !javaKey.isBlank())
+                    || (javaName != null && !javaName.isBlank());
+            if (javaChanged) {
+                // Java 侧：热更内存配置 + 写 .env（重启后仍生效）。任一字段非空即整组处理，空字段保持原值
                 utils.ModelConfigHolder.update(javaUrl, javaKey, javaName);
-                upsertEnv("MODEL_BASE_URL", javaUrl);
+                if (javaUrl != null && !javaUrl.isBlank()) upsertEnv("MODEL_BASE_URL", javaUrl);
                 if (javaKey != null && !javaKey.isBlank()) upsertEnv("MODEL_API_KEY", javaKey);
                 if (javaName != null && !javaName.isBlank()) upsertEnv("MODEL_NAME", javaName);
                 managerAgent.tool.LlmClientReset.reset(); // 下次构建模型用新配置
@@ -153,6 +164,17 @@ public class AdminController {
                 t2.setDaemon(true);
                 t2.start();
                 note.append("Java侧已热更；子Agent正在重启以加载新模型；");
+            }
+            // ★备用模型组：任一字段非空即热更 + 写 .env（子Agent重启同样加载）
+            boolean fbChanged = (fbUrl != null && !fbUrl.isBlank())
+                    || (fbKey != null && !fbKey.isBlank())
+                    || (fbName != null && !fbName.isBlank());
+            if (fbChanged) {
+                utils.ModelConfigHolder.updateFallback(fbUrl, fbKey, fbName);
+                if (fbUrl != null && !fbUrl.isBlank()) upsertEnv("FALLBACK_MODEL_BASE_URL", fbUrl);
+                if (fbKey != null && !fbKey.isBlank()) upsertEnv("FALLBACK_MODEL_API_KEY", fbKey);
+                if (fbName != null && !fbName.isBlank()) upsertEnv("FALLBACK_MODEL_NAME", fbName);
+                note.append("备用模型已热更；");
             }
             if (pyUrl != null && !pyUrl.isBlank() || pyKey != null && !pyKey.isBlank()
                     || pyName != null && !pyName.isBlank()) {
@@ -255,9 +277,18 @@ public class AdminController {
             if (useSh) {
                 pb = new ProcessBuilder("bash", script.getCanonicalPath(), "restart");
             } else {
-                // 无脚本则直接杀掉8090进程，由用户下次手动启动
-                pb = new ProcessBuilder("bash", "-c",
-                        "netstat -ano | grep ':8090' | grep LISTENING | awk '{print $5}' | xargs -r taskkill /F /PID");
+                // 无脚本则直接杀掉8090进程，由用户下次手动启动。
+                // ★用 PowerShell 查端口进程（git-bash 环境无 netstat/taskkill，原写法静默失败杀不掉）
+                boolean isWin = System.getProperty("os.name", "").toLowerCase().contains("win");
+                if (isWin) {
+                    String ps = "Get-NetTCPConnection -LocalPort 8090 -State Listen -ErrorAction SilentlyContinue "
+                            + "| Select-Object -ExpandProperty OwningProcess -Unique "
+                            + "| ForEach-Object { Stop-Process -Id $_ -Force }";
+                    pb = new ProcessBuilder("powershell", "-NoProfile", "-Command", ps);
+                } else {
+                    pb = new ProcessBuilder("bash", "-c",
+                            "fuser -k 8090/tcp 2>/dev/null || pkill -f 'chat_server.py' || true");
+                }
             }
             pb.redirectErrorStream(true);
             pb.redirectOutput(java.io.File.createTempFile("atp_chat_restart_", ".log"));

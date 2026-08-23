@@ -352,15 +352,25 @@ function stopPipeline(btn) {
 }
 
 // ============ ★模型配置热更（Java侧/Python侧） ============
+const KEY_MASK = '••••••••'; // key已配置的占位显示（password框显示为圆点）
 function loadModelConfig() {
     fetch('/api/admin/model-config').then(r => r.json()).then(d => {
         if (!d.success) return;
         document.getElementById('mcJavaUrl').value = d.java.url || '';
         document.getElementById('mcJavaName').value = d.java.name || '';
-        document.getElementById('mcJavaKey').placeholder = d.java.keyMasked ? ('当前: ' + d.java.keyMasked + '（留空不修改）') : '留空=不修改';
+        // ★key显示逻辑：已配置生效 → 填入圆点占位（黑点）；未配置 → 空白
+        document.getElementById('mcJavaKey').value = d.java.keyMasked ? KEY_MASK : '';
+        document.getElementById('mcJavaKey').placeholder = d.java.keyMasked ? ('当前: ' + d.java.keyMasked + '（留空不修改）') : '未填写（留空=不修改）';
+        // ★备用模型组
+        const fb = d.fallback || {};
+        document.getElementById('mcFbUrl').value = fb.url || '';
+        document.getElementById('mcFbName').value = fb.name || '';
+        document.getElementById('mcFbKey').value = fb.keyMasked ? KEY_MASK : '';
+        document.getElementById('mcFbKey').placeholder = fb.keyMasked ? ('当前: ' + fb.keyMasked + '（留空不修改）') : '未填写（留空=不修改）';
         document.getElementById('mcPyUrl').value = d.python.url || '';
         document.getElementById('mcPyName').value = d.python.name || '';
-        document.getElementById('mcPyKey').placeholder = d.python.keyMasked ? ('当前: ' + d.python.keyMasked + '（留空不修改）') : '留空=不修改';
+        document.getElementById('mcPyKey').value = d.python.keyMasked ? KEY_MASK : '';
+        document.getElementById('mcPyKey').placeholder = d.python.keyMasked ? ('当前: ' + d.python.keyMasked + '（留空不修改）') : '未填写（留空=不修改）';
     }).catch(() => {});
 }
 
@@ -369,14 +379,24 @@ function saveModelConfig() {
     const ju = document.getElementById('mcJavaUrl').value.trim();
     const jk = document.getElementById('mcJavaKey').value.trim();
     const jn = document.getElementById('mcJavaName').value.trim();
+    const fu = document.getElementById('mcFbUrl').value.trim();
+    const fk = document.getElementById('mcFbKey').value.trim();
+    const fn = document.getElementById('mcFbName').value.trim();
     const pu = document.getElementById('mcPyUrl').value.trim();
     const pk = document.getElementById('mcPyKey').value.trim();
     const pn = document.getElementById('mcPyName').value.trim();
+    // ★key占位值(••••••••)视为未修改，不提交；只有用户真正输入新key才提交
+    const jkReal = (jk && jk !== KEY_MASK) ? jk : '';
+    const fkReal = (fk && fk !== KEY_MASK) ? fk : '';
+    const pkReal = (pk && pk !== KEY_MASK) ? pk : '';
     if (ju) body.append('javaUrl', ju);
-    if (jk) body.append('javaKey', jk);
+    if (jkReal) body.append('javaKey', jkReal);
     if (jn) body.append('javaName', jn);
+    if (fu) body.append('fbUrl', fu);
+    if (fkReal) body.append('fbKey', fkReal);
+    if (fn) body.append('fbName', fn);
     if (pu) body.append('pyUrl', pu);
-    if (pk) body.append('pyKey', pk);
+    if (pkReal) body.append('pyKey', pkReal);
     if (pn) body.append('pyName', pn);
     fetch('/api/admin/model-config', { method: 'POST', body })
         .then(r => r.json())
