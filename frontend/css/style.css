@@ -125,7 +125,7 @@ nav { display: flex; align-items: center; justify-content: space-between; paddin
 }
 .day-card:hover { border-color: rgba(31,174,143,.4); transform: translateY(-2px); }
 .day-card.active { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(31,174,143,.12); }
-.day-top { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; padding-right: 30px; }
+.day-top { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; padding-right: 66px; }
 .day-top .n { font-weight: 800; font-size: 13.5px; letter-spacing: .5px; }
 .day-top .km { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--amber); letter-spacing: 1px; }
 .day-top .expand {
@@ -135,6 +135,8 @@ nav { display: flex; align-items: center; justify-content: space-between; paddin
   transition: .15s; flex-shrink: 0;
 }
 .day-top .expand:hover { background: var(--teal); color: #fff; border-color: var(--teal); }
+/* ★地图按钮(第一个expand)左移，与铅笔按钮并排（两个都是absolute right定位会重叠） */
+.day-top .expand:first-of-type { right: 40px; }
 .item { display: flex; gap: 9px; padding: 5px 0; font-size: 12px; color: #5F726B; border-top: 1px dashed var(--line); }
 .item:first-of-type { border-top: none; }
 .item .ic { width: 21px; text-align: center; flex-shrink: 0; font-size: 14px; line-height: 1.35; }

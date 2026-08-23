@@ -184,9 +184,6 @@ function viewPlan(id) {
                     lastResultJson = typeof p.plan_json === 'string' ? p.plan_json : JSON.stringify(structuredCol);
                     document.getElementById('resultBody').innerHTML = renderStructuredPlan(structuredCol);
                     document.getElementById('saveBar').style.display = 'flex';
-                    // ★历史行程有结构化数据 → 专属地图按钮可用（全部景点衔接）
-                    document.getElementById('personalMapBtn').style.display =
-                        (structuredCol.sections && structuredCol.sections.length) ? 'inline-flex' : 'none';
                     closeMyPlans();
                     document.getElementById('resultBody').scrollIntoView({ behavior: 'smooth' });
                     return;
@@ -221,8 +218,6 @@ function viewPlan(id) {
                 }
                 // ★查看历史行程：保持与生成结果一致的操作条(保存/导出)
                 document.getElementById('saveBar').style.display = 'flex';
-                // ★查看历史行程：无结构化JSON，专属地图不可用
-                document.getElementById('personalMapBtn').style.display = 'none';
                 document.getElementById('saveMsg').textContent = '';
                 closeMyPlans();
                 document.getElementById('resultBody').scrollIntoView({ behavior: 'smooth' });
@@ -384,9 +379,6 @@ function fetchResult() {
             document.getElementById('sendBtn').disabled = false;
             // ★ 结果出来了，显示"保存到我的行程"操作条
             document.getElementById('saveBar').style.display = 'flex';
-            // ★有结构化数据才提供"专属地图"入口
-            document.getElementById('personalMapBtn').style.display =
-                (structured && structured.sections) ? 'inline-flex' : 'none';
             document.getElementById('saveMsg').textContent = '';
         })
         .catch(() => { /* 网络抖动，下轮重试 */ });
@@ -1055,8 +1047,8 @@ function renderStructuredPlan(plan) {
         html += '<div class="day-card' + (di === 0 ? ' active' : '') + '" onclick="selectDay(' + di + ')">'
             + '<div class="day-top">'
             + '<span class="n">DAY ' + String(di + 1).padStart(2, '0') + '</span>'
-            + (items.length ? '<span class="km">徒步 ' + estWalkKm(items.length) + 'km</span>' : '')
-            + '<button class="expand" title="查看当日详细规划" onclick="event.stopPropagation();openDayModal(' + di + ')">✏️</button>'
+            + '<button class="expand" id="dayMapBtn_' + di + '" title="查看当天高德路线图" onclick="event.stopPropagation();openDayMap(' + di + ')"><i class="fa-solid fa-map-location-dot"></i></button>'
+            + '<button class="expand" title="查看当日详细规划" onclick="event.stopPropagation();openDayModal(' + di + ')"><i class="fa-solid fa-pen"></i></button>'
             + '</div>'
             + items.map(it => '<div class="item"><span class="ic">' + activityIcon(it.activity || it.place || '') + '</span>'
                 + '<span><span class="pl">' + amapLink(it.place || it.activity || '') + '</span></span></div>').join('')
@@ -1096,37 +1088,15 @@ function amapLink(place) {
     if (!name) return '';
     // 带上当前行程目的地城市,避免同名地点(如"人民公园")定位到别的城市
     const city = (currentPlanData && currentPlanData.destination) ? currentPlanData.destination.trim() : '';
-    return '<a class="place-link" href="https://uri.amap.com/search?keyword='
+    return '<a class="place-link" href="https://www.mafengwo.cn/search/q.php?q='
         + encodeURIComponent(name)
-        + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();gotoAmap(this.href, \'' + name.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\', \'' + city.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\');return false" title="在高德地图中查看「' + name + '」">'
+        + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();gotoAmap(this.href, \'' + name.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\', \'' + city.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\');return false" title="在马蜂窝查看「' + name + '」介绍">'
         + escapeHtml(name) + '</a>';
 }
 
-/** 点击景点：先找该景点所属的"天"，跳转当天的高德路线图（每天单独生成，避开高德6途经点上限）；找不到所属天则降级单点定位 */
+/** 点击景点：跳转马蜂窝对应景点介绍页（实测免登录可看，搜索结果首条即景点页） */
 function gotoAmap(fallbackUrl, name, city) {
-    const dayIdx = findDayIndexOfPlace(name);
-    if (dayIdx >= 0) {
-        // ★按天跳转：当天路线图（含当天全部景点）
-        openDayMap(dayIdx, function (ok) {
-            if (!ok) window.open(fallbackUrl, '_blank'); // 生成失败降级搜索页
-        });
-        return;
-    }
-    // 无结构化行程/找不到所属天：单点定位
-    fetch('/amap/geocode?name=' + encodeURIComponent(name)
-        + (city ? '&city=' + encodeURIComponent(city) : ''))
-        .then(r => r.json())
-        .then(data => {
-            if (data && data.ok && data.lng && data.lat) {
-                // 直接定位：position=经度,纬度
-                window.open('https://uri.amap.com/marker?position=' + data.lng + ',' + data.lat
-                    + '&name=' + encodeURIComponent(data.poiName || name)
-                    + '&src=mypage&coordinate=gaode&callnative=0', '_blank');
-            } else {
-                window.open(fallbackUrl, '_blank'); // 降级：搜索页
-            }
-        })
-        .catch(() => window.open(fallbackUrl, '_blank')); // 网络异常降级
+    window.open('https://www.mafengwo.cn/search/q.php?q=' + encodeURIComponent(name), '_blank');
 }
 
 /** 找景点名在 currentPlanData 中属于第几天（0基），找不到返回 -1 */
@@ -1191,6 +1161,12 @@ function openDayMap(dayIdx, cb) {
         setTimeout(() => openDayMap(dayIdx, cb), 600);
         return;
     }
+    // ★点击即时反馈：按钮转圈+状态提示，避免"没反应"的几秒空隙
+    const btn = document.getElementById('dayMapBtn_' + dayIdx);
+    const orig = btn ? btn.innerHTML : '';
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    const msg = document.getElementById('saveMsg');
+    if (msg) msg.textContent = '🗺️ 正在生成第' + (dayIdx + 1) + '天高德路线图...';
     dayMapBusy = true;
     fetch('/api/amap/personal-map', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1199,47 +1175,26 @@ function openDayMap(dayIdx, cb) {
         .then(r => r.json())
         .then(res => {
             dayMapBusy = false;
+            if (btn) btn.innerHTML = orig;
+            if (msg) msg.textContent = '';
             if (res.ok && res.webUrl) {
                 dayMapUrls[dayIdx] = res.webUrl;
                 dayMapTitles[dayIdx] = d.title;
                 window.open(res.webUrl, '_blank');
                 if (cb) cb(true);
             } else {
+                if (msg) msg.textContent = '⚠️ 路线图生成失败，请重试';
                 if (cb) cb(false);
             }
         })
-        .catch(() => { dayMapBusy = false; if (cb) cb(false); });
+        .catch(() => {
+            dayMapBusy = false;
+            if (btn) btn.innerHTML = orig;
+            if (msg) msg.textContent = '⚠️ 网络异常，请重试';
+            if (cb) cb(false);
+        });
 }
 
-/** 展示当天路线的入口（专属地图按钮点击后：每天一个链接） */
-function showDayMapModal() {
-    const days = (currentPlanData && currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
-    if (!days.length) { alert('请先生成结构化行程'); return; }
-    const list = document.getElementById('dayMapList');
-    if (!list) { alert('页面组件缺失'); return; }
-    list.innerHTML = days.map((d, i) => {
-        const t = d.title || ('第' + (i + 1) + '天');
-        const n = (d.items || []).filter(it => it && (it.place || it.name)).length;
-        return '<div class="my-plan-card" style="margin:8px 0;padding:10px;border:1px solid #e8e8e8;border-radius:8px;cursor:pointer" '
-            + 'onclick="openDayMap(' + i + ')">'
-            + '<div style="font-weight:600">' + escapeHtml(t) + '</div>'
-            + '<div style="font-size:12px;color:#888">' + n + ' 个景点 → 高德路线图（当天全部衔接）</div>'
-            + '</div>';
-    }).join('');
-    document.getElementById('dayMapModal').style.display = 'flex';
-}
-
-function closeDayMapModal() { document.getElementById('dayMapModal').style.display = 'none'; }
-
-/**
- * ★高德专属地图：按天生成每天的路线图（避开高德网页版"1起点+6途经+1终点"上限），
- * 弹窗列出每天入口；点击景点地名也会直接跳转所属那天的路线图。
- */
-function openPersonalMap(ev) {
-    if (ev) ev.stopPropagation();
-    if (!currentPlanData || !currentPlanData.sections) { alert('请先生成结构化行程'); return; }
-    showDayMapModal(); // 每天一个链接，点击时即时生成/打开
-}
 
 /** 按点数生成轨迹曲线路径 */
 function routePath(n) {
