@@ -26,7 +26,13 @@ function formatSectionItem(type, item) {
     item = item || {};
     const pick = (...vals) => vals.filter(v => v).join(' · ');
     switch (type) {
-        case 'timeline': return (item.time ? item.time + '  ' : '') + pick(item.place, item.activity, item.cost);
+        case 'timeline': {
+            let t = item.time ? escapeHtml(item.time) + '  ' : '';
+            if (item.place) t += '<a class="share-place-link" href="javascript:void(0)" onclick="openDayMapByPlace(\'' + item.place.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\');return false" title="查看当天路线图">' + escapeHtml(item.place) + '</a>';
+            if (item.activity) t += ' · ' + escapeHtml(item.activity);
+            if (item.cost) t += ' · ' + escapeHtml(item.cost);
+            return t;
+        }
         case 'transport': {
             let t = item.from && item.to ? (item.from + ' → ' + item.to) : (item.from || item.to || '');
             if (item.way || item.duration) t += '（' + pick(item.way, item.duration) + '）';
@@ -80,7 +86,11 @@ function renderStructuredPlan(plan) {
         const list = document.createElement('ul');
         (sec.items || []).forEach(item => {
             const li = document.createElement('li');
-            li.textContent = formatSectionItem(type, item);
+            if (type === 'timeline') {
+                li.innerHTML = formatSectionItem(type, item); // 渲染可点击景点链接
+            } else {
+                li.textContent = formatSectionItem(type, item); // 纯文本，防XSS
+            }
             list.appendChild(li);
         });
         secDiv.appendChild(list);
@@ -139,6 +149,7 @@ function render(data) {
     if (data.plan_json) {
         try { structured = typeof data.plan_json === 'string' ? JSON.parse(data.plan_json) : data.plan_json; } catch (e) { structured = null; }
     }
+    sharePlanData = structured; // ★保存当前分享行程（按天跳转用）
     const body = document.getElementById('shareBody');
     if (structured && (structured.sections || structured.title)) {
         body.innerHTML = renderStructuredPlan(structured);
@@ -147,6 +158,45 @@ function render(data) {
     } else {
         body.innerHTML = '<div class="share-empty">（空行程）</div>';
     }
+}
+
+// ★分享页当前行程数据（render 时保存，供按天跳转使用）
+let sharePlanData = null;
+
+/** 点击景点：找所属天 → 调后端生成当天路线图并打开 */
+function openDayMapByPlace(name) {
+    if (!sharePlanData || !sharePlanData.sections) { alert('行程数据不可用'); return; }
+    const days = (sharePlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    let dayIdx = -1;
+    for (let i = 0; i < days.length; i++) {
+        for (const it of (days[i].items || [])) {
+            const pl = (it.place || it.name || '').trim();
+            if (pl && (pl === name || pl.indexOf(name) >= 0 || name.indexOf(pl) >= 0)) { dayIdx = i; break; }
+        }
+        if (dayIdx >= 0) break;
+    }
+    if (dayIdx < 0) { alert('未找到该景点所属天'); return; }
+    const btn = document.createElement('div');
+    btn.id = 'shareMapLoading';
+    btn.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.75);color:#fff;padding:14px 22px;border-radius:10px;z-index:999;font-size:14px';
+    btn.textContent = '⏳ 正在生成第' + (dayIdx + 1) + '天路线图...';
+    document.body.appendChild(btn);
+    fetch('/api/share/' + encodeURIComponent(shareCode) + '/day-map?day=' + (dayIdx + 1))
+        .then(r => r.json())
+        .then(d => {
+            const el = document.getElementById('shareMapLoading');
+            if (el) el.remove();
+            if (d.ok && d.webUrl) {
+                window.open(d.webUrl, '_blank');
+            } else {
+                alert('生成失败：' + (d.error || '未知错误'));
+            }
+        })
+        .catch(() => {
+            const el = document.getElementById('shareMapLoading');
+            if (el) el.remove();
+            alert('网络异常，请重试');
+        });
 }
 
 // 拉取分享内容

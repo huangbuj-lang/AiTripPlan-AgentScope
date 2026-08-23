@@ -136,6 +136,107 @@ public class ShareController {
         return result;
     }
 
+    /**
+     * ★分享页按天生成路线图：免登录，从分享行程的 plan_json 提取第 N 天景点，
+     * 逐个 geocode 拿坐标+POI ID，拼 ditu.amap.com/ssr/dir 多途经点链接（当天全部景点衔接）。
+     * day 从 1 开始。
+     */
+    @GetMapping("/share/{code}/day-map")
+    public Map<String, Object> dayMap(@PathVariable String code, @RequestParam int day) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("ok", false);
+        try {
+            List<Map<String, Object>> shares = jdbcTemplate.queryForList(
+                    "SELECT trip_id FROM trip_shares WHERE share_code = ?", code);
+            if (shares.isEmpty()) { result.put("error", "分享不存在或已撤销"); return result; }
+            Long tripId = ((Number) shares.get(0).get("trip_id")).longValue();
+            Map<String, Object> trip = jdbcTemplate.queryForMap(
+                    "SELECT city, plan_json FROM trip_plans WHERE id = ?", tripId);
+            String planJson = trip.get("plan_json") == null ? null : String.valueOf(trip.get("plan_json"));
+            if (planJson == null || planJson.isBlank()) { result.put("error", "该行程无结构化数据"); return result; }
+            com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(planJson);
+            com.fasterxml.jackson.databind.JsonNode sections = root.path("sections");
+            if (!sections.isArray()) { result.put("error", "行程数据异常"); return result; }
+            // 提取第 day 天（1基）的 timeline 区块
+            List<String> places = new java.util.ArrayList<>();
+            int dayIdx = 0;
+            for (com.fasterxml.jackson.databind.JsonNode sec : sections) {
+                String type = sec.path("type").asText("");
+                String title = sec.path("title").asText("");
+                boolean isDay = "timeline".equals(type) || title.matches("第.+天");
+                if (!isDay) continue;
+                dayIdx++;
+                if (dayIdx != day) continue;
+                for (com.fasterxml.jackson.databind.JsonNode it : sec.path("items")) {
+                    String name = it.path("place").asText("").trim();
+                    if (name.isEmpty()) name = it.path("name").asText("").trim();
+                    if (!name.isEmpty() && !places.contains(name)) places.add(name);
+                }
+                break;
+            }
+            if (places.isEmpty()) { result.put("error", "第 " + day + " 天没有可定位的景点"); return result; }
+            // 逐个 geocode（复用高德 place/text，350ms 限速）
+            String key = System.getenv().getOrDefault("AMAP_KEY", "");
+            if (key.isBlank()) { result.put("error", "AMAP_KEY 未配置"); return result; }
+            String city = trip.get("city") == null ? "" : String.valueOf(trip.get("city"));
+            List<String> allPts = new java.util.ArrayList<>();
+            for (String name : places) {
+                String[] ll = geocode(key, name, city);
+                if (ll == null) continue;
+                allPts.add(ll[0] + "," + ll[1] + "," + name + "," + ll[2]);
+            }
+            if (allPts.size() < 2) { result.put("error", "当天可定位的景点不足 2 个"); return result; }
+            // 拼 ditu 链接
+            String[] first = allPts.get(0).split(",", -1);
+            String[] last = allPts.get(allPts.size() - 1).split(",", -1);
+            StringBuilder nav = new StringBuilder("https://ditu.amap.com/ssr/dir?type=0&policy=10");
+            nav.append("&fname=").append(java.net.URLEncoder.encode(first.length >= 3 ? first[2] : "", "UTF-8"));
+            nav.append("&flat=").append(first[1]).append("&flon=").append(first[0]);
+            nav.append("&dname=").append(java.net.URLEncoder.encode(last.length >= 3 ? last[2] : "", "UTF-8"));
+            nav.append("&dlat=").append(last[1]).append("&dlon=").append(last[0]);
+            if (allPts.size() > 2) {
+                StringBuilder vn = new StringBuilder(), va = new StringBuilder(), vo = new StringBuilder(), vi = new StringBuilder();
+                for (int i = 1; i < allPts.size() - 1; i++) {
+                    String[] pp = allPts.get(i).split(",", -1);
+                    if (vn.length() > 0) { vn.append("|"); va.append("|"); vo.append("|"); vi.append("|"); }
+                    vn.append(java.net.URLEncoder.encode(pp.length >= 3 ? pp[2] : "", "UTF-8"));
+                    va.append(pp[1]); vo.append(pp[0]);
+                    vi.append(java.net.URLEncoder.encode(pp.length >= 4 && !"unknown".equals(pp[3]) ? pp[3] : "", "UTF-8"));
+                }
+                nav.append("&vname=").append(vn).append("&vlat=").append(va)
+                   .append("&vlon=").append(vo).append("&vid=").append(vi);
+            }
+            result.put("ok", true);
+            result.put("webUrl", nav.toString());
+        } catch (Exception e) {
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+
+    /** 地名→坐标+POI ID（复用高德 place/text），失败返回 null；350ms 间隔防超QPS */
+    private String[] geocode(String key, String name, String city) {
+        try {
+            String qs = "keywords=" + java.net.URLEncoder.encode(name, "UTF-8")
+                    + "&output=json&key=" + key + "&offset=1&extensions=base";
+            if (city != null && !city.isBlank()) qs += "&city=" + java.net.URLEncoder.encode(city, "UTF-8");
+            java.net.URL u = new java.net.URL("https://restapi.amap.com/v3/place/text?" + qs);
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(8000);
+            String b = new String(c.getInputStream().readAllBytes(), "UTF-8");
+            com.fasterxml.jackson.databind.JsonNode poi = new com.fasterxml.jackson.databind.ObjectMapper().readTree(b).path("pois").path(0);
+            if (poi.isMissingNode()) return null;
+            String loc = poi.path("location").asText("");
+            String[] parts = loc.split(",");
+            Thread.sleep(350);
+            if (parts.length < 2) return null;
+            return new String[]{parts[0], parts[1], poi.path("id").asText("")};
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** 查询某行程的分享状态（前端"我的行程"展示分享链接） */
     @GetMapping("/trips/{id}/share")
     public Map<String, Object> getShareStatus(@PathVariable Long id, HttpSession session) {

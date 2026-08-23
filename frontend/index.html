@@ -162,7 +162,20 @@
   </div>
 </div>
 
+<div id="dayMapModal" class="my-plans-modal" style="display:none">
+  <div class="modal-card">
+    <div class="modal-head">
+      <b><i class="fa-solid fa-map-location-dot"></i> 高德专属地图（按天）</b>
+      <button class="mini-btn" onclick="closeDayMapModal()"><i class="fa-solid fa-xmark"></i> 关闭</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:#888;margin-bottom:6px">每天单独生成高德路线图（当天全部景点衔接，避开网页版途经点上限）</div>
+      <div id="dayMapList"></div>
+    </div>
+  </div>
+</div>
+
 <script src="js/purify.min.js"></script>
-<script src="js/app.js?v=20260823c"></script>
+<script src="js/app.js?v=20260823d"></script>
 </body>
 </html>

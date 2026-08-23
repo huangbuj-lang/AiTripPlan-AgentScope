@@ -180,9 +180,13 @@ function viewPlan(id) {
                     catch (e) { structuredCol = null; }
                 }
                 if (structuredCol && (structuredCol.sections || structuredCol.title)) {
+                    currentPlanData = structuredCol; // ★历史行程也恢复专属地图数据源
                     lastResultJson = typeof p.plan_json === 'string' ? p.plan_json : JSON.stringify(structuredCol);
                     document.getElementById('resultBody').innerHTML = renderStructuredPlan(structuredCol);
-                    document.getElementById('saveBar').style.display = 'none';
+                    document.getElementById('saveBar').style.display = 'flex';
+                    // ★历史行程有结构化数据 → 专属地图按钮可用（全部景点衔接）
+                    document.getElementById('personalMapBtn').style.display =
+                        (structuredCol.sections && structuredCol.sections.length) ? 'inline-flex' : 'none';
                     closeMyPlans();
                     document.getElementById('resultBody').scrollIntoView({ behavior: 'smooth' });
                     return;
@@ -999,6 +1003,10 @@ let currentPlanData = null;
 function renderStructuredPlan(plan) {
     if (!plan) return '<div class="empty">（空响应）</div>';
     currentPlanData = plan;
+    // ★切换行程时清空按天路线缓存（避免点景点跳到上一个行程的地图）
+    dayMapUrls = [];
+    dayMapTitles = [];
+    dayMapPlanFp = planFingerprint();
     const sections = plan.sections || [];
 
     // 提取天数区块（timeline）与其余区块
@@ -1094,17 +1102,17 @@ function amapLink(place) {
         + escapeHtml(name) + '</a>';
 }
 
-/** 点击景点：先调后端 /amap/geocode 拿经纬度 → 跳 marker 直接定位；失败降级搜索页 */
+/** 点击景点：先找该景点所属的"天"，跳转当天的高德路线图（每天单独生成，避开高德6途经点上限）；找不到所属天则降级单点定位 */
 function gotoAmap(fallbackUrl, name, city) {
-    // ★优先跳高德行程地图：webUrl=网页版路线(浏览器可看)；appUrl=APP专属地图(手机)
-    if (personalWebUrl) {
-        window.open(personalWebUrl, '_blank');
+    const dayIdx = findDayIndexOfPlace(name);
+    if (dayIdx >= 0) {
+        // ★按天跳转：当天路线图（含当天全部景点）
+        openDayMap(dayIdx, function (ok) {
+            if (!ok) window.open(fallbackUrl, '_blank'); // 生成失败降级搜索页
+        });
         return;
     }
-    if (personalMapUrl) {
-        window.open(personalMapUrl, '_blank');
-        return;
-    }
+    // 无结构化行程/找不到所属天：单点定位
     fetch('/amap/geocode?name=' + encodeURIComponent(name)
         + (city ? '&city=' + encodeURIComponent(city) : ''))
         .then(r => r.json())
@@ -1121,47 +1129,116 @@ function gotoAmap(fallbackUrl, name, city) {
         .catch(() => window.open(fallbackUrl, '_blank')); // 网络异常降级
 }
 
+/** 找景点名在 currentPlanData 中属于第几天（0基），找不到返回 -1 */
+function findDayIndexOfPlace(name) {
+    if (!currentPlanData || !currentPlanData.sections) return -1;
+    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    for (let i = 0; i < days.length; i++) {
+        const items = (days[i].items || []).filter(it => it && (it.place || it.name));
+        for (const it of items) {
+            const pl = (it.place || it.name || '').trim();
+            if (pl && (pl === name || pl.indexOf(name) >= 0 || name.indexOf(pl) >= 0)) return i;
+        }
+    }
+    return -1;
+}
+
+/** 提取第 dayIdx 天（0基）的地点序列；返回 null 表示无该天 */
+function dayPlaces(dayIdx) {
+    if (!currentPlanData || !currentPlanData.sections) return null;
+    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    const day = days[dayIdx];
+    if (!day) return null;
+    const places = [];
+    for (const it of (day.items || [])) {
+        const pl = (it.place || it.name || '').trim();
+        if (pl && !places.includes(pl)) places.push(pl);
+    }
+    return { title: day.title || ('第' + (dayIdx + 1) + '天'), places: places };
+}
+
+// ★按天路线缓存：dayMapUrls[i] = 第i天(0基)的 ditu 路线链接（含全部当天景点）
+// 缓存绑定行程指纹(标题+天数的hash)：切换行程后即使天数索引相同也会强制重新生成，杜绝跨行程串图
+let dayMapUrls = [];
+let dayMapTitles = [];
+let dayMapBusy = false;
+let dayMapPlanFp = '';
+function planFingerprint() {
+    if (!currentPlanData) return '';
+    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    const titles = days.map(d => d.title || '').join('|');
+    return (currentPlanData.title || '') + '#' + titles;
+}
+
 /**
- * ★生成高德"专属地图"：把当前结构化行程(每日地点序列)发给后端 → 调高德MCP生成唤端链接。
- * 成功后显示链接按钮，且后续景点点击都跳这张专属地图。
+ * ★生成第 dayIdx 天的路线图并打开（若已生成直接打开；生成中则排队等待）
+ * 只传当天地点 → 每天一个链接，避开高德网页版"1起点+6途经+1终点"上限。
+ */
+function openDayMap(dayIdx, cb) {
+    const d = dayPlaces(dayIdx);
+    if (!d || !d.places.length) { if (cb) cb(false); return; }
+    if (dayMapUrls[dayIdx] && dayMapPlanFp === planFingerprint()) {
+        window.open(dayMapUrls[dayIdx], '_blank');
+        if (cb) cb(true);
+        return;
+    }
+    if (dayMapPlanFp !== planFingerprint()) { // 行程已切换：旧缓存作废
+        dayMapUrls = [];
+        dayMapTitles = [];
+        dayMapPlanFp = planFingerprint();
+    }
+    if (dayMapBusy) { // 生成中：稍后重试
+        setTimeout(() => openDayMap(dayIdx, cb), 600);
+        return;
+    }
+    dayMapBusy = true;
+    fetch('/api/amap/personal-map', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: d.title, destination: (currentPlanData && currentPlanData.destination) || '', days: [d] })
+    })
+        .then(r => r.json())
+        .then(res => {
+            dayMapBusy = false;
+            if (res.ok && res.webUrl) {
+                dayMapUrls[dayIdx] = res.webUrl;
+                dayMapTitles[dayIdx] = d.title;
+                window.open(res.webUrl, '_blank');
+                if (cb) cb(true);
+            } else {
+                if (cb) cb(false);
+            }
+        })
+        .catch(() => { dayMapBusy = false; if (cb) cb(false); });
+}
+
+/** 展示当天路线的入口（专属地图按钮点击后：每天一个链接） */
+function showDayMapModal() {
+    const days = (currentPlanData && currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    if (!days.length) { alert('请先生成结构化行程'); return; }
+    const list = document.getElementById('dayMapList');
+    if (!list) { alert('页面组件缺失'); return; }
+    list.innerHTML = days.map((d, i) => {
+        const t = d.title || ('第' + (i + 1) + '天');
+        const n = (d.items || []).filter(it => it && (it.place || it.name)).length;
+        return '<div class="my-plan-card" style="margin:8px 0;padding:10px;border:1px solid #e8e8e8;border-radius:8px;cursor:pointer" '
+            + 'onclick="openDayMap(' + i + ')">'
+            + '<div style="font-weight:600">' + escapeHtml(t) + '</div>'
+            + '<div style="font-size:12px;color:#888">' + n + ' 个景点 → 高德路线图（当天全部衔接）</div>'
+            + '</div>';
+    }).join('');
+    document.getElementById('dayMapModal').style.display = 'flex';
+}
+
+function closeDayMapModal() { document.getElementById('dayMapModal').style.display = 'none'; }
+
+/**
+ * ★高德专属地图：按天生成每天的路线图（避开高德网页版"1起点+6途经+1终点"上限），
+ * 弹窗列出每天入口；点击景点地名也会直接跳转所属那天的路线图。
  */
 function openPersonalMap(ev) {
     if (ev) ev.stopPropagation();
     if (!currentPlanData || !currentPlanData.sections) { alert('请先生成结构化行程'); return; }
-    const btn = document.getElementById('personalMapBtn');
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 生成中...';
-    // 组装 days：从 timeline sections 提取每天地点序列
-    const days = [];
-    for (const s of currentPlanData.sections) {
-        if (s.type !== 'timeline') continue;
-        const places = [];
-        for (const it of (s.items || [])) {
-            const pl = (it.place || it.name || '').trim();
-            if (pl && !places.includes(pl)) places.push(pl);
-        }
-        if (places.length) days.push({ title: s.title || ('第' + (days.length+1) + '天'), places: places });
-    }
-    fetch('/api/amap/personal-map', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: currentPlanData.title || '行程规划',
-            destination: currentPlanData.destination || '', days: days })
-    })
-        .then(r => r.json())
-        .then(d => {
-            btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-map-location-dot"></i> 高德专属地图';
-            if (d.ok && d.url) {
-                personalMapUrl = d.url; // amapuri:// 手机高德APP打开
-                personalWebUrl = d.webUrl || ''; // 网页版路线(浏览器可看)
-                if (personalWebUrl) {
-                    window.open(personalWebUrl, '_blank'); // 电脑直接看网页版
-                } else {
-                    window.open(personalMapUrl, '_blank');
-                }
-            } else {
-                alert('生成失败：' + (d.error || '未知错误'));
-            }
-        })
-        .catch(() => { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-map-location-dot"></i> 高德专属地图'; alert('网络异常，请重试'); });
+    showDayMapModal(); // 每天一个链接，点击时即时生成/打开
 }
 
 /** 按点数生成轨迹曲线路径 */

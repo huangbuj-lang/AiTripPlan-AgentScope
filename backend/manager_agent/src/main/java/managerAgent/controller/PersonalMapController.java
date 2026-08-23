@@ -43,13 +43,13 @@ public class PersonalMapController {
                 for (JsonNode pl : day.path("places")) {
                     String name = pl.asText("").trim();
                     if (name.isEmpty()) continue;
-                    double[] ll = geocode(key, name, dest);
+                    String[] ll = geocode(key, name, dest);
                     if (ll == null) continue; // 查不到坐标的地点不进地图
                     Map<String, Object> pt = new HashMap<>();
                     pt.put("name", name);
-                    pt.put("lon", ll[0]);
-                    pt.put("lat", ll[1]);
-                    pt.put("poiId", "unknown"); // 高德仅校验非空
+                    pt.put("lon", Double.parseDouble(ll[0]));
+                    pt.put("lat", Double.parseDouble(ll[1]));
+                    pt.put("poiId", ll.length >= 3 && !ll[2].isEmpty() ? ll[2] : "unknown"); // 高德POI ID(vid)，缺id途经点会被丢弃
                     points.add(pt);
                 }
                 if (!points.isEmpty()) {
@@ -61,28 +61,45 @@ public class PersonalMapController {
             }
             if (lineList.isEmpty()) { resp.put("error", "没有可定位的地点"); return resp; }
 
-            // ★同时生成浏览器可开的网页版路线链接（uri.amap.com/navigation, callnative=0 强制网页版）
+            // ★同时生成浏览器可开的网页版路线链接（ditu.amap.com/ssr/dir 原生多途经点格式）
+            // 实测确认：vname/vlat/vlon/vid 四参数用 | 分隔可直传全部途经点（须带 vid POI ID，缺 vid 会被丢弃）
             try {
                 List<String> allPts = new ArrayList<>();
                 for (Map<String, Object> line : lineList) {
                     for (Object o : (List<?>) line.get("pointInfoList")) {
                         @SuppressWarnings("unchecked")
                         Map<String, Object> pt = (Map<String, Object>) o;
-                        allPts.add(pt.get("lon") + "," + pt.get("lat") + "," + pt.get("name"));
+                        allPts.add(pt.get("lon") + "," + pt.get("lat") + "," + pt.get("name") + "," + pt.get("poiId"));
                     }
                 }
                 if (!allPts.isEmpty()) {
-                    StringBuilder nav = new StringBuilder("https://uri.amap.com/navigation?");
-                    nav.append("from=").append(URLEncoder.encode(allPts.get(0), "UTF-8"));
-                    StringBuilder via = new StringBuilder();
-                    for (int i = 1; i < allPts.size() - 1 && i <= 9; i++) {
-                        if (via.length() > 0) via.append(";");
-                        via.append(URLEncoder.encode(allPts.get(i), "UTF-8"));
+                    String[] first = allPts.get(0).split(",", -1);
+                    String[] last = allPts.get(allPts.size() - 1).split(",", -1);
+                    StringBuilder nav = new StringBuilder("https://ditu.amap.com/ssr/dir?type=0&policy=10");
+                    nav.append("&fname=").append(URLEncoder.encode(first.length >= 3 ? first[2] : "", "UTF-8"));
+                    nav.append("&flat=").append(first[1]).append("&flon=").append(first[0]);
+                    nav.append("&dname=").append(URLEncoder.encode(last.length >= 3 ? last[2] : "", "UTF-8"));
+                    nav.append("&dlat=").append(last[1]).append("&dlon=").append(last[0]);
+                    // 中间全部为途经点（| 分隔）
+                    if (allPts.size() > 2) {
+                        StringBuilder vn = new StringBuilder(); // vname
+                        StringBuilder va = new StringBuilder(); // vlat
+                        StringBuilder vo = new StringBuilder(); // vlon
+                        StringBuilder vi = new StringBuilder(); // vid
+                        for (int i = 1; i < allPts.size() - 1; i++) {
+                            String[] pp = allPts.get(i).split(",", -1);
+                            if (vn.length() > 0) { vn.append("|"); va.append("|"); vo.append("|"); vi.append("|"); }
+                            vn.append(URLEncoder.encode(pp.length >= 3 ? pp[2] : "", "UTF-8"));
+                            va.append(pp[1]);
+                            vo.append(pp[0]);
+                            vi.append(URLEncoder.encode(pp.length >= 4 && !"unknown".equals(pp[3]) ? pp[3] : "", "UTF-8"));
+                        }
+                        nav.append("&vname=").append(vn).append("&vlat=").append(va)
+                           .append("&vlon=").append(vo).append("&vid=").append(vi);
                     }
-                    if (via.length() > 0) nav.append("&via=").append(via);
-                    nav.append("&to=").append(URLEncoder.encode(allPts.get(allPts.size() - 1), "UTF-8"));
-                    nav.append("&mode=car&src=aitripplan&coordinate=gaode&callnative=0");
                     resp.put("webUrl", nav.toString());
+                    // ★补充：静态地图图片（全部景点标记+连线，部分旧浏览器/转发场景兜底）
+                    resp.put("staticMapUrl", buildStaticMapUrl(allPts));
                 }
             } catch (Exception ignore) { }
 
@@ -130,8 +147,83 @@ public class PersonalMapController {
         return resp;
     }
 
-    /** 地名→坐标（复用高德 place/text），失败返回 null；350ms 间隔防超QPS */
-    private double[] geocode(String key, String name, String city) {
+    /**
+     * ★生成完整专属地图（网页可看）：高德静态地图 API（restapi.amap.com/v3/staticmap）。
+     * 全部景点 markers（A/B/C... 字母标记）+ 按行程顺序 path 连线。
+     * 注意：ditu.amap.com 网页版 URL 不支持多途经点直传，故用静态地图图片展示全景点衔接。
+     * 返回后端代理 URL（/api/amap/static-map），key 不暴露给前端。
+     */
+    private String buildStaticMapUrl(List<String> allPts) {
+        try {
+            String key = System.getenv().getOrDefault("AMAP_KEY", "");
+            if (key.isBlank()) return "";
+            // 解析所有点
+            List<double[]> pts = new ArrayList<>();
+            List<String> names = new ArrayList<>();
+            for (String s : allPts) {
+                String[] parts = s.split(",");
+                if (parts.length >= 2) {
+                    try {
+                        pts.add(new double[]{Double.parseDouble(parts[0]), Double.parseDouble(parts[1])});
+                        names.add(parts.length >= 3 ? parts[2] : "");
+                    } catch (NumberFormatException ignore) { }
+                }
+            }
+            if (pts.size() < 2) return "";
+            // markers：共用一个 mid 前缀，第一个点带字母标记，其余只给坐标（高德静态图要求）
+            StringBuilder markers = new StringBuilder("mid,,A:");
+            for (int i = 0; i < pts.size(); i++) {
+                if (i > 0) markers.append(";");
+                markers.append(pts.get(i)[0]).append(",").append(pts.get(i)[1]);
+            }
+            // path：按行程顺序连线（红色实线，格式与实测成功样例一致）
+            StringBuilder path = new StringBuilder("3,0x0000ff,1,,:");
+            for (int i = 0; i < pts.size(); i++) {
+                if (i > 0) path.append(";");
+                path.append(pts.get(i)[0]).append(",").append(pts.get(i)[1]);
+            }
+            // zoom：按所有点跨度估算（城市内11~12，跨城8~9）
+            double minLon = pts.stream().mapToDouble(p -> p[0]).min().orElse(0);
+            double maxLon = pts.stream().mapToDouble(p -> p[0]).max().orElse(0);
+            double minLat = pts.stream().mapToDouble(p -> p[1]).min().orElse(0);
+            double maxLat = pts.stream().mapToDouble(p -> p[1]).max().orElse(0);
+            double span = Math.max(maxLon - minLon, maxLat - minLat);
+            int zoom = span < 0.15 ? 13 : span < 0.4 ? 12 : span < 0.8 ? 11 : span < 2 ? 9 : 7;
+            String qs = "markers=" + URLEncoder.encode(markers.toString(), "UTF-8")
+                    + "&path=" + URLEncoder.encode(path.toString(), "UTF-8")
+                    + "&zoom=" + zoom + "&size=800*500&key=" + key;
+            return "/api/amap/static-map?" + qs;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** 代理：把高德静态地图图片字节流回给前端（key 只在后端） */
+    @GetMapping("/static-map")
+    public org.springframework.http.ResponseEntity<byte[]> staticMap(
+            @RequestParam String markers, @RequestParam String path,
+            @RequestParam(defaultValue = "11") int zoom) {
+        try {
+            String key = System.getenv().getOrDefault("AMAP_KEY", "");
+            String url = "https://restapi.amap.com/v3/staticmap?markers="
+                    + URLEncoder.encode(markers, "UTF-8")
+                    + "&path=" + URLEncoder.encode(path, "UTF-8")
+                    + "&zoom=" + zoom + "&size=800*500&key=" + key;
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(15000);
+            byte[] img = c.getInputStream().readAllBytes();
+            return org.springframework.http.ResponseEntity.ok()
+                    .header("Content-Type", "image/png")
+                    .header("Cache-Control", "max-age=3600")
+                    .body(img);
+        } catch (Exception e) {
+            return org.springframework.http.ResponseEntity.status(502).build();
+        }
+    }
+
+    /** 地名→坐标+POI ID（复用高德 place/text），失败返回 null；350ms 间隔防超QPS */
+    private String[] geocode(String key, String name, String city) {
         try {
             String qs = "keywords=" + URLEncoder.encode(name, "UTF-8")
                     + "&output=json&key=" + key + "&offset=1&extensions=base";
@@ -147,7 +239,8 @@ public class PersonalMapController {
             String[] parts = loc.split(",");
             Thread.sleep(350); // QPS 3 限速
             if (parts.length < 2) return null;
-            return new double[]{Double.parseDouble(parts[0]), Double.parseDouble(parts[1])};
+            String poiId = poi.path("id").asText("");
+            return new String[]{parts[0], parts[1], poiId};
         } catch (Exception e) {
             return null;
         }
