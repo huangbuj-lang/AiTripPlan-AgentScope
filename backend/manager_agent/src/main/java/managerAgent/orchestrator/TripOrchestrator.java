@@ -391,6 +391,8 @@ public class TripOrchestrator {
                 + "sections 按「每日行程(timeline)/交通(transport)/住宿餐饮(stay)/实用信息(tips)」组织，"
                 + "每天的行程放在一个 type=timeline 的 section 里，title 用「第N天」。"
                 + "内容必须具体（真实景点名/价格/餐厅酒店名）。除 JSON 外不要输出任何文字。"
+                + "★place硬规则：timeline 的 items 中 place 字段只填地点名称（如「星海广场」），括号内门牌号/地铁口/道路名等地址信息一律放 note 字段，禁止把地址当地名。\n"
+                + "★sections 必须包含住宿餐饮(stay)区块（含酒店/餐厅推荐），不得省略。\n"
                 + buildStyleHint(style);
         String userPrompt = "用户需求：" + req.getRaw()
                 + buildPreferencePrompt(req)  // ★预检偏好约束（步行/作息/博物馆占比）
@@ -455,6 +457,9 @@ public class TripOrchestrator {
             boolean hasTimeline = plan.getSections().stream()
                     .anyMatch(s -> "timeline".equals(s.getType()) && s.getItems() != null && !s.getItems().isEmpty());
             if (!hasTimeline) gaps.add("缺少每日行程timeline区块");
+            boolean hasStay = plan.getSections().stream()
+                    .anyMatch(s -> "stay".equals(s.getType()) && s.getItems() != null && !s.getItems().isEmpty());
+            if (!hasStay) gaps.add("缺少住宿餐饮(stay)区块");
         }
         if (plan.getTitle() == null || plan.getTitle().isBlank()) gaps.add("标题");
         if (plan.getDestination() == null || plan.getDestination().isBlank()) gaps.add("目的地");
