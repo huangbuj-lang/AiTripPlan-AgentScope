@@ -94,8 +94,11 @@ def build(table, out_table, rules, use_rating=False):
         UNIQUE KEY uk_name_city (name, city)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", fetch=False)
     base_cols = "src_id,name,city,types,rating,label,level,cost"
+    # ★质量固化：label 仅当库内为空/'其他'时才接受规则新值——已精标(LLM二次分类)的不回退，
+    #   保证"更新数据"按钮重跑管线不会把精标打回规则标签
     update_cols = ("src_id=VALUES(src_id), types=VALUES(types), rating=VALUES(rating), "
-                   "label=VALUES(label), level=VALUES(level), cost=VALUES(cost)")
+                   "label=IF(label IS NULL OR label='' OR label='其他', VALUES(label), label), "
+                   "level=VALUES(level), cost=VALUES(cost)")
     for i in range(0, len(inserts), 200):
         sql(f"INSERT INTO {out_table} ({base_cols}) VALUES " + ",".join(inserts[i:i+200]) +
             f" ON DUPLICATE KEY UPDATE {update_cols}", fetch=False)
