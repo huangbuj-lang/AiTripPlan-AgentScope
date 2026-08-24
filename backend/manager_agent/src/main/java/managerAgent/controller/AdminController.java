@@ -135,7 +135,7 @@ public class AdminController {
         return r;
     }
 
-    /** 保存模型配置：写 .env + Java 热更 + 重启子Agent/chat_server。主模型/备用模型均为"任一字段非空即保存该组" */
+    /** 保存模型配置：写 .env + Java 热更 + 重启子Agent。主模型/备用模型均为"任一字段非空即保存该组" */
     @PostMapping("/model-config")
     public Map<String, Object> saveModelConfig(@RequestParam(required = false) String javaUrl,
                                                @RequestParam(required = false) String javaKey,
@@ -181,10 +181,9 @@ public class AdminController {
             }
             if (pyUrl != null && !pyUrl.isBlank() || pyKey != null && !pyKey.isBlank()
                     || pyName != null && !pyName.isBlank()) {
-                // Python 侧：写统一配置文件 llm_config.json + 重启 chat_server
+                // Python 侧：写统一配置文件 llm_config.json
                 savePyLlmConfig(pyUrl, pyKey, pyName);
-                restartChatServer();
-                note.append("Python侧已更新并重启客服服务；");
+                note.append("Python侧已更新；");
             }
             r.put("success", true);
             r.put("message", note.length() == 0 ? "没有需要保存的修改" : note.toString());
@@ -270,34 +269,6 @@ public class AdminController {
                 .writerWithDefaultPrettyPrinter().writeValue(pyConfigFile(), cur);
     }
 
-    /** 重启 chat_server（8090）：taskkill python? 不——只杀监听8090的进程再由 start 脚本拉起 */
-    private void restartChatServer() {
-        try {
-            java.io.File script = new java.io.File(System.getProperty("user.dir"),
-                    "../../start-chat.sh");
-            boolean useSh = script.exists();
-            ProcessBuilder pb;
-            if (useSh) {
-                pb = new ProcessBuilder("bash", script.getCanonicalPath(), "restart");
-            } else {
-                // 无脚本则直接杀掉8090进程，由用户下次手动启动。
-                // ★用 PowerShell 查端口进程（git-bash 环境无 netstat/taskkill，原写法静默失败杀不掉）
-                boolean isWin = System.getProperty("os.name", "").toLowerCase().contains("win");
-                if (isWin) {
-                    String ps = "Get-NetTCPConnection -LocalPort 8090 -State Listen -ErrorAction SilentlyContinue "
-                            + "| Select-Object -ExpandProperty OwningProcess -Unique "
-                            + "| ForEach-Object { Stop-Process -Id $_ -Force }";
-                    pb = new ProcessBuilder("powershell", "-NoProfile", "-Command", ps);
-                } else {
-                    pb = new ProcessBuilder("bash", "-c",
-                            "fuser -k 8090/tcp 2>/dev/null || pkill -f 'chat_server.py' || true");
-                }
-            }
-            pb.redirectErrorStream(true);
-            pb.redirectOutput(java.io.File.createTempFile("atp_chat_restart_", ".log"));
-            pb.start(); // 异步执行，不阻塞接口
-        } catch (Exception ignored) { }
-    }
 
     @GetMapping("/breaker")
     public Map<String, Object> breaker() {
