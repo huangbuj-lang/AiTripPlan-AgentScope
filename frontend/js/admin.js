@@ -510,6 +510,7 @@ function renderProfilesCloud(kw) {
     kw = (kw || '').trim().toLowerCase();
     const list = kw ? rows.filter(r => r.some(cell => String(cell).toLowerCase().includes(kw))) : rows;
     if (!list.length) { bodyEl.innerHTML = '<div class="empty">无匹配数据</div>'; return; }
+    bodyEl.innerHTML = ''; // 清空容器（去掉"加载中..."残留，防止搜索重复追加）
     // 标签类别→配色（常去/偏好/风格/其他）
     const CAT_STYLE = {
         '常去': ['rgba(45,212,191,.15)', '#2dd4bf'],
@@ -517,11 +518,11 @@ function renderProfilesCloud(kw) {
         '风格': ['rgba(168,85,247,.15)', '#a855f7']
     };
     list.forEach(r => {
-        const uname = String(r[0]);
-        const uid = esc(String(r[1]));
+        const uname = String(r[1]);
+        const uid = esc(String(r[2]));
         let html = '<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:600;color:#e2e8f0;margin-bottom:6px">👤 ' + esc(uname === '-' ? '用户 #' + uid : uname) + ' <span style="color:#64748b;font-weight:400">#' + uid + '</span></div>';
         try {
-            const tags = JSON.parse(r[1]);
+            const tags = JSON.parse(r[3]);
             const entries = Object.entries(tags).sort((a, b) => b[1] - a[1]);
             const maxV = entries.length ? entries[0][1] : 1;
             let cloud = '<div style="display:flex;flex-wrap:wrap;gap:6px">';
@@ -536,8 +537,8 @@ function renderProfilesCloud(kw) {
             });
             cloud += '</div>';
             html += cloud;
-        } catch (e) { html += '<span style="color:#94a3b8">' + esc(String(r[1])) + '</span>'; }
-        html += '<div style="font-size:11px;color:#64748b;margin-top:4px;white-space:nowrap">更新时间 ' + esc(String(r[3])) + '</div></div>';
+        } catch (e) { html += '<span style="color:#94a3b8">' + esc(String(r[3])) + '</span>'; }
+        html += '<div style="font-size:11px;color:#64748b;margin-top:4px;white-space:nowrap">更新时间 ' + esc(String(r[4])) + '</div></div>';
         bodyEl.insertAdjacentHTML('beforeend', html);
     });
 }
