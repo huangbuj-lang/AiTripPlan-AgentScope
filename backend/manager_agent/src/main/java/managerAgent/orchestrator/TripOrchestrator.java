@@ -27,10 +27,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-/**
- * 确定性编排器（阶段三核心）：把「自由 ReAct」替换为「解析 → 并行 DAG → 聚合」。
- * 端到端传结构化 JSON（TripRequest / TripPlanData），LLM 只负责内容生成，流程由 Java 确定。
- */
+/** 确定性编排器：解析 → 并行 DAG → 聚合，流程由 Java 确定，LLM 只负责内容生成。 */
 @Slf4j
 public class TripOrchestrator {
 
@@ -81,10 +78,7 @@ public class TripOrchestrator {
         return plan;
     }
 
-    /**
-     * 多方案编排（功能4 MVP）：解析 + 并行 DAG 与单方案共享，聚合阶段产出 3 套差异化方案
-     * （美食向 / 出片向 / 省钱向），供前端左右对比、选中后细化。
-     */
+    /** 多方案编排：并行聚合出美食向/出片向/省钱向 3 套方案供前端对比。 */
     public PlanSet runMultiScheme(String userPrompt) {
         ReqAndData rd = resolveAndFetch(userPrompt, null);
         EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
@@ -106,7 +100,6 @@ public class TripOrchestrator {
         // ① 需求解析（单次结构化 LLM 调用）
         EventStore.add(sessionId, "解析", "正在解析旅行需求...");
         TripRequest req = parseRequest(userPrompt);
-        // ★P0：个人中心沉淀偏好注入（与用户文本偏好同路，routeTask/planTask 会拼进偏好串）
         if (prefs != null && !prefs.isEmpty()) {
             req.setPreferences(prefs);
         }
@@ -115,23 +108,18 @@ public class TripOrchestrator {
                 + buildPreferenceLabel(req));
         checkCancel();
 
-        // ★偏好分流：主管用 LLM 把用户文本偏好 分类成 行程/路线/聚合 三类，后续传给对应子Agent综合工具
-        // ★个人中心沉淀偏好并入：与用户文本同路，主管LLM统一分类
+        // ② 偏好分流：LLM 把文本+个人中心偏好分为行程/路线/聚合三类
         boolean hasTextPref = req.getPreference() != null && !req.getPreference().isBlank();
         boolean hasStoredPref = req.getPreferences() != null && !req.getPreferences().isEmpty();
         if (hasTextPref || hasStoredPref) {
             classifyPreference(req);
         }
-        // ★确定性编排分支：
-        //   跨城自驾(成都→重庆): 先路线(途经点)→行程(查沿途景点)
-        //   市内游(成都3日 / 无起点): 先行程(景点清单)→路线(查这些景点衔接)
-        //   两者方向相反,但都"先定空间/内容,再让另一个跟着对齐"
+        // ③ 编排分支：跨城=先路线(途经点)再行程；市内=先行程(景点)再路线
         boolean crossCity = req.getOrigin() != null && !req.getOrigin().isBlank()
                 && req.getDestination() != null && !req.getDestination().isBlank()
                 && !req.getOrigin().trim().equals(req.getDestination().trim());
         boolean cityTour = !crossCity;  // 单城 / 起点=终点 / 无起点 → 市内
         if (crossCity) {
-            // 跨城: 路线先行
             EventStore.add(sessionId, "路线", "跨城自驾，先规划路线提取途经城市...");
             String routeResult = await(PARALLEL_POOL.submit(() ->
                     remoteTool.callRouteMakingAgent(routeTask(req, ""))), "路线Agent");
@@ -142,15 +130,11 @@ public class TripOrchestrator {
             checkCancel();
             return new ReqAndData(req, routeResult, planResult);
         }
-        // 市内: 行程先行 → 提取景点 → 路线按景点查衔接
         EventStore.add(sessionId, "行程", "市内游，先规划行程提取景点清单...");
-        // ① 行程Agent先跑：输出景点行程
         String planFirst = await(PARALLEL_POOL.submit(() ->
                 remoteTool.callTripPlannerAgent(planTask(req, ""))), "行程Agent");
         checkCancel();
-        // ② 从行程文本提取景点名
         String sights = extractSights(planFirst, req.getDestination());
-        // ③ 路线Agent针对"已定景点"查衔接（防止路线查了自己猜的景点/与行程对不上）
         String routeResult2 = await(PARALLEL_POOL.submit(() ->
                 remoteTool.callRouteMakingAgent(routeTask(req, sights))), "路线Agent");
         checkCancel();
@@ -213,18 +197,17 @@ public class TripOrchestrator {
 
     /** 偏好标签（事件流展示用，如「步行≤1万米 · 早起 · 博物馆多」） */
     private String buildPreferenceLabel(TripRequest req) {
-        return ""; // ★选项卡已删：步行/作息/博物馆偏好不再来自前端，仅用户输入+个人中心
+        return ""; // 前端选项卡已删，偏好仅来自用户输入+个人中心
     }
 
     /** 偏好约束（聚合 prompt 用，引导模型按偏好安排行程节奏） */
     private String buildPreferencePrompt(TripRequest req) {
-        return ""; // ★选项卡已删：预检偏好约束不再拼入聚合提示词
+        return ""; // 预检约束不再拼入聚合提示词
     }
 
     // ==================== ② 并行 DAG ====================
 
     private String routeTask(TripRequest req, String sightList) {
-        // ★路线偏好 = 主管LLM分类出的 routePref（用户文本+个人中心，主管统一分类）
         java.util.List<String> routePrefs = new java.util.ArrayList<>();
         if (req.getRoutePref() != null && !req.getRoutePref().isBlank()) routePrefs.add(req.getRoutePref().trim());
         String routePrefStr = routePrefs.isEmpty() ? "" : String.join(" ", routePrefs);
@@ -258,12 +241,12 @@ public class TripOrchestrator {
     }
 
     private String planTask(TripRequest req, String waypoints) {
-        // ★行程偏好 = 主管LLM分类出的 tripPref（用户文本+个人中心，主管统一分类）
+        // 行程偏好：LLM 分类出的 tripPref
         java.util.List<String> tripPrefs = new java.util.ArrayList<>();
         if (req.getTripPref() != null && !req.getTripPref().isBlank()) tripPrefs.add(req.getTripPref().trim());
         String prefStr = tripPrefs.isEmpty() ? "" : String.join(" ", tripPrefs);
         if (waypoints != null && !waypoints.isBlank()) {
-            // ★跨城自驾：查沿途途经城市景点，不查两端城市
+            // 跨城自驾：查沿途城市景点
             return "请规划从 " + req.getOrigin() + " 到 " + req.getDestination() + " 的" + req.getDays() + "天自驾行程，"
                     + "重点规划【路途沿途】的景点。\n"
                     + "★调用 query_trip 时，把途经城市传 waypoints 参数（逗号分隔）：" + waypoints + "，"
@@ -278,11 +261,7 @@ public class TripOrchestrator {
                 + "让固定链按偏好查询更贴合的数据(如'亲子景点'/'美食餐厅')，不要忽略偏好查通用清单。";
     }
 
-    /**
-     * 从路线Agent返回文本中提取途经城市名（如成都→重庆途中出现"大足"）。
-     * 启发式：抓带市/区/县/镇/州后缀的地名（2-6字），排除起点终点城市，最多取5个。
-     * 提取失败返回空串（调用方降级为单城景点），不阻塞主流程。
-     */
+    /** 从路线结果提取途经城市名（带市/区/县后缀，排除起终点，最多5个）。 */
     private String extractWaypoints(String routeResult) {
         if (routeResult == null || routeResult.isBlank()) return "";
         java.util.Set<String> seen = new java.util.LinkedHashSet<>();
@@ -297,11 +276,7 @@ public class TripOrchestrator {
         return String.join(",", seen);
     }
 
-    /**
-     * 从行程Agent返回文本中提取景点名。
-     * 启发式：行程Agent输出里景点通常带"地名+景区/园/宫/街/馆/湾/山/塔/桥/洞/观景台"等常见景点后缀，
-     * 抓取2-8字提及较多的片段。最多取8个，不足则返回空串（调用方降级为路线自己选景点）。
-     */
+    /** 从行程结果提取景点名（带景区/园/馆等后缀，最多5个）。 */
     private String extractSights(String planResult, String dest) {
         if (planResult == null || planResult.isBlank()) return "";
         java.util.Set<String> seen = new java.util.LinkedHashSet<>();
@@ -316,20 +291,14 @@ public class TripOrchestrator {
         return String.join(",", seen);
     }
 
-    /**
-     * ★主管偏好分类：用 1 次裸 LLM 把用户文本偏好分类到三个目标之一：
-     *   tripPref  → 行程Agent（亲子/美食/小众/博物馆）→ 传 query_trip 的 preference
-     *   routePref → 路线Agent（公交/骑行/步行/不走高速）→ 传 query_route_unified
-     *   aggPref   → 聚合编排（周末/悠闲/性价比），不传工具
-     * 只输出 JSON，字段名固定。解析失败则保守：全部留给聚合。
-     */
+    /** 偏好分类：1次LLM把偏好分为行程(tripPref)/路线(routePref)/聚合(aggPref)三类。 */
     private void classifyPreference(TripRequest req) {
         String sys = "你是旅行偏好分类器。把用户偏好分类到三个字段，只输出一个 JSON 对象，字段名固定：\n"
                 + "{\"tripPref\":\"适合行程Agent的偏好(与景点美食住宿相关，如亲子/美食/小众/博物馆)；无则空\",\n"
                 + "\"routePref\":\"适合路线Agent的偏好(与出行方式道路相关，如公交/骑行/步行/不走高速)；无则空\",\n"
                 + "\"aggPref\":\"不适合二者、只影响整体编排的偏好(如放松休闲/性价比紧凑/节假日)；无则空\"}\n"
                 + "只输出 JSON 不要多余文字。";
-        // ★个人中心沉淀偏好并入分类输入：由主管LLM统一分类后按类传参
+        // 个人中心偏好并入分类输入
         String prefInput = req.getPreference();
         if (req.getPreferences() != null && !req.getPreferences().isEmpty()) {
             prefInput = (prefInput == null || prefInput.isBlank() ? "" : prefInput + "；")
@@ -395,12 +364,12 @@ public class TripOrchestrator {
                 + "★sections 必须包含住宿餐饮(stay)区块（含酒店/餐厅推荐），不得省略。\n"
                 + buildStyleHint(style);
         String userPrompt = "用户需求：" + req.getRaw()
-                + buildPreferencePrompt(req)  // ★预检偏好约束（步行/作息/博物馆占比）
+                + buildPreferencePrompt(req)  // 偏好约束
                 + "\n\n【路线数据】\n" + clip(routeResult) + "\n\n【行程数据】\n" + clip(planResult);
         String text = callModelJson(sysPrompt, userPrompt);
         TripPlanData plan = JsonUtils.extractAndParse(text, TripPlanData.class);
         if (plan == null) {
-            // ★增量修正：首次整段解析失败时，不整段回灌原文，只带精简概览+修改指示重试一次
+            // 首次解析失败：带精简概览+修改指示重试一次（不整段回灌）
             String fix = "你是行程聚合器。上次结构化 JSON 解析失败。请基于【用户需求】与【数据概要】只输出一份合法 JSON 行程（字段同前），重点是 sections 每天 timeline。数据较大已截断，可省次要 detail，保留每天真实安排。\n"
                     + "【用户需求】" + req.getRaw() + "\n"
                     + "【路线数据概要】\n" + clip(routeResult, 800) + "\n"
@@ -411,8 +380,7 @@ public class TripOrchestrator {
         if (plan == null) {
             return null;
         }
-        // ★聚合评分（代码判断，不调LLM）：检查最终产物是否缺关键内容
-        //   缺字段 → 聚合Agent重试1次（带缺失提示，不重跑子Agent）→ 仍缺 → 返回null由外层兜底
+        // 聚合评分（纯代码）：缺关键内容→带缺失提示重试1次→仍缺返回null外层兜底
         String missing = aggregateGap(plan);
         if (!missing.isBlank()) {
             EventStore.add(sessionId, "整合", "聚合结果缺失(" + missing + ")，聚合Agent重试1次...");
@@ -426,7 +394,7 @@ public class TripOrchestrator {
             if (retry != null && aggregateGap(retry).isBlank()) {
                 plan = retry; // 重试补齐成功
             } else {
-                // 仍缺失 → 返回null，外层 fallbackPlan 兜底（降级markdown）
+                // 仍缺失 → 返回null，外层降级markdown兜底
                 EventStore.add(sessionId, "整合", "聚合重试后仍缺失，降级为原文兜底");
                 return null;
             }
@@ -443,11 +411,7 @@ public class TripOrchestrator {
         return plan;
     }
 
-    /**
-     * 聚合评分（纯代码）：判断结构化行程是否缺失关键内容。
-     * 检查：sections 非空 + 至少一个 timeline(每日行程) 区块 + 标题/目的地非空。
-     * 返回缺失项描述（空串=合格）；不调LLM，只做结构化字段检查。
-     */
+    /** 聚合评分：检查结构化行程缺失项（空串=合格），纯代码不调LLM。 */
     private String aggregateGap(TripPlanData plan) {
         if (plan == null) return "整体为空";
         java.util.List<String> gaps = new java.util.ArrayList<>();
@@ -541,7 +505,7 @@ public class TripOrchestrator {
 
     /** 请求 JSON 输出的单次裸 LLM 调用 */
     private String callModelJson(String sysPrompt, String userPrompt) {
-        // ★统一出口：所有裸 LLM 调用走 LlmClient（改模型只动一处）
+        // 所有裸 LLM 调用统一走 LlmClient
         return utils.LlmClient.chatJson(sysPrompt, userPrompt);
     }
 

@@ -110,7 +110,7 @@ public class AdminController {
     // ==================== 模型监控 ====================
 
     /** 熔断器状态 / 失败计数 / 主备模型 / 限速 QPS */
-    // ==================== ★模型配置热更（Java侧/Python侧两组） ====================
+    // ==================== 模型配置热更 ====================
 
     /** 读当前模型配置（key 打码显示；含主模型/备用模型/Python侧三组） */
     @GetMapping("/model-config")
@@ -121,7 +121,6 @@ public class AdminController {
                 "url", utils.ModelConfigHolder.baseUrl(),
                 "name", utils.ModelConfigHolder.modelName(),
                 "keyMasked", maskKey(jk)));
-        // ★备用模型组（熔断降级用，OpenAI 兼容接口）
         String fk = utils.ModelConfigHolder.fbApiKey();
         r.put("fallback", Map.of(
                 "url", utils.ModelConfigHolder.fbBaseUrl(),
@@ -153,13 +152,13 @@ public class AdminController {
                     || (javaKey != null && !javaKey.isBlank())
                     || (javaName != null && !javaName.isBlank());
             if (javaChanged) {
-                // Java 侧：热更内存配置 + 写 .env（重启后仍生效）。任一字段非空即整组处理，空字段保持原值
+                // 主模型组：任一字段非空即保存，空字段保持原值
                 utils.ModelConfigHolder.update(javaUrl, javaKey, javaName);
                 if (javaUrl != null && !javaUrl.isBlank()) upsertEnv("MODEL_BASE_URL", javaUrl);
                 if (javaKey != null && !javaKey.isBlank()) upsertEnv("MODEL_API_KEY", javaKey);
                 if (javaName != null && !javaName.isBlank()) upsertEnv("MODEL_NAME", javaName);
                 managerAgent.tool.LlmClientReset.reset(); // 下次构建模型用新配置
-                // ★子Agent(8082/8085)是独立JVM，模型配置启动时固化——写完.env后异步重启它们才用新模型
+                // 子Agent是独立JVM，写完.env后须重启才生效
                 java.lang.Thread t2 = new Thread(() -> {
                     try { Thread.sleep(800); } catch (Exception ignore) {}
                     restartSubAgents();
@@ -168,7 +167,7 @@ public class AdminController {
                 t2.start();
                 note.append("Java侧已热更；子Agent正在重启以加载新模型；");
             }
-            // ★备用模型组：任一字段非空即热更 + 写 .env（子Agent重启同样加载）
+            // 备用模型组：任一字段非空即保存 + 写.env
             boolean fbChanged = (fbUrl != null && !fbUrl.isBlank())
                     || (fbKey != null && !fbKey.isBlank())
                     || (fbName != null && !fbName.isBlank());
@@ -200,22 +199,34 @@ public class AdminController {
     }
 
     /** 写/更新 .env 中的键（保持其他行不变） */
-/**
-     * ★重启全部本地服务(含子Agent 8082/8085)：独立JVM进程的模型配置在启动时固化，
-     * 管理端热更只影响主管进程——统一调 start-local.sh stop+start 让全链路换模型。
-     */
+    /** 重启子Agent(独立JVM配置启动时固化)：调 restart-agents.sh 让全链路换模型。 */
     private synchronized void restartSubAgents() {
         try {
             String base = System.getProperty("user.dir");
-            ProcessBuilder stop = new ProcessBuilder("bash", "start-local.sh", "stop");
-            stop.directory(new java.io.File(base));
-            stop.redirectErrorStream(true);
-            stop.start().waitFor();
-            ProcessBuilder start = new ProcessBuilder("bash", "start-local.sh");
-            start.directory(new java.io.File(base));
-            start.redirectErrorStream(true);
-            start.start().waitFor();
-            log.info("全服务已重启(子Agent加载新模型配置)");
+            java.io.File script = new java.io.File(base, "restart-agents.sh");
+            if (!script.exists()) {
+                String configured = utils.Config.get("RESTART_AGENTS_SCRIPT", "");
+                if (!configured.isBlank()) script = new java.io.File(configured);
+            }
+            if (!script.exists()) {
+                log.warn("找不到 restart-agents.sh，子Agent未重启；请配置 RESTART_AGENTS_SCRIPT");
+                return;
+            }
+            ProcessBuilder restart = new ProcessBuilder("bash", script.getCanonicalPath());
+            restart.directory(script.getParentFile());
+            restart.redirectErrorStream(true);
+            restart.redirectOutput(java.lang.ProcessBuilder.Redirect.appendTo(
+                    new java.io.File(script.getParentFile(), "logs/restart-agents.log")));
+            Process process = restart.start();
+            boolean done = process.waitFor(220, java.util.concurrent.TimeUnit.SECONDS);
+            if (done && process.exitValue() == 0) {
+                log.info("子Agent已单独重启并加载新模型配置；主管保持运行");
+            } else if (!done) {
+                process.destroyForcibly();
+                log.warn("子Agent重启超时，已终止重启脚本");
+            } else {
+                log.warn("子Agent重启脚本退出码 {}: 请查看 logs/restart-agents.log", process.exitValue());
+            }
         } catch (Exception e) {
             log.warn("重启子Agent异常: {}", e.getMessage());
         }
@@ -307,7 +318,7 @@ public class AdminController {
         jdbcTemplate.update("DELETE FROM posts WHERE user_id = ?", id);
         jdbcTemplate.update("DELETE FROM post_likes WHERE user_id = ?", id);
         jdbcTemplate.update("DELETE FROM user_preferences WHERE user_id = ?", id);
-        jdbcTemplate.update("DELETE FROM user_profiles_tags WHERE user_id = ?", id); // ★画像标签同步清理，防孤儿数据残留弹窗
+        jdbcTemplate.update("DELETE FROM user_profiles_tags WHERE user_id = ?", id); // 同步清理画像标签
         int rows = jdbcTemplate.update("DELETE FROM users WHERE id = ?", id);
         Map<String, Object> r = new HashMap<>();
         r.put("success", rows > 0);
@@ -322,7 +333,7 @@ public class AdminController {
                 "SELECT p.id, p.user_id, u.username, p.city, p.days, " +
                         "LEFT(p.plan_content, 200) AS preview, p.create_time " +
                         "FROM trip_plans p LEFT JOIN users u ON p.user_id = u.id ORDER BY p.id DESC");
-        // ★城市归一化：用户输入("成都三日")→标准城市名("成都")，前缀最长匹配 attractions 城市库
+        // 城市归一化："成都三日"→"成都"，匹配标准城市库
         java.util.List<String> stdCities = jdbcTemplate.queryForList(
                 "SELECT DISTINCT city FROM attractions WHERE city IS NOT NULL AND city != ''", String.class);
         for (Map<String, Object> pl : plans) {
@@ -468,7 +479,7 @@ public class AdminController {
         r.put("message", "公告已发布并推送给 " + userIds.size() + " 位用户");
         return r;
     }
-// ==================== 数据中心（数据管线可视化，独立新增） ====================
+// ==================== 数据中心 ====================
 
     /** 表存在性容错查询：表不存在返回空列表 */
     private java.util.List<Map<String, Object>> qRowsSafe(String sql) {
@@ -480,8 +491,7 @@ public class AdminController {
     }
 
     /**
-     * ★数据统计明细：点击管理端统计卡片后查看具体数据。
-     * type=attractions/foods/hotels/cities/profiles
+     * 数据统计明细（type=attractions/foods/hotels/cities/profiles）。
      * 返回 {success, title, columns:[...], rows:[[...],...]}，前端弹窗渲染表格。
      */
     @GetMapping("/data-detail")
@@ -542,12 +552,11 @@ public class AdminController {
             }
             r.put("success", true);
             r.put("title", title);
-            // columns 顺序与 SELECT 顺序一致：重新按 columns 长度对齐（row.keySet() 无序风险 → 直接用 values() 的原始顺序不可靠）
-            // 为稳妥起见这里直接把行转成对象数组交给前端按 key 显示
+            // 行转对象数组，前端按 key 显示（keySet 无序不可靠）
             List<List<Object>> aligned = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 List<Object> line = new ArrayList<>();
-                // ★首格=隐藏主键id（前端编辑用），columns 展示时跳过
+                // 首格=主键id（前端编辑用），columns 展示时跳过
                 line.add(row.get("id") == null ? "-" : row.get("id").toString());
                 for (String col : columns) {
                     Object v = row.get(colKey(type, col));
@@ -556,13 +565,13 @@ public class AdminController {
                 aligned.add(line);
             }
             r.put("columns", columns);
-            // ★画像明细特殊处理：标签JSON解析为"标签×次数"顿号串（不显示原始JSON），时间只留秒级
+            // 画像明细：标签JSON转"标签×次数"串，时间只留秒级
             if ("profiles".equals(type)) {
                 List<List<Object>> pretty = new ArrayList<>();
                 for (List<Object> line : aligned) {
                     List<Object> out = new ArrayList<>(line); // [用户名, 用户ID, tagsJSON, updatedAt]
                     if (out.size() >= 4) {
-                        // tags 保留原始JSON（前端标签云按类别着色+权重渲染），只去掉时间毫秒
+                        // tags 保留原始JSON（前端标签云渲染），只去掉时间毫秒
                         out.set(3, String.valueOf(out.get(3)).replaceAll("\\.\\d+$", ""));
                     }
                     pretty.add(out);
@@ -602,9 +611,8 @@ public class AdminController {
     }
 
     /**
-     * ★手动编辑数据统计明细（景点/美食/酒店）：管理员修正爬取数据
-     * type=attractions/foods/hotels，field=name/city/rating/cost/address
-     * 注意：cost 字段写入特征表（定价读特征表），其余写主表
+     * 手动编辑数据明细（景点/美食/酒店）。
+     * type=attractions/foods/hotels，field=name/city/rating/cost/address；cost 写特征表，其余写主表。
      */
     @PostMapping("/data-detail/edit")
     public Map<String, Object> editDataDetail(@RequestParam String type, @RequestParam Long id,
@@ -649,13 +657,13 @@ public class AdminController {
         return type.equals("attractions") ? "attractions" : type.equals("foods") ? "foods" : "hotels";
     }
 
-    /** 动态定价专用刷新：只跑 pricing.py（秒级），不碰采集管线，手改数据不会被覆盖 */
+    /** 定价专用刷新：只跑 pricing.py（秒级），不碰采集管线 */
     @PostMapping("/pricing/run")
     public Map<String, Object> runPricing() {
         Map<String, Object> r = new HashMap<>();
         try {
             String projectDir = System.getProperty("user.dir");
-            // ★多候选路径：user.dir 可能是项目根或 backend/manager_agent，都试
+            // user.dir 可能是项目根或 backend/manager_agent，多候选路径都试
             java.io.File script = null;
             for (String rel : new String[]{"data-pipeline/pricing.py", "../../data-pipeline/pricing.py"}) {
                 java.io.File f = new java.io.File(projectDir, rel);
@@ -729,7 +737,7 @@ public class AdminController {
         r.put("success", true);
         return r;
     }
-/** 数据管线一键更新（异步执行 python3 data-pipeline/update_all.py，立即返回任务ID） */
+    /** 数据管线一键更新（异步执行 update_all.py，立即返回任务ID） */
     private final java.util.Map<String, String> PIPELINE_JOBS = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ExecutorService PIPELINE_POOL = java.util.concurrent.Executors.newSingleThreadExecutor();
     private volatile Process PIPELINE_PROC; // 当前更新子进程

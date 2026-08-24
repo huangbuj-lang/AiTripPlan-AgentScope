@@ -72,16 +72,16 @@ public class AppController {
         TASK_POOL.submit(() -> { // 异步执行任务
             try {
                 TripOrchestrator orchestrator = new TripOrchestrator(sessionId); // 确定性编排器（会话隔离）
-                // ★用户画像注入：与用户输入放一起（登录且有画像时），其余链路不动
+                // 用户画像注入：与用户输入放一起
                 String profileLine = (userIdObj != null && !skipPrefs)
                         ? loadProfileTags(((Number) userIdObj).longValue()) : "";
                 String finalPrompt = profileLine + prompt;
-                if ("true".equalsIgnoreCase(multiScheme)) { // ★多方案模式：生成3套差异化方案
+                if ("true".equalsIgnoreCase(multiScheme)) { // 多方案模式
                     dto.PlanSet planSet = orchestrator.runMultiScheme(finalPrompt);
                     EventStore.setResult(sessionId, JsonUtils.toJson(planSet)); // 缓存多方案 JSON
                 } else {
                     TripPlanData plan;
-                    if (userIdObj != null && !skipPrefs) { // ★P0：注入个人中心沉淀偏好（未跳过且已登录时）
+                    if (userIdObj != null && !skipPrefs) { // 注入个人中心沉淀偏好
                         TripRequest.Preferences prefs = loadPreferences(((Number) userIdObj).longValue());
                         plan = orchestrator.run(finalPrompt, prefs);
                     } else {
@@ -215,7 +215,7 @@ public class AppController {
             return resp;
         }
     }
-/** ★P0：读取用户沉淀偏好（user_preferences 表 travel_style 等；关闭默认注入/无记录返回 null） */
+/** 读用户沉淀偏好（user_preferences 表；关闭默认注入或无记录返回 null） */
     private TripRequest.Preferences loadPreferences(long userId) {
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
@@ -240,7 +240,7 @@ public class AppController {
     }
 
     /**
-     * ★读用户画像标签（user_profiles_tags），拼成"【用户画像】..."行注入主管（与用户输入放一起）。
+ * 读用户画像标签，拼成"【用户画像】..."行注入主管。
      * 无画像/异常返回空串，不影响主流程。
      */
     private String loadProfileTags(Long userId) {

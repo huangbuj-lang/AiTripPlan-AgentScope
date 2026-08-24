@@ -8,7 +8,7 @@ import java.net.URLEncoder;
 import java.util.*;
 
 /**
- * ★专属地图：把生成的行程（每日地点序列）导入高德地图APP，生成"专属地图"唤端链接。
+ * 专属地图：把行程（每日地点序列）生成高德地图APP唤端链接。
  * 实现：前端传 {title, destination, days:[{title, places:[名称...]}]} →
  *       后端逐个 geocode 查坐标（复用高德 place/text，QPS 限速 350ms）→
  *       JSON-RPC 直调高德MCP maps_schema_personal_map → 返回 amapuri:// 链接。
@@ -61,8 +61,7 @@ public class PersonalMapController {
             }
             if (lineList.isEmpty()) { resp.put("error", "没有可定位的地点"); return resp; }
 
-            // ★同时生成浏览器可开的网页版路线链接（ditu.amap.com/ssr/dir 原生多途经点格式）
-            // 实测确认：vname/vlat/vlon/vid 四参数用 | 分隔可直传全部途经点（须带 vid POI ID，缺 vid 会被丢弃）
+            // 同时生成网页版路线链接（vname/vlat/vlon/vid 用|分隔，须带vid）
             try {
                 List<String> allPts = new ArrayList<>();
                 for (Map<String, Object> line : lineList) {
@@ -98,7 +97,7 @@ public class PersonalMapController {
                            .append("&vlon=").append(vo).append("&vid=").append(vi);
                     }
                     resp.put("webUrl", nav.toString());
-                    // ★补充：静态地图图片（全部景点标记+连线，部分旧浏览器/转发场景兜底）
+                    // 补充：静态地图图片兜底
                     resp.put("staticMapUrl", buildStaticMapUrl(allPts));
                 }
             } catch (Exception ignore) { }
@@ -148,7 +147,7 @@ public class PersonalMapController {
     }
 
     /**
-     * ★生成完整专属地图（网页可看）：高德静态地图 API（restapi.amap.com/v3/staticmap）。
+     * 生成静态专属地图：高德静态地图 API。
      * 全部景点 markers（A/B/C... 字母标记）+ 按行程顺序 path 连线。
      * 注意：ditu.amap.com 网页版 URL 不支持多途经点直传，故用静态地图图片展示全景点衔接。
      * 返回后端代理 URL（/api/amap/static-map），key 不暴露给前端。
@@ -176,7 +175,7 @@ public class PersonalMapController {
                 if (i > 0) markers.append(";");
                 markers.append(pts.get(i)[0]).append(",").append(pts.get(i)[1]);
             }
-            // path：按行程顺序连线（红色实线，格式与实测成功样例一致）
+            // path：按行程顺序连线
             StringBuilder path = new StringBuilder("3,0x0000ff,1,,:");
             for (int i = 0; i < pts.size(); i++) {
                 if (i > 0) path.append(";");

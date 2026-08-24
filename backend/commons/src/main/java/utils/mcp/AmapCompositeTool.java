@@ -6,17 +6,7 @@ import io.agentscope.core.tool.mcp.McpClientWrapper;
 
 import java.util.Map;
 
-/**
- * ★高德复合工具（方案1：把固定依赖链封装成高层工具，砍掉ReAct多余轮次）。
- *
- * 背景：旅游场景很多工具调用是"固定依赖链"，不需要大模型思考顺序——
- *   例：路线计算必须先"地名→坐标(geocode)"，拿到坐标才能调"路线规划(direction)"。
- * 若放手让模型ReAct自己走，会多轮思考"要不要先地理编码"，慢且易乱。
- *
- * ★本类把这些固定链路封装成高层复合工具：内部代码硬编码"先geocode→再调目标工具"，
- *   参数转换、空值校验、异常处理全在Java做。大模型只需传地名文本，不关心中间坐标。
- *   一次工具调用=内部自动完成整条依赖链，只消耗一次Agent轮次。
- */
+/** 高德复合工具：把「geocode→目标工具」固定依赖链封装成一次调用，省去ReAct多轮思考。 */
 public class AmapCompositeTool {
 
     private final McpClientWrapper mcp;
@@ -25,7 +15,7 @@ public class AmapCompositeTool {
         this.mcp = mcp;
     }
 
-    /** 通用MCP调用：tools/call → 返回文本。失败返回明确降级标记（不让模型拿模糊报错编造数据） */
+    /** 通用MCP调用：失败/错误文本返回明确降级标记，防模型编造。 */
         private String callMcp(String toolName, Map<String, Object> args) {
             try {
                 var result = mcp.callTool(toolName, args).block();
@@ -37,7 +27,7 @@ public class AmapCompositeTool {
                     }
                 });
                 String text = sb.length() == 0 ? String.valueOf(result) : sb.toString();
-                // ★降级标记：高德返回错误文本（QPS超限/引擎错误/字段错误）时，明确标注数据缺失，禁止编造
+                // 高德返回错误文本 → 标注数据缺失
                 if (text.contains("错误") || text.contains("error") || text.contains("Error")
                         || text.contains("超限") || text.contains("LIMIT") || text.contains("EXCEEDED")
                         || text.contains("未找到")) {
@@ -63,7 +53,7 @@ public class AmapCompositeTool {
         }
     }
 
-    // ============ ★复合工具1：路线（含地理编码依赖链） ============
+    // ============ 复合工具1：路线（含地理编码依赖链） ============
 
     /** 驾车/步行/骑行/公交 通用路线复合工具 */
     @Tool(name = "query_route", description = "规划两个地点之间的路线（驾车/步行/骑行/公交）。传两个地名即可，内部自动处理坐标，返回距离、耗时、途经。")
@@ -71,7 +61,7 @@ public class AmapCompositeTool {
             @ToolParam(name = "origin", description = "起点地名，如：重庆解放碑") String origin,
             @ToolParam(name = "destination", description = "终点地名，如：重庆磁器口") String destination,
             @ToolParam(name = "mode", description = "出行方式：driving/walking/bicycling/transit，默认driving") String mode) {
-        // ★固定依赖链：先地名转坐标，再调路线工具
+        // 固定依赖链：先地名转坐标，再调路线工具
         String o = geo(origin);
         if (o == null) return "⚠️[query_route] 无法定位起点坐标: " + origin;
         String d = geo(destination);
@@ -86,7 +76,7 @@ public class AmapCompositeTool {
         return callMcp(tool, Map.of("origin", o, "destination", d));
     }
 
-    // ============ ★复合工具2：周边搜索（含坐标依赖链） ============
+    // ============ 复合工具2：周边搜索（含坐标依赖链） ============
 
     @Tool(name = "query_around", description = "以某地点为中心，找周围的餐厅/酒店/景点。传中心地名和关键词即可，内部自动处理坐标。")
     public String queryAround(
@@ -102,7 +92,7 @@ public class AmapCompositeTool {
         return callMcp("maps_around_search", args);
     }
 
-    // ============ ★复合工具3：距离（含坐标依赖链） ============
+    // ============ 复合工具3：距离（含坐标依赖链） ============
 
     @Tool(name = "query_distance", description = "测量两个地点之间的距离（驾车/直线/步行）。传地名即可，内部自动处理坐标。")
     public String queryDistance(
@@ -119,7 +109,7 @@ public class AmapCompositeTool {
         return callMcp("maps_distance", args);
     }
 
-    // ============ ★简单透传工具（本就地名/城市名友好，无需复合） ============
+    // ============ 简单透传工具（无需复合） ============
 
     /** 天气：传城市名即可 */
     @Tool(name = "query_weather", description = "查询指定城市的天气预报。传城市名即可，如：重庆")
@@ -166,7 +156,7 @@ public class AmapCompositeTool {
         }
     }
 
-    // ============ ★综合工具A：行程数据一站式（一次调用=整条链） ============
+    // ============ 综合工具A：行程数据一站式 ============
 
     /**
      * 行程Agent专用综合工具。模型只调1次即可拿到规划行程所需的全部真实数据。
@@ -179,14 +169,14 @@ public class AmapCompositeTool {
             @ToolParam(name = "preference", description = "偏好关键词，可选，如：亲子/美食/博物馆/小众/自驾。固定链内部按偏好拼接查询词") String preference,
             @ToolParam(name = "waypoints", description = "跨城自驾途经城市，逗号分隔（如：大足,内江）。提供时只查这些途经点的景点，不查起终点城市。") String waypoints) {
         StringBuilder sb = new StringBuilder();
-        // ★代码区分：waypoints 非空 → 跨城途经景点分支；否则 → 原单城景点分支
+        // waypoints 非空=跨城途经分支，否则单城分支
         boolean crossCity = waypoints != null && !waypoints.isBlank();
         sb.append("【行程类型】").append(crossCity ? "跨城自驾(途经景点)" : (destination == null || destination.isBlank() ? "未提供" : "单城游"));
         if (days != null && !days.isBlank()) {
             sb.append(" ｜ 计划").append(days).append("日游");
         }
         if (crossCity) {
-            // ★跨城自驾分支:查途经城市沿途景点/美食(不查起终点城市)
+            // 跨城自驾：查途经城市沿途景点/美食
             for (String wp : waypoints.split("[,，]")) {
                 wp = wp.trim();
                 if (wp.isBlank()) continue;
@@ -216,7 +206,7 @@ public class AmapCompositeTool {
         return (preference == null || preference.isBlank()) ? base : base + " " + preference.trim();
     }
 
-    // ============ ★综合工具5：路线一站式查询（固定驾车，不试步行） ============
+    // ============ 综合工具5：路线一站式查询 ============
 
     /**
      * 路线Agent专用综合工具。一次调用拿齐驾车路线与距离。
@@ -227,7 +217,7 @@ public class AmapCompositeTool {
             @ToolParam(name = "origin", description = "起点地名，如：重庆解放碑") String origin,
             @ToolParam(name = "destination", description = "终点地名，如：重庆磁器口") String destination,
             @ToolParam(name = "day", description = "第几天（仅标签提示，可选）") String day) {
-        // ★固定依赖链：地名→坐标→驾车路线→驾车距离（代码写死，不试步行/骑行，从源头杜绝 OVER_DIRECTION_RANGE）
+        // 固定依赖链：地名→坐标→驾车路线→距离
         String o = geo(origin);
         if (o == null) return "⚠️[query_route_all] 无法定位起点坐标: " + origin;
         String d = geo(destination);
@@ -248,7 +238,7 @@ public class AmapCompositeTool {
         return sb.toString();
     }
 
-    // ============ ★综合工具6：市内衔接（步行/公交，供"未给出发地"的市内游） ============
+    // ============ 综合工具6：市内衔接（步行/公交） ============
 
     /**
      * 市内游专属综合工具：城市内景点/地点间的衔接方式（步行或公共交通）。
@@ -310,7 +300,7 @@ public class AmapCompositeTool {
     /** 步行推荐里程上限（米）：超过则改用公交 */
     private static final double MAX_WALK_METERS = 3000;
 
-    // ============ ★综合工具7：路线统一综合工具（自驾/步行/公交合一，主管选mode） ============
+    // ============ 综合工具7：路线统一（自驾/步行/公交合一） ============
 
     /**
      * 路线Agent唯一综合工具。把跨城自驾 + 市内步行/公交 合成一个工具，
@@ -325,7 +315,7 @@ public class AmapCompositeTool {
             @ToolParam(name = "mode", description = "模式：driving=自驾(默认)，urban=市内步行/公交") String mode,
             @ToolParam(name = "day", description = "第几天（仅标签提示，可选）") String day,
             @ToolParam(name = "routePref", description = "路线偏好（可选）如：公交/地铁优先、骑行、步行、不走高速。能映射的出行方式会自动切换，映射不到的作为路线提示") String routePref) {
-        // ★路线偏好→出行方式映射（外部工具限制：高德direction不支持自由路线偏好词，能映射的才真改变方式）
+        // 路线偏好→出行方式映射
         if (routePref != null && !routePref.isBlank()) {
             if (routePref.contains("公交") || routePref.contains("地铁") || routePref.contains("公共交通")) {
                 mode = "urban";       // 公交优先→市内衔接
@@ -337,7 +327,7 @@ public class AmapCompositeTool {
         }
         boolean urban = "urban".equalsIgnoreCase(mode) || "walking".equalsIgnoreCase(mode) || "cycling".equalsIgnoreCase(mode);
         if (urban) {
-            // ★市内/步行/公交分支
+            // 市内/步行/公交分支
             String o = geo(origin);
             if (o == null) return "⚠️[query_route_unified] 无法定位起点坐标: " + origin;
             String d = geo(destination);

@@ -58,9 +58,9 @@ public class PlanController {
         result.put("success", true);
         result.put("message", "保存成功！可在「我的行程」中查看");
         result.put("planId", newPlanId);
-        // ★画像增量：异步用 LLM 从保存的行程内容提取偏好标签，追加到该用户画像（用户无感）
+        // 异步用 LLM 从行程内容提取偏好标签，追加到该用户画像
         triggerPreferenceExtract(userId, newPlanId, planContent);
-        // ★画像增量：保存行程 → "常去-城市"标签即时重算（与删除行程对称）
+        // 保存行程 → 重算"常去-城市"标签
         managerAgent.tool.ProfileHook.trigger(userId);
         return result;
     }
@@ -101,7 +101,7 @@ public class PlanController {
         int rows = jdbcTemplate.update(
                 "DELETE FROM trip_plans WHERE id = ? AND user_id = ?", id, userId);
         if (rows > 0) {
-            managerAgent.tool.ProfileHook.trigger(userId); // ★删除后重算该用户画像
+            managerAgent.tool.ProfileHook.trigger(userId); // 删除后重算画像
         }
         result.put("success", rows > 0);
         result.put("message", rows > 0 ? "已删除" : "删除失败（行程不存在或无权删除）");
@@ -109,7 +109,7 @@ public class PlanController {
     }
 
     /**
-     * ★画像增量：异步调用 data-pipeline/extract_pref.py，
+     * 异步调用 data-pipeline/extract_pref.py，
      * 用 LLM 从保存的行程内容提取偏好标签并写入该用户画像（用户无感，失败静默）。
      */
     private void triggerPreferenceExtract(long userId, long planId, String planContent) {

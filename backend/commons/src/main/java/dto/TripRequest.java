@@ -39,18 +39,18 @@ public class TripRequest {
     /** 原始需求文本（兜底/追溯用） */
     private String raw = "";
 
-    /** ★偏好分流（主管 LLM 分类）：该传给行程Agent的偏好（如 亲子/美食/小众） */
+    /** 偏好分流：传给行程Agent的偏好（如亲子/美食/小众） */
     private String tripPref = "";
 
-    /** ★偏好分流：该传给路线Agent的偏好（如 自驾/不走高速/骑行） */
+    /** 偏好分流：传给路线Agent的偏好（如自驾/不走高速/骑行） */
     private String routePref = "";
 
-    /** ★偏好分流：不属于工具查询、只在聚合编排用的偏好（如 周末/悠闲/性价比） */
+    /** 偏好分流：只用于聚合编排的偏好（如周末/悠闲/性价比） */
     private String aggPref = "";
 
-    /** ★P0：个人中心沉淀偏好（travelStyle/预算/节奏/回避；为空=未设置） */
+    /** 个人中心沉淀偏好（travelStyle/预算/节奏/回避；为空=未设置） */
     private Preferences preferences;
-/** ★P0：用户沉淀偏好（个人中心设置，生成时注入；与偏好分流字段独立） */
+/** 用户沉淀偏好（个人中心设置，生成时注入） */
     @Data
     @NoArgsConstructor
     public static class Preferences {

@@ -137,7 +137,7 @@ public class ForumController {
             result.put("message", "今日发帖已达上限（" + POST_DAILY_LIMIT + " 篇/天）");
             return result;
         }
-        // ★审核第一层：DFA 敏感词快筛，命中直接拒绝（零成本拦截明显违规）
+        // 审核第一层：DFA 敏感词快筛，命中直接拒绝
         if (moderationService.containsSensitive(title + content)) {
             result.put("success", false);
             result.put("message", "内容含违规信息，请修改后重试");
@@ -157,7 +157,7 @@ public class ForumController {
                     "INSERT INTO posts(user_id, board_id, title, content, trip_id, trip_plan_json, destination, travel_date) " +
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     java.sql.Statement.RETURN_GENERATED_KEYS);
-        managerAgent.tool.ProfileHook.trigger(userId); // ★发帖影响 风格-X 标签
+        managerAgent.tool.ProfileHook.trigger(userId); // 发帖影响风格标签
             ps.setLong(1, userId);
             ps.setInt(2, boardId);
             ps.setString(3, title.trim());
@@ -171,7 +171,7 @@ public class ForumController {
         org.springframework.jdbc.support.KeyHolder keyHolder = new org.springframework.jdbc.support.GeneratedKeyHolder();
         jdbcTemplate.update(psc, keyHolder);
         Number newId = keyHolder.getKey();
-        // ★审核第二层：异步 LLM 语义审核（block 则隐藏，review 进人工队列）
+        // 审核第二层：异步 LLM 语义审核（block隐藏/review进人工队列）
         if (newId != null) {
             moderationService.moderateAsync(1, newId.longValue(), title + "\n" + content);
         }
@@ -204,7 +204,7 @@ public class ForumController {
     public Map<String, Object> deletePost(@PathVariable Long id, HttpSession session) {
         long userId = uid(session);
         int rows = jdbcTemplate.update("DELETE FROM posts WHERE id = ? AND user_id = ?", id, userId);
-        if (rows > 0) { managerAgent.tool.ProfileHook.trigger(userId); } // ★删帖后重算风格标签
+        if (rows > 0) { managerAgent.tool.ProfileHook.trigger(userId); } // 删帖后重算画像
         Map<String, Object> result = new HashMap<>();
         result.put("success", rows > 0);
         result.put("message", rows > 0 ? "已删除" : "删除失败（无权删除）");
@@ -249,7 +249,7 @@ public class ForumController {
             result.put("message", "今日评论已达上限（" + COMMENT_DAILY_LIMIT + " 条/天）");
             return result;
         }
-        // ★审核第一层：DFA 敏感词快筛
+        // 审核第一层：DFA 敏感词快筛
         if (moderationService.containsSensitive(content)) {
             result.put("success", false);
             result.put("message", "内容含违规信息，请修改后重试");
@@ -272,7 +272,7 @@ public class ForumController {
         org.springframework.jdbc.support.KeyHolder keyHolder = new org.springframework.jdbc.support.GeneratedKeyHolder();
         jdbcTemplate.update(psc, keyHolder);
         jdbcTemplate.update("UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?", id);
-        // ★审核第二层：异步 LLM 语义审核
+        // 审核第二层：异步 LLM 语义审核
         Number newId = keyHolder.getKey();
         if (newId != null) {
             moderationService.moderateAsync(2, newId.longValue(), content);

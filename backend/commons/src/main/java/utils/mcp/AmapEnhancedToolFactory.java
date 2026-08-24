@@ -6,9 +6,9 @@ import io.agentscope.core.tool.mcp.McpClientWrapper;
 import java.util.Set;
 
 /**
- * ★高德工具装配工厂（方案1：综合工具 + 按Agent裁剪工具集）。
+ * 高德工具装配工厂：综合工具 + 按 Agent 裁剪工具集。
  * 注册高德MCP客户端(拿数据) + 注册复合工具(封依赖链)，
- * 并隐藏高德原版 maps_* 工具（它们要求坐标，模型易踩坑），再按 Agent 类型裁剪复合工具暴露面，
+ * 隐藏要求坐标的原版 maps_* 工具，按 Agent 类型裁剪暴露面，
  * 让子 Agent 只能调用"代码写死的固定链综合工具"，而不是自由 ReAct 调一堆散工具。
  */
 public class AmapEnhancedToolFactory {
@@ -55,20 +55,20 @@ public class AmapEnhancedToolFactory {
     public static void register(Toolkit toolkit, AgentType type) {
         McpClientWrapper mcp = getMcp();
         toolkit.registerMcpClient(mcp).block();                          // 高德MCP客户端(数据源)
-        // 隐藏要求坐标的原版工具，避免模型乱调踩坑
+        // 隐藏要求坐标的原版工具
         for (String t : HIDE_TOOLS) {
             try { toolkit.removeTool(t); } catch (Exception ignored) { }
         }
         // 注册全部复合工具
         toolkit.registration().tool(new AmapCompositeTool(mcp)).apply();
-        // ★按Agent类型裁剪：只保留该Agent的固定链综合工具，砍掉多余的散工具供模型撮合
+        // 按Agent类型裁剪：只保留该Agent的综合工具
                 Set<String> keep = type == AgentType.ROUTE ? ROUTE_KEEP : TRIP_KEEP;
                 for (String t : ALL_COMPOSITE) {
                     if (!keep.contains(t)) {
                         try { toolkit.removeTool(t); } catch (Exception ignored) { }
                     }
                 }
-                // ★行程Agent 额外挂载本地知识库工具（并行补充：特征表真实数据）。路线Agent 不挂。
+                // 行程Agent额外挂本地知识库工具；路线Agent不挂
                 if (type != AgentType.ROUTE) {
                     try { toolkit.registration().tool(new LocalKnowledgeTool()).apply(); } catch (Exception ignored) { }
                 }

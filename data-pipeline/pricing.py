@@ -31,7 +31,7 @@ def sql(query, fetch=True):
     if not fetch: return []
     return [line.split("\t") for line in r.stdout.strip().splitlines()] if r.stdout.strip() else []
 
-# 2026 主要节假日（可扩展外部数据源）
+# 2026 主要节假日
 HOLIDAYS = {"2026-01-01": "元旦", "2026-02-16": "春节", "2026-02-17": "春节", "2026-02-18": "春节",
             "2026-04-05": "清明", "2026-05-01": "劳动节", "2026-06-19": "端午",
             "2026-09-25": "中秋", "2026-10-01": "国庆", "2026-10-02": "国庆", "2026-10-03": "国庆"}
@@ -83,14 +83,14 @@ def main():
     # 三行定价：餐饮两列平滑迁移（已存在则跳过）
     sql("ALTER TABLE pricing_output ADD COLUMN food_base DECIMAL(8,1) NULL AFTER ticket_price", fetch=False)
     sql("ALTER TABLE pricing_output ADD COLUMN food_price DECIMAL(8,1) NULL AFTER food_base", fetch=False)
-    # 热度：各城市近90天行程数，city用户输入归一化到标准名
+    # 热度：各城市近90天行程数
     std_cities = {r[0] for r in sql("SELECT DISTINCT city FROM attractions WHERE city IS NOT NULL AND city!=''")}
     heat = {}
     for r in sql("SELECT city, COUNT(*) FROM trip_plans WHERE city IS NOT NULL AND create_time >= DATE_SUB(NOW(), INTERVAL 90 DAY) GROUP BY city"):
         std = normalize_city(r[0], std_cities)
         if std:
             heat[std] = heat.get(std, 0) + int(r[1])
-    # 天气因子（weather_history 缺数据时=1.0）
+    # 天气因子，缺数据=1.0
     weather = {r[0]: r[1] for r in sql("SELECT city, weather FROM weather_history WHERE day = CURDATE()")}
     today = datetime.date.today().isoformat()
     hf = holiday_factor(today)
