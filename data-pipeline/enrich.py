@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-第二步：为特征表补"真实评价/开放时间"字段（来自高德 v5 place API business 字段）
-- rectag(游客评价标签) -> tips        例: "成都最具特色的街道"
-- opentime_week(真实开放时间) -> best_time  例: "周一至周日 07:30-18:00"
-- source='amap_v5'（真实、较新、可再生）
-★tips 质量修复（2026-08-24）：rectag 混有类型词("公园/景区/广场")，照单全收会污染 tips。
-  取值优先级：rectag 不在类型词黑名单 → 用 rectag；否则用 keytag(含"4A景区/特色街区"等更有价值)；
-  keytag 含 "5A"/"4A"/"3A" 时回填 scenic_grade（比维基名录覆盖面大）。
-用法: python3 data-pipeline/enrich.py [城市...] [--force]
+第二步：高德v5为特征表补 tips(评价标签)/best_time(开放时间)/rating。
+tips 取值优先级：rectag合格→rectag，否则keytag回退；keytag带3A/4A/5A顺带回填scenic_grade。
+用法: python3 data-pipeline/enrich.py [城市...] [--force] [--baidu-ak <AK>]
 """
 import json, os, re, subprocess, sys, time, urllib.request, urllib.parse, gzip
 
@@ -23,7 +18,7 @@ RDS_HOST = ENV.get("RDS_HOST", "127.0.0.1:3306")
 RDS_USER = ENV.get("RDS_USER", "root")
 RDS_PASS = ENV.get("RDS_PASSWORD", "")
 
-# 类型词黑名单：rectag 若只是这类词（纯类型/泛化描述），对游客无信息量，不算有效 tips
+# 类型词黑名单：rectag 若只是这类泛化词，对游客无信息量，不算有效 tips
 _TIP_TYPE_WORDS = [
     "文物古迹", "景区", "广场", "公园", "寺庙", "城市公园", "滨江公园", "红色地标",
     "生态公园", "自然风光", "特色景点", "湖泊河流", "古建筑", "特色街区", "休闲度假",
@@ -40,8 +35,7 @@ _TIP_TYPE_WORDS = [
 _TIP_NOISE_RE = re.compile(r"疫情")
 # 节令推广词（如"春节周边/春节游园"，过季即失效）
 _TIP_SEASONAL_RE = re.compile(r"^(春节|五一|十一|国庆|端午|中秋|清明|暑期|寒假|周末)")
-# 场馆类名词后缀："市中心公园/城市生态湿地公园"这类=限定词+类型名词，仍是泛化类型词
-# （刻意保守：不含"山/岛/街区/地标"单字或易误杀词，防误杀"青城山/成都繁华时尚地标"这类好标签）
+# 场馆类名词后缀："市中心公园"这类=限定词+类型名词，仍判类型词（刻意保守防误杀好标签）
 _TIP_NOUN_SUFFIX = (
     "公园", "景区", "广场", "寺庙", "博物馆", "纪念馆", "教堂", "清真寺", "园林",
     "古建筑", "度假区", "度假村", "游乐场", "动物园", "植物园", "海洋馆",
@@ -138,7 +132,7 @@ def _baidu_fill(fid, name, city, ak):
 
 def main():
     force = "--force" in sys.argv
-    # ★高德QPS限速；--baidu-ak <AK> 可选：高德失败/未匹配的行自动用百度Place API兜底
+    # --baidu-ak 可选：高德失败/未匹配的行自动用百度Place API兜底
     baidu_ak = ""
     if "--baidu-ak" in sys.argv:
         i = sys.argv.index("--baidu-ak")

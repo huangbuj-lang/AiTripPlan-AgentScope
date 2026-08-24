@@ -510,24 +510,36 @@ function renderProfilesCloud(kw) {
     kw = (kw || '').trim().toLowerCase();
     const list = kw ? rows.filter(r => r.some(cell => String(cell).toLowerCase().includes(kw))) : rows;
     if (!list.length) { bodyEl.innerHTML = '<div class="empty">无匹配数据</div>'; return; }
-    let html = '';
+    // 标签类别→配色（常去/偏好/风格/其他）
+    const CAT_STYLE = {
+        '常去': ['rgba(45,212,191,.15)', '#2dd4bf'],
+        '偏好': ['rgba(96,165,250,.15)', '#60a5fa'],
+        '风格': ['rgba(168,85,247,.15)', '#a855f7']
+    };
     list.forEach(r => {
-        html += '<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:600;color:#e2e8f0;margin-bottom:6px">👤 用户 #' + esc(String(r[0])) + '</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
+        const uname = String(r[0]);
+        const uid = esc(String(r[1]));
+        let html = '<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:600;color:#e2e8f0;margin-bottom:6px">👤 ' + esc(uname === '-' ? '用户 #' + uid : uname) + ' <span style="color:#64748b;font-weight:400">#' + uid + '</span></div>';
         try {
             const tags = JSON.parse(r[1]);
-            Object.entries(tags).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
-                let bg = 'rgba(47,191,159,.15)', color = '#2FBF9F';
-                if (k.startsWith('风格-')) { bg = 'rgba(168,85,247,.15)'; color = '#a855f7'; }
-                else if (k.startsWith('爱收藏')) { bg = 'rgba(251,113,133,.15)'; color = '#fb7185'; }
-                else if (k.startsWith('高采纳')) { bg = 'rgba(251,191,36,.15)'; color = '#fbbf24'; }
-                else if (k.startsWith('偏好-')) { bg = 'rgba(96,165,250,.15)'; color = '#60a5fa'; }
-                html += '<span style="padding:3px 10px;border-radius:11px;font-size:12px;background:' + bg + ';color:' + color + '">'
+            const entries = Object.entries(tags).sort((a, b) => b[1] - a[1]);
+            const maxV = entries.length ? entries[0][1] : 1;
+            let cloud = '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+            entries.forEach(([k, v]) => {
+                const cat = k.split('-')[0];
+                const st = CAT_STYLE[cat] || ['rgba(148,163,184,.15)', '#94a3b8'];
+                // 权重映射字号12~18px、透明度随权重加深
+                const fs = 12 + Math.min(6, Math.round((v / maxV) * 6));
+                const bg = st[0].replace('.15', '.' + (0.10 + Math.min(0.25, v / maxV * 0.25)).toFixed(2));
+                cloud += '<span title="' + cat + '类 权重' + v + '" style="padding:3px 10px;border-radius:11px;font-size:' + fs + 'px;background:' + bg + ';color:' + st[1] + ';font-weight:' + (v / maxV > 0.66 ? 700 : 400) + '">'
                     + esc(k) + (v > 1 ? ' <b>×' + v + '</b>' : '') + '</span>';
             });
+            cloud += '</div>';
+            html += cloud;
         } catch (e) { html += '<span style="color:#94a3b8">' + esc(String(r[1])) + '</span>'; }
-        html += '<div style="font-size:11px;color:#64748b;margin-top:4px;white-space:nowrap">更新时间 ' + esc(String(r[2])) + '</div></div></div>';
+        html += '<div style="font-size:11px;color:#64748b;margin-top:4px;white-space:nowrap">更新时间 ' + esc(String(r[3])) + '</div></div>';
+        bodyEl.insertAdjacentHTML('beforeend', html);
     });
-    bodyEl.innerHTML = html;
 }
 
 // ============ 数据管线一键更新 ============

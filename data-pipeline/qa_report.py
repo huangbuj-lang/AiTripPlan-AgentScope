@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-整体数据质量检查（只读，不改任何数据）。
-检查面：三张特征表(景点/美食/酒店)标签分布、关键字段覆盖率、tips类型词泄漏、
-trip_plans城市标准化、pricing/forecast输出健康度、画像覆盖、跨表一致性。
+数据质量体检（只读）：三表标签分布/字段覆盖率、行程城市标准化、定价/客流输出、
+画像孤儿、特征表唯一键。
 用法: python3 data-pipeline/qa_report.py
 """
 import os, re, subprocess
@@ -127,7 +126,7 @@ orphan_t = one("SELECT COUNT(*) FROM trip_plans p LEFT JOIN users u ON p.user_id
 print(f"行程孤儿(user不存在): {orphan_t}" if orphan_t else "✓ 行程无孤儿记录")
 feat_only = one("SELECT COUNT(*) FROM attractions_features f LEFT JOIN attractions a ON f.src_id=a.id WHERE a.id IS NULL")
 print(f"特征表孤儿src_id: {feat_only}")
-# ★唯一键存在性：没有它 preprocess 的 ODKU 增量更新会变成追加重复行
+# 唯一键存在性：缺失则 preprocess 的 ODKU 会追加重复行
 uk = sql("SELECT TABLE_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA='aitripplan' "
          "AND INDEX_NAME='uk_name_city' AND TABLE_NAME LIKE '%_features'")
 have = {r[0] for r in uk}

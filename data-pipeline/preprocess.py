@@ -83,8 +83,7 @@ def build(table, out_table, rules, use_rating=False):
         name_s = name.replace("'", "''"); city_s = city.replace("'", "''")
         types_s = (types or "").replace("'", "''")[:190]
         inserts.append(f"({_id},'{name_s}','{city_s}','{types_s}',{rating_f},'{label}','{level}','{cost or ''}')")
-    # ★增量更新模式：不再DROP重建（会丢enrich补的tips/ticket_price等字段）
-    #   表带 UNIQUE(name,city)，INSERT...ON DUPLICATE KEY UPDATE 刷新基础字段、保留扩展字段
+    # 增量更新：表带UNIQUE(name,city)，ODKU刷新基础字段、保留扩展字段
     sql(f"""CREATE TABLE IF NOT EXISTS {out_table} (
         src_id BIGINT, name VARCHAR(100), city VARCHAR(50), types VARCHAR(200),
         rating DECIMAL(3,1), label VARCHAR(30), level VARCHAR(10), cost VARCHAR(50),
@@ -94,8 +93,7 @@ def build(table, out_table, rules, use_rating=False):
         UNIQUE KEY uk_name_city (name, city)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", fetch=False)
     base_cols = "src_id,name,city,types,rating,label,level,cost"
-    # ★质量固化：label 仅当库内为空/'其他'时才接受规则新值——已精标(LLM二次分类)的不回退，
-    #   保证"更新数据"按钮重跑管线不会把精标打回规则标签
+    # 质量固化：label 仅空/'其他'时接受规则新值，LLM精标不回退
     update_cols = ("src_id=VALUES(src_id), types=VALUES(types), rating=VALUES(rating), "
                    "label=IF(label IS NULL OR label='' OR label='其他', VALUES(label), label), "
                    "level=VALUES(level), cost=VALUES(cost)")

@@ -556,9 +556,10 @@ public class AdminController {
                     break;
                 case "profiles":
                     title = "用户画像明细";
-                    columns = List.of("用户ID", "画像标签(JSON)", "更新时间");
+                    columns = List.of("用户名", "用户ID", "画像标签(JSON)", "更新时间");
                     rows = jdbcTemplate.queryForList(
-                            "SELECT user_id, tags, updated_at FROM user_profiles_tags ORDER BY updated_at DESC LIMIT 200");
+                            "SELECT IFNULL(u.username,'-') AS username, t.user_id, t.tags, t.updated_at " +
+                            "FROM user_profiles_tags t LEFT JOIN users u ON u.id = t.user_id ORDER BY t.updated_at DESC LIMIT 200");
                     break;
                 default:
                     r.put("error", "未知类型: " + type);
@@ -584,21 +585,10 @@ public class AdminController {
             if ("profiles".equals(type)) {
                 List<List<Object>> pretty = new ArrayList<>();
                 for (List<Object> line : aligned) {
-                    List<Object> out = new ArrayList<>(line); // [用户ID, tagsJSON, updatedAt]
-                    if (out.size() >= 3) {
-                        String tags = String.valueOf(out.get(1));
-                        StringBuilder prettyTags = new StringBuilder();
-                        try {
-                            Iterator<Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>> it =
-                                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(tags).fields();
-                            while (it.hasNext()) {
-                                Map.Entry<String, com.fasterxml.jackson.databind.JsonNode> e2 = it.next();
-                                if (prettyTags.length() > 0) prettyTags.append("、");
-                                prettyTags.append(e2.getKey()).append("×").append(e2.getValue().asInt());
-                            }
-                        } catch (Exception ignore) { }
-                        out.set(1, prettyTags.length() > 0 ? prettyTags.toString() : tags);
-                        out.set(2, String.valueOf(out.get(2)).replaceAll("\\.\\d+$", "")); // 去掉毫秒
+                    List<Object> out = new ArrayList<>(line); // [用户名, 用户ID, tagsJSON, updatedAt]
+                    if (out.size() >= 4) {
+                        // tags 保留原始JSON（前端标签云按类别着色+权重渲染），只去掉时间毫秒
+                        out.set(3, String.valueOf(out.get(3)).replaceAll("\\.\\d+$", ""));
                     }
                     pretty.add(out);
                 }
@@ -626,6 +616,7 @@ public class AdminController {
             case "美食数": return "foods";
             case "酒店数": return "hotels";
             case "类型": return "action";
+            case "用户名": return "username";
             case "用户ID": return "user_id";
             case "行程ID": return "plan_id";
             case "时间": return "created_at";

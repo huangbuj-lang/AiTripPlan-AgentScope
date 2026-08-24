@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-LLM 补数据（方案C第一步）：用 OpenRouter stealth/ox-alpha 生成
+LLM 补数据：用 py 侧统一模型（llm_config）生成
   景点: ticket_price门票/is_free免费/visit_duration时长/intro简介/booking_required预约/suitable_tags适合人群
   美食: price_range人均/intro/suitable_tags
   酒店: price_range/intro
@@ -21,7 +21,7 @@ RDS_HOST = ENV.get("RDS_HOST", "127.0.0.1:3306")
 RDS_USER = ENV.get("RDS_USER", "root")
 RDS_PASS = ENV.get("RDS_PASSWORD", "")
 
-# 本次专用 ox-alpha；以后项目统一模型走 .env 的 DEEPSEEK_API_KEY/MODEL_NAME
+# 模型走 llm_config 统一配置（管理端可热更）
 from llm_config import get_llm_config  # ★统一模型配置（管理端可热更）
 _CFG = get_llm_config()
 OR_KEY, OR_URL, OR_MODEL = _CFG["key"], _CFG["url"].rstrip("/") + "/chat/completions", _CFG["name"]

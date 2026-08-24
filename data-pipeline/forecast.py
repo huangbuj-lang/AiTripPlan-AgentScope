@@ -26,8 +26,7 @@ def sql(query, fetch=True):
     if not fetch: return []
     return [line.split("\t") for line in r.stdout.strip().splitlines()] if r.stdout.strip() else []
 
-# 用户输入城市归一化："成都三日"/"成都七日自行车"/"14日香港"→标准城市
-# ① 标准库前缀最长匹配 ② 剥掉数字+日/天/周前缀与旅行词尾再匹配 ③ 仍无则保留原名
+# 城市归一化：①标准库前缀最长匹配 ②剥数字/中文数字+日天周与旅行词尾 ③仍无则保留原名
 import re as _re
 def normalize_city(raw, std_cities):
     if not raw:
@@ -38,11 +37,10 @@ def normalize_city(raw, std_cities):
     cands = [c for c in std_cities if raw.startswith(c)]
     if cands:
         return max(cands, key=len)
-    # 剥离 "14日"/"0.5周" 前缀 + 旅行词尾 → "香港"/"西藏"
-    stripped = _re.sub(r'^\d+(\.\d+)?(日|天|周)?', '', raw)
-    stripped = _re.sub(r'\d+(\.\d+)?(日|天|周)', '', stripped)  # 中间的数字日/周：西藏14日→西藏
-    stripped = _re.sub(r'[两三四五六七八九十]+(日|天|周)', '', stripped)  # 中文数字：西藏两周→西藏
-    stripped = _re.sub(r'(自行车|自驾|自驾车|游|行|旅|旅行|美食|蜜月|漫游|朝圣|深度游|周末|亲子游|行程|计划)$', '', stripped)
+    stripped = _re.sub(r'^\d+(\.\d+)?(日|天|周)?', '', raw)  # 剥数字前缀"14日"
+    stripped = _re.sub(r'\d+(\.\d+)?(日|天|周)', '', stripped)  # 剥中间数字日/周："西藏14日"
+    stripped = _re.sub(r'[两三四五六七八九十]+(日|天|周)', '', stripped)  # 中文数字："西藏两周"
+    stripped = _re.sub(r'(自行车|自驾|自驾车|游|行|旅|旅行|美食|蜜月|漫游|朝圣|深度游|周末|亲子游|行程|计划)$', '', stripped)  # 剥旅行词尾
     if stripped:
         # 优先标准库；标准库没有也返回剥离后的干净城市名（如"香港"/"西藏"），保证按城市聚合
         if stripped in std_cities:
@@ -84,13 +82,13 @@ def main():
             wf = 1.3 if datetime.date.fromisoformat(day).weekday() >= 5 else 1.0
             idx = round(avg * trend * wf, 2)
             out.append((city, day, idx))
-    # ★清理过期预测行：只保留今天之后（未来7天范围），旧的"上次预测"残留删除
+    # 清理过期行：只留未来7天；再清不在标准库的历史脏行
     sql("DELETE FROM forecast_output WHERE day < DATE_SUB(CURDATE(), INTERVAL -1 DAY)", fetch=False)
-    # ★清理历史脏行（旧版按用户输入存的，如"成都三日"）
     for r in sql("SELECT DISTINCT city FROM forecast_output"):
         if r[0] not in std_cities:
             sql(f"DELETE FROM forecast_output WHERE city='{r[0].replace(chr(39), chr(39)*2)}'", fetch=False)
             print(f"  🧹 清理历史脏行: {r[0]}")
+    # 写入未来7天预测（存在则更新指数）
     for city, day, idx in out:
         sql(f"INSERT INTO forecast_output(city, day, forecast_idx) VALUES ('{city}', '{day}', {idx}) "
             f"ON DUPLICATE KEY UPDATE forecast_idx=VALUES(forecast_idx)", fetch=False)

@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-待办①："其他"类别数据 LLM 二次分类（混合两步）。
-背景：preprocess.py 用关键词规则打标(types列)，未命中的落"其他"（约1800条）。
-做法：
-  第1步 确定性规则：按【名称】强信号直接打标（公园→城市公园、博物馆→人文历史、火锅→火锅等，
-        高精度词才命中，不依赖LLM，零成本零幻觉）
-  第2步 LLM兜底：剩余模糊条目分批调 py 侧统一模型（llm_config.chat()，管理端可热更），
-        提示词带全类别均衡示例；解析失败自动重试1次
-- 标签体系与 preprocess.py 完全一致：
-  景点: 自然风光/人文历史/主题乐园/特色街区/城市公园   美食: 火锅/地方菜/小吃快餐/饮品甜点/异国料理
-- 幂等：只处理 label='其他' 的行
+待办①："其他"类别 LLM 二次分类（混合两步）：规则按名称强信号直标，剩余模糊项分批交LLM兜底。
+标签体系与 preprocess.py 一致；幂等只处理 label='其他'。
 用法: python3 data-pipeline/reclassify.py [--batch 50]
 """
 import json, os, re, subprocess, sys, time
@@ -43,7 +35,7 @@ LABELS = {
     "foods":       ["火锅", "地方菜", "小吃快餐", "饮品甜点", "异国料理"],
 }
 
-# ---------- 第1步：名称强信号确定性规则（顺序即优先级，只收高精度词） ----------
+# 第1步：名称强信号确定性规则（顺序即优先级）
 ATTR_NAME_RULES = [
     (r"森林公园|地质公园|国家公园|自然保护区", "自然风光"),      # 自然类公园优先于城市公园
     (r"山|峡谷|瀑布|温泉|草原|雪场|滑雪|海滨|海滩|海湾|半岛|洞穴|溶洞|冰川|沙漠|梯田", "自然风光"),
@@ -66,7 +58,7 @@ def pre_rule(name, table):
             return lab
     return None
 
-# ---------- 第2步：LLM 兜底（模糊名称） ----------
+# 第2步：LLM 兜底（模糊名称）
 def build_prompt(table, items_json):
     labs = " / ".join(LABELS[table])
     kind = "景点" if table == "attractions" else "美食店铺"
@@ -102,7 +94,7 @@ def _parse_labels(out, valid):
         except json.JSONDecodeError:
             pass  # 落入下方正则兜底
     if not got:
-        # ★推理模型长输出可能截断数组：逐个 {"id":..,"label":".."} 对象正则抢救
+        # 推理模型长输出可能截断数组：逐对象正则抢救
         for pm in re.finditer(r'\{\s*"id"\s*:\s*(\d+)\s*,\s*"label"\s*:\s*"([^"]+)"', out):
             lid, lab = int(pm.group(1)), pm.group(2).strip()
             if lab in valid:
@@ -118,14 +110,13 @@ def classify_batch(table, items, depth=0):
     last_err = None
     for attempt in (1, 2):
         try:
-            # ★max_tokens 8000：推理模型会把 token 花在思考上，太小会 content 为空；
-            #   单次 timeout 90s：正常批<60s，超时快速失败进重试/拆批，避免长阻塞
+            # max_tokens 8000防推理烧尽致content空；timeout 90s快速失败进重试/拆批
             out = chat([{"role": "user", "content": build_prompt(table, payload)}],
                        temperature=0.3, max_tokens=8000, timeout=90)
             got = _parse_labels(out, valid)
             if not got:
                 raise ValueError(f"无可用JSON: {out[:80]}")
-            # 防偷懒检查：≥15条的批若单一标签占比>80% → 视为模式坍缩，弃用
+            # 防标签坍缩：≥15条批单一标签>80%视为偷懒，弃用
             if len(items_min) >= 15 and got:
                 from collections import Counter
                 top_lab, top_n = Counter(got.values()).most_common(1)[0]
@@ -136,7 +127,7 @@ def classify_batch(table, items, depth=0):
             last_err = e
             print(f"  [WARN] 批次第{attempt}次失败: {str(e)[:100]}" + ("，重试..." if attempt == 1 else ""))
             time.sleep(3)
-    # ★对半拆批递归：大批推理超限时空返回，拆小后成功率高
+    # 对半拆批递归：大批推理易空返回/截断，拆小成功率高
     if len(items) > 5:
         mid = len(items) // 2
         print(f"  [SPLIT] 对半拆批 {len(items)} → {mid}+{len(items)-mid}")
@@ -147,7 +138,7 @@ def classify_batch(table, items, depth=0):
     return {}
 
 def main():
-    batch_size = 20  # ★批20：50条长输出易被 max_tokens 截断（实测），小批更稳
+    batch_size = 20  # 批20：50条长输出易截断（实测），小批更稳
     argv = sys.argv[1:]
     if "--batch" in argv:
         batch_size = max(5, min(100, int(argv[argv.index("--batch") + 1])))

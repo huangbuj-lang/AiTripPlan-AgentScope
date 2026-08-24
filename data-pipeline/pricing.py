@@ -80,10 +80,10 @@ def main():
         ticket_base DECIMAL(8,1), ticket_price DECIMAL(8,1), factors JSON,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", fetch=False)
-    # ★三行定价：新增餐饮两列（老库平滑迁移，已存在则跳过）
+    # 三行定价：餐饮两列平滑迁移（已存在则跳过）
     sql("ALTER TABLE pricing_output ADD COLUMN food_base DECIMAL(8,1) NULL AFTER ticket_price", fetch=False)
     sql("ALTER TABLE pricing_output ADD COLUMN food_price DECIMAL(8,1) NULL AFTER food_base", fetch=False)
-    # 热度：各城市行程生成数（近90天）；city 存的是用户输入（如"成都三日"），归一化到标准城市名
+    # 热度：各城市近90天行程数，city用户输入归一化到标准名
     std_cities = {r[0] for r in sql("SELECT DISTINCT city FROM attractions WHERE city IS NOT NULL AND city!=''")}
     heat = {}
     for r in sql("SELECT city, COUNT(*) FROM trip_plans WHERE city IS NOT NULL AND create_time >= DATE_SUB(NOW(), INTERVAL 90 DAY) GROUP BY city"):
@@ -95,17 +95,17 @@ def main():
     today = datetime.date.today().isoformat()
     hf = holiday_factor(today)
     cities = set(heat) | {r[0] for r in sql("SELECT DISTINCT city FROM attractions_features")}
-    # ★餐饮基准价：foods.cost 真实人均按城市求均值（高德爬取，99%覆盖），无数据城市回退占位50
+    # 餐饮基准：foods.cost 真实人均城市均值，无数据回退50
     food_avg = {r[0]: float(r[1]) for r in sql(
         "SELECT city, AVG(CAST(cost AS DECIMAL(10,2))) FROM foods WHERE cost REGEXP '^[0-9.]+$' GROUP BY city")}
-    # ★门票基准价：ticket_price 真实挂牌价按城市求均值（只取带数字的），无数据城市回退占位60
+    # 门票基准：ticket_price 真实挂牌价城市均值（只取数字），无数据回退60
     ticket_avg = {}
     for r in sql("SELECT city, ticket_price FROM attractions_features WHERE ticket_price IS NOT NULL AND ticket_price != ''"):
         p = parse_price(r[1])
         if p is not None and p > 0:
             ticket_avg.setdefault(r[0], []).append(p)
-    # ★清掉历史脏行：city 不在标准城市库的（旧版按用户输入存的，如"成都三日"）
-    std_all = std_cities | {r[0] for r in sql("SELECT DISTINCT city FROM foods WHERE city IS NOT NULL")} 
+    # 清历史脏行：city 不在标准库的旧记录
+    std_all = std_cities | {r[0] for r in sql("SELECT DISTINCT city FROM foods WHERE city IS NOT NULL")}
     for r in sql("SELECT city FROM pricing_output"):
         if r[0] not in std_all:
             sql(f"DELETE FROM pricing_output WHERE city='{r[0].replace(chr(39), chr(39)*2)}'", fetch=False)
@@ -116,7 +116,7 @@ def main():
         heat_f = 1.0 + min(h, 50) * 0.01  # 热度系数 1.0~1.5
         wf = 1.15 if "雨" in (weather.get(city) or "") else 1.0  # 雨天室内需求微升（简化）
         factor = round(heat_f * hf * wf, 2)
-        hotel_base = 300.0  # ★酒店基准价占位（OTA房价无公开API，接通后替换）
+        hotel_base = 300.0  # 酒店基准占位（OTA房价无公开API，接通后替换）
         ticket_list = ticket_avg.get(city) or []
         ticket_base = round(sum(ticket_list) / len(ticket_list), 1) if ticket_list else 60.0
         food_base = round(food_avg.get(city, 50.0), 1)
