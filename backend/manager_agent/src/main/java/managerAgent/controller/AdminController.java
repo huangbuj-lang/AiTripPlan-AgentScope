@@ -300,10 +300,14 @@ public class AdminController {
         return r;
     }
 
-    /** 删除用户（连同其名下行程一起删） */
+    /** 删除用户（连同其名下行程、发帖、点赞、偏好、画像一起删） */
     @DeleteMapping("/users")
     public Map<String, Object> deleteUser(@RequestParam Long id) {
         jdbcTemplate.update("DELETE FROM trip_plans WHERE user_id = ?", id);
+        jdbcTemplate.update("DELETE FROM posts WHERE user_id = ?", id);
+        jdbcTemplate.update("DELETE FROM post_likes WHERE user_id = ?", id);
+        jdbcTemplate.update("DELETE FROM user_preferences WHERE user_id = ?", id);
+        jdbcTemplate.update("DELETE FROM user_profiles_tags WHERE user_id = ?", id); // ★画像标签同步清理，防孤儿数据残留弹窗
         int rows = jdbcTemplate.update("DELETE FROM users WHERE id = ?", id);
         Map<String, Object> r = new HashMap<>();
         r.put("success", rows > 0);
