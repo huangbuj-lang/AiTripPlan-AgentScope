@@ -3,116 +3,75 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>轨迹 · AI 旅行规划助手</title>
+<title>漫旅 · 规划你的下一段旅程</title>
 <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=20260828e">
 <link rel="stylesheet" href="css/print.css" media="print">
 </head>
 <body>
-<!-- 背景：自转地球 + 地球村元素 -->
-<div class="world-bg">
-  <div class="earth">
-    <svg viewBox="0 0 560 560">
-      <g class="spin">
-        <g fill="none" stroke="#9BC8BC" stroke-width="1.6" opacity=".8">
-          <ellipse cx="280" cy="280" rx="250" ry="96"/>
-          <ellipse cx="280" cy="280" rx="250" ry="178"/>
-          <ellipse cx="280" cy="280" rx="96" ry="250"/>
-          <ellipse cx="280" cy="280" rx="178" ry="250"/>
-        </g>
-        <g fill="rgba(31,174,143,.14)" stroke="rgba(31,174,143,.35)" stroke-width="1.4">
-          <path d="M110 230 q55 -62 130 -56 t124 48 q34 76 -16 122 q-78 64 -144 22 q-80 -50 -94 -136 z"/>
-          <path d="M330 360 q66 -26 78 -96 q18 -64 -28 -106 q-38 -34 -96 -14 q-68 20 -76 88 q-8 64 50 114 q26 22 72 14 z"/>
-        </g>
-        <circle cx="430" cy="180" r="12" fill="rgba(232,164,92,.8)"/>
-        <circle cx="180" cy="400" r="9" fill="rgba(62,143,184,.75)"/>
-        <circle cx="356" cy="452" r="7" fill="rgba(31,174,143,.7)"/>
-      </g>
-      <circle cx="280" cy="280" r="252" fill="none" stroke="#B9D8CE" stroke-width="2.4" opacity=".9"/>
-    </svg>
-  </div>
-  <div class="cloud c1">
-    <svg viewBox="0 0 320 100" fill="#FFFFFF">
-      <g opacity=".9">
-        <ellipse cx="90" cy="62" rx="58" ry="24"/><ellipse cx="150" cy="44" rx="46" ry="30"/>
-        <ellipse cx="212" cy="62" rx="54" ry="22"/><rect x="36" y="62" width="230" height="24" rx="12"/>
-      </g>
-    </svg>
-  </div>
-  <div class="cloud c2">
-    <svg viewBox="0 0 240 76" fill="#FFFFFF">
-      <g opacity=".85">
-        <ellipse cx="70" cy="46" rx="44" ry="18"/><ellipse cx="116" cy="32" rx="36" ry="23"/>
-        <ellipse cx="162" cy="46" rx="42" ry="17"/><rect x="28" y="46" width="176" height="18" rx="9"/>
-      </g>
-    </svg>
-  </div>
-  <div class="balloon">
-    <svg viewBox="0 0 150 210">
-      <g>
-        <ellipse cx="75" cy="72" rx="52" ry="60" fill="#E88A7D" opacity=".8"/>
-        <path d="M23 72 q0 -66 52 -66 q52 0 52 66 z" fill="#F2B26B" opacity=".55"/>
-        <path d="M23 72 q-16 34 0 48 q16 16 52 16 q36 0 52 -16 q16 -14 0 -48" fill="none" stroke="#C96F5E" stroke-width="2" opacity=".7"/>
-        <path d="M40 120 l-12 24 M110 120 l12 24" stroke="#8A6B4F" stroke-width="2"/>
-        <rect x="62" y="144" width="26" height="30" rx="7" fill="#8A6B4F" opacity=".85"/>
-      </g>
-    </svg>
-  </div>
-  <div class="village">
-    <svg viewBox="0 0 420 130" preserveAspectRatio="none">
-      <path d="M0 60 L60 20 L110 55 L170 30 L240 58 L300 24 L360 56 L420 34 L420 130 L0 130 Z" fill="#8FB8AC" opacity=".8"/>
-      <g fill="#6FA28F" opacity=".8">
-        <rect x="30" y="96" width="34" height="34"/><path d="M26 96 L47 76 L68 96 Z"/>
-        <rect x="180" y="90" width="44" height="40"/><path d="M174 90 L202 66 L230 90 Z"/>
-        <rect x="330" y="98" width="30" height="32"/><path d="M326 98 L345 82 L364 98 Z"/>
-      </g>
-    </svg>
-  </div>
-</div>
 
-<div class="wrap">
+<!-- ====== HERO：全屏山景 ====== -->
+<header class="hero">
+  <div style="padding:0 40px">
+    <nav class="hero-nav">
+      <div class="logo"><span class="pin"></span>漫旅 · MANLÜ</div>
+      <div class="nav-links" style="margin-left:auto">
+        <button id="adminBtn" class="chip" onclick="location.href='admin.html'" style="display:none"><i class="fa-solid fa-gauge"></i> 管理端</button>
+        <button id="forumBtn" class="chip" onclick="location.href='forum.html'" style="display:none"><i class="fa-solid fa-comments"></i> 论坛</button>
+        <button id="profileBtn" class="chip" onclick="location.href='profile.html'" style="display:none"><i class="fa-solid fa-user-gear"></i> 个人中心</button>
+        <button id="myPlansBtn" class="chip" onclick="showMyPlans()" style="display:none"><i class="fa-solid fa-folder-open"></i> 我的行程</button>
+        <button id="logoutBtn" class="chip" onclick="logout()" style="display:none"><i class="fa-solid fa-right-from-bracket"></i> 退出</button>
+      </div>
+    </nav>
+  </div>
+
+  <div class="wrap hero-main">
+    <span class="hero-badge">✦ 2026 年最新一代 · AI 旅行规划平台</span>
+    <h1>寻找你的下一段<br><em>难忘旅程</em></h1>
+    <p class="hero-sub">量身定制的行程，通往世界上最壮丽的自然奇观。告诉我们你的梦想——多 Agent 为你规划一切细节。</p>
+
+    <!-- 搜索条（原输入区升级：目的地/天数/探索） -->
+    <div class="hero-search">
+      <div class="hs-field" style="flex:2.2">
+        <label><i class="fa-solid fa-location-dot"></i> 目的地</label>
+        <input id="prompt" type="text" placeholder="你想去哪里?" onkeydown="if(event.key==='Enter') send()">
+      </div>
+      <div class="hs-field hs-pax">
+        <label><i class="fa-solid fa-user-group"></i> 出行人数</label>
+        <div class="hs-select" id="paxSelect" tabindex="0">
+          <span class="hs-select-val" id="paxVal">2 人出行</span>
+          <i class="fa-solid fa-chevron-down hs-arrow"></i>
+          <div class="hs-menu" id="paxMenu">
+            <div class="hs-opt" data-v="1 人出行">1 人出行</div>
+            <div class="hs-opt" data-v="2 人出行">2 人出行</div>
+            <div class="hs-opt" data-v="3 人出行">3 人出行</div>
+            <div class="hs-opt" data-v="4 人及以上">4 人及以上</div>
+          </div>
+          <select id="paxSel" class="hs-native" tabindex="-1" aria-hidden="true">
+            <option>1 人出行</option><option selected>2 人出行</option><option>3 人出行</option><option>4 人及以上</option>
+          </select>
+        </div>
+      </div>
+      <button id="sendBtn" class="btn-explore" onclick="send()"><i class="fa-solid fa-magnifying-glass"></i> 探索</button>
+      <button id="cancelBtn" class="btn-cancel-hero" onclick="cancelTask()" title="停止"><i class="fa-solid fa-stop"></i></button>
+    </div>
+    <div class="hero-stats">
+      <div><div class="hs-num">180+</div><div class="hs-label">目的地</div></div>
+      <div><div class="hs-num">5万+</div><div class="hs-label">满意旅人</div></div>
+      <div><div class="hs-num">4.9</div><div class="hs-label">平均评分</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap work">
 
   <!-- 打印视图(仅打印时显示:概览+详情) -->
   <div id="printView" class="print-view"></div>
 
-  <!-- 导航 -->
-  <nav>
-    <div class="logo"><span class="pin"></span>轨迹 · TRACKS</div>
-    <div class="nav-links">
-      <span id="userName" class="chip"><i class="fa-regular fa-circle-user"></i> 未登录</span>
-      <button id="adminBtn" class="chip" onclick="location.href='admin.html'" style="display:none"><i class="fa-solid fa-gauge"></i> 管理端</button>
-      <button id="myPlansBtn" class="chip" onclick="showMyPlans()" style="display:none"><i class="fa-solid fa-folder-open"></i> 我的行程</button>
-      <button id="forumBtn" class="chip" onclick="location.href='forum.html'" style="display:none"><i class="fa-solid fa-comments"></i> 论坛</button>
-      <button id="profileBtn" class="chip" onclick="location.href='profile.html'" style="display:none"><i class="fa-solid fa-user-gear"></i> 个人中心</button>
-      <button id="logoutBtn" class="chip" onclick="logout()" style="display:none"><i class="fa-solid fa-right-from-bracket"></i> 退出</button>
-    </div>
-  </nav>
-
-  <!-- 输入区 -->
-  <div class="start">
-    <div class="start-label">设定起点 · SET DEPARTURE</div>
-    <div class="search">
-      <input id="prompt" type="text" placeholder="想去哪儿？例如：北京 3 日美食之旅" onkeydown="if(event.key==='Enter') send()">
-      <button id="sendBtn" class="btn-go" onclick="send()">开始旅程 →</button>
-      <button id="cancelBtn" class="btn-cancel" onclick="cancelTask()" style="display:none"><i class="fa-solid fa-stop"></i> 停止</button>
-    </div>
-
-  </div>
-
-  <!-- 状态条(轨迹副标题行) -->
-  <div class="journey">
-    <div class="journey-head">
-      <h2 id="journeyTitle">旅行轨迹</h2>
-      <span class="codes" id="journeyCodes">READY</span>
-    </div>
-    <div class="journey-sub" id="status"><span class="status-dot"></span>输入旅行需求，点击「开始旅程」</div>
-  </div>
-
-  <!-- 方案胶囊区(多方案时由 renderPlanSet 注入到 resultBody) -->
-
+  <!-- 状态容器（隐藏，供 app.js 状态更新调用） -->
+  <div id="status" style="display:none"></div>
   <!-- 结果区：轨迹 + 天卡片 -->
   <div class="trip-view" id="resultBody">
-    <div class="empty">等待生成...</div>
   </div>
 
   <!-- 保存条(对称操作条:打印/导出 + 保存) -->
@@ -126,15 +85,43 @@
     <button class="save-btn" onclick="savePlan()"><i class="fa-solid fa-floppy-disk"></i> 保存到我的行程</button>
   </div>
 
+  <!-- ====== 精选目的地 ====== -->
+  <section class="section" id="destinations">
+    <div class="section-head">
+      <div>
+        <div class="section-kicker">Featured Destinations</div>
+        <div class="section-title">风会带你去往何方？</div>
+        <div class="section-sub">每条路线都由当地向导精心策划，他们知道最佳观景点、安静的小径，以及一天中最美的时刻。</div>
+      </div>
+    </div>
+    <div class="cat-tabs" id="catTabs">
+      <button class="cat-tab active" data-cat="all" onclick="filterDest('all',this)">全部</button>
+      <button class="cat-tab" data-cat="mountain" onclick="filterDest('mountain',this)">山脉</button>
+      <button class="cat-tab" data-cat="culture" onclick="filterDest('culture',this)">人文</button>
+      <button class="cat-tab" data-cat="sea" onclick="filterDest('sea',this)">海滨</button>
+    </div>
+    <div class="dest-grid" id="destGrid"></div>
+  </section>
+
+  <!-- ====== 论坛热帖 ====== -->
+  <section class="testimonials">
+    <div class="section-kicker">Travelers' Tales</div>
+    <div class="section-title">把故事留在路上</div>
+    <div class="testi-grid" id="hotPostGrid">
+      <div class="empty" style="color:#8A948C">加载中...</div>
+    </div>
+    <div style="text-align:center;margin-top:24px"><a href="forum.html" style="color:#F2D9A6;font-size:13.5px;text-decoration:none;border-bottom:1px solid rgba(242,217,166,.4)">进入论坛查看更多 →</a></div>
+  </section>
+
   <!-- 调度中心(思考过程) -->
-  <div class="think">
-    <div class="think-head">📡 调度中心<span class="live">LIVE</span></div>
+  <div class="think" style="margin-top:32px">
+    <div class="think-head">调度中心<span class="live">LIVE</span></div>
     <div id="thinkBody" class="think-body">
-      <div class="empty">发送任务后，这里会实时显示主管Agent的每一步动作</div>
+      <div class="empty" style="color:#8A948C">发送任务后，这里会实时显示主管Agent的每一步动作</div>
     </div>
   </div>
 
-  <footer>轨迹 TRACKS · 多 Agent 协作 · 实时事件驱动</footer>
+  <footer>漫旅 MANLÜ · 多 Agent 协作 · 实时事件驱动</footer>
 </div>
 
 <!-- 详情弹窗 -->
@@ -160,7 +147,101 @@
   </div>
 </div>
 
+
+  </div>
+</div>
+
 <script src="js/purify.min.js"></script>
-<script src="js/app.js?v=20260827i"></script>
+<script src="js/app.js?v=20260828c"></script>
+<script>
+/* 出行人数自定义下拉（纯交互：展开/选中/外部点击关闭，paxSel 同步保持兼容） */
+(function () {
+  var sel = document.getElementById('paxSelect');
+  if (!sel) return;
+  var menu = document.getElementById('paxMenu');
+  var val = document.getElementById('paxVal');
+  var native = document.getElementById('paxSel');
+  function closeMenu() { menu.classList.remove('open'); sel.classList.remove('open'); }
+  sel.addEventListener('click', function (e) {
+    var opt = e.target.closest ? e.target.closest('.hs-opt') : null;
+    if (opt) {
+      val.textContent = opt.dataset.v;
+      native.value = opt.dataset.v;
+      menu.querySelectorAll('.hs-opt').forEach(function (o) { o.classList.toggle('sel', o.dataset.v === opt.dataset.v); });
+      closeMenu();
+      return;
+    }
+    var willOpen = !menu.classList.contains('open');
+    menu.classList.toggle('open', willOpen);
+    sel.classList.toggle('open', willOpen);
+  });
+  document.addEventListener('click', function (e) { if (!sel.contains(e.target)) closeMenu(); });
+  menu.querySelectorAll('.hs-opt').forEach(function (o) { o.classList.toggle('sel', o.dataset.v === native.value); });
+})();
+</script>
+<script>
+/* ===== 精选目的地数据 + 渲染 + 筛选（纯前端新增） ===== */
+const DESTS = [
+  {name:'九寨沟', loc:'四川 · 阿坝', cat:'mountain', rating:4.9, badge:'精选', desc:'翠海叠瀑与彩林雪峰，秋季彩林倒映海子', tags:['山脉','湖泊'], price:'¥280', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/1_jiuzhaigou_valley_wu_hua_hai_2011b.jpg/960px-1_jiuzhaigou_valley_wu_hua_hai_2011b.jpg'},
+  {name:'张家界武陵源', loc:'湖南 · 张家界', cat:'mountain', rating:4.8, badge:'世界遗产', desc:'三千奇峰拔地而起，袁家界云海如临仙境', tags:['山脉','徒步'], price:'¥165', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/1_zhangjiajie_huangshizhai_wulingyuan_panorama_2012.jpg/960px-1_zhangjiajie_huangshizhai_wulingyuan_panorama_2012.jpg'},
+  {name:'黄山', loc:'安徽 · 黄山', cat:'mountain', rating:4.9, badge:'热门', desc:'奇松怪石云海温泉，日出光明顶雾凇如画', tags:['山脉','日出'], price:'¥190', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Huangshan_mist_20141109.jpg/960px-Huangshan_mist_20141109.jpg'},
+  {name:'敦煌莫高窟', loc:'甘肃 · 敦煌', cat:'culture', rating:4.9, badge:'世界遗产', desc:'千年壁画艺术宝库，数字观影加实体洞窟', tags:['人文','石窟'], price:'¥238', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/%E8%8E%AB%E9%AB%98%E7%AA%9F%E4%B9%9D%E5%B1%82%E6%A5%BC_-_panoramio.jpg/960px-%E8%8E%AB%E9%AB%98%E7%AA%9F%E4%B9%9D%E5%B1%82%E6%A5%BC_-_panoramio.jpg'},
+  {name:'丽江古城', loc:'云南 · 丽江', cat:'culture', rating:4.7, badge:'世界遗产', desc:'纳西古镇小桥流水，远眺玉龙雪山终年积雪', tags:['人文','古镇'], price:'¥50', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/1_lijiang_old_town_night.jpg/960px-1_lijiang_old_town_night.jpg'},
+  {name:'鼓浪屿', loc:'福建 · 厦门', cat:'sea', rating:4.6, badge:'新上线', desc:'万国建筑博览与琴岛涛声，慢游文艺小巷', tags:['海滨','休闲'], price:'¥35', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Gulangyu_Island_from_Zhongshan_Road%2C_Xiamen.jpg/960px-Gulangyu_Island_from_Zhongshan_Road%2C_Xiamen.jpg'},
+];
+function starOf(r){ return '★ ' + r.toFixed(1); }
+function renderDests(list){
+  const g = document.getElementById('destGrid');
+  if(!list.length){ g.innerHTML = '<div class="empty">该分类暂无目的地</div>'; return; }
+  g.innerHTML = list.map((d,i) => `
+    <div class="dest-card" onclick="quickPlan('${d.name}')">
+      <div class="dest-media">
+        <img src="${d.img}" alt="${d.name}" loading="lazy" onerror="this.style.background='linear-gradient(135deg,#47755A,#C9A96A)';this.removeAttribute('src')">
+        ${d.badge?`<span class="dest-badge">${d.badge}</span>`:''}
+        <span class="dest-rating">${starOf(d.rating)}</span>
+        <span class="dest-loc"><i class="fa-solid fa-location-dot"></i>${d.loc}</span>
+      </div>
+      <div class="dest-body">
+        <div class="dest-name">${d.name}</div>
+        <div class="dest-desc">${d.desc}</div>
+        <div class="dest-tags">${d.tags.map(t=>`<span class="dest-tag">${t}</span>`).join('')}</div>
+        <div class="dest-foot">
+          <div class="dest-price">${d.price} <small>/ 人起</small></div>
+          <div class="dest-go"><i class="fa-solid fa-arrow-right"></i></div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+function filterDest(cat, btn){
+  document.querySelectorAll('.cat-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderDests(cat==='all' ? DESTS : DESTS.filter(d=>d.cat===cat));
+}
+/* 点卡片 → 快速填充该目的地并开始规划 */
+function quickPlan(name){
+  const inp = document.getElementById('prompt');
+  inp.value = name + ' 3 日游';
+  inp.scrollIntoView({behavior:'smooth', block:'center'});
+  inp.focus();
+}
+renderDests(DESTS);
+/* ===== 论坛热帖（真实帖子，点击跳帖子详情，与论坛一致） ===== */
+function loadHotPosts(){
+  const g = document.getElementById('hotPostGrid');
+  fetch('/api/forum/posts?sort=latest').then(r=>r.json()).then(d=>{
+    if(!d.success || !(d.posts||[]).length){ g.innerHTML = '<div class="empty" style="color:#8A948C">暂无帖子</div>'; return; }
+    const esc2 = s => (s==null?'':String(s)).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    g.innerHTML = (d.posts||[]).slice(0,3).map(p=>`
+      <div class="testi-card" style="cursor:pointer" onclick="location.href='post.html?id='+${p.id}">
+        <div class="testi-quote">”</div>
+        <div style="font-size:13px;letter-spacing:2px;color:var(--gold);margin:8px 0 2px">${esc2(p.board_name)}${p.has_trip?' · 含行程':''}</div>
+        <div style="font-family:var(--serif);font-size:17px;font-weight:700;color:#F5F1E8;margin:6px 0 8px">${esc2(p.title)}</div>
+        <div class="testi-text">${p.destination?('目的地：'+esc2(p.destination)):'点击查看帖子详情'}</div>
+        <div class="testi-user"><div class="testi-avatar">${esc2((p.author||'旅')[0])}</div><div><div class="testi-name">${esc2(p.author||'旅人')}</div><div class="testi-meta">${p.comment_count!=null?('回复 '+p.comment_count):''}${p.like_count?' · ♥ '+p.like_count:''}${p.view_count?' · 浏览 '+p.view_count:''}</div></div></div>
+      </div>`).join('');
+  }).catch(()=>{ g.innerHTML = '<div class="empty" style="color:#8A948C">帖子加载失败</div>'; });
+}
+loadHotPosts();
+</script>
 </body>
 </html>

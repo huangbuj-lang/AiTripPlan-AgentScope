@@ -26,6 +26,13 @@
             <artifactId>agentscope-spring-boot-starter</artifactId>
             <version>${AgentScope.version}</version>
         </dependency>
+
+        <!-- Nacos Prompt APIs require the 3.2.x client -->
+        <dependency>
+            <groupId>com.alibaba.nacos</groupId>
+            <artifactId>nacos-client</artifactId>
+            <version>3.2.3</version>
+        </dependency>
         <!-- Jackson JSON：AmapMapEnhancedTool 解析 MCP 响应所需 -->
                 <dependency>
                     <groupId>com.fasterxml.jackson.core</groupId>

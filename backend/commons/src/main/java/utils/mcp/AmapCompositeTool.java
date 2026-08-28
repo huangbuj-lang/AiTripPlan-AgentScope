@@ -11,6 +11,11 @@ public class AmapCompositeTool {
 
     private final McpClientWrapper mcp;
 
+    // ==================== ★观测埋点：综合工具(query_trip/query_route_unified等)成败/次数/耗时 ====================
+    public static final java.util.concurrent.atomic.AtomicLong TOOL_CALLS = new java.util.concurrent.atomic.AtomicLong(0);
+    public static final java.util.concurrent.atomic.AtomicLong TOOL_FAILS = new java.util.concurrent.atomic.AtomicLong(0);
+    public static final java.util.concurrent.atomic.AtomicLong TOOL_COST_MS = new java.util.concurrent.atomic.AtomicLong(0);
+
     public AmapCompositeTool(McpClientWrapper mcp) {
         this.mcp = mcp;
     }
@@ -161,13 +166,37 @@ public class AmapCompositeTool {
     /**
      * 行程Agent专用综合工具。模型只调1次即可拿到规划行程所需的全部真实数据。
      * 内部 Java 代码写死固定链路（天气→景点→酒店→美食），模型不需要自己调多个工具。
+     * 观测包装：综合工具成败/耗时统计。
      */
     @Tool(name = "query_trip", description = "一站式获取规划行程所需的全部真实数据。单城游传 destination 查城市景点/天气/酒店/美食；跨城自驾传 waypoints(途经城市,逗号分隔)查沿途途经景点,不查两端城市内部景点。一次调用返回完整数据。")
     public String queryTrip(
             @ToolParam(name = "destination", description = "目的地城市名（单城游用），如：重庆") String destination,
-            @ToolParam(name = "days", description = "行程天数（仅提示，不影响查询）") String days,
-            @ToolParam(name = "preference", description = "偏好关键词，可选，如：亲子/美食/博物馆/小众/自驾。固定链内部按偏好拼接查询词") String preference,
-            @ToolParam(name = "waypoints", description = "跨城自驾途经城市，逗号分隔（如：大足,内江）。提供时只查这些途经点的景点，不查起终点城市。") String waypoints) {
+            @ToolParam(name = "days", description = "行程天数（仅提示）") String days,
+            @ToolParam(name = "preference", description = "偏好关键词，可选") String preference,
+            @ToolParam(name = "waypoints", description = "跨城自驾途经城市，逗号分隔") String waypoints) {
+        long t0 = System.currentTimeMillis();
+        TOOL_CALLS.incrementAndGet();
+        try {
+            String out = doQueryTrip(destination, days, preference, waypoints);
+            boolean ok = !out.contains("⚠️");
+            if (ok) TOOL_COST_MS.addAndGet(System.currentTimeMillis() - t0); else TOOL_FAILS.incrementAndGet();
+            utils.CallTrace.record(utils.SafeModel.lastTraceId(), "TOOL", "query_trip",
+                    (ok ? "综合工具调用成功 · " : "综合工具调用失败 · ")
+                            + (destination == null ? "" : destination)
+                            + (waypoints != null && !waypoints.isBlank() ? "(途经:" + waypoints + ")" : "")
+                            + (ok ? "" : " ⚠" + extractWarn(out)),
+                    ok, System.currentTimeMillis() - t0);
+            return out;
+        } catch (RuntimeException e) {
+            TOOL_FAILS.incrementAndGet();
+            utils.CallTrace.record(utils.SafeModel.lastTraceId(), "TOOL", "query_trip",
+                    "异常: " + e.getMessage(), false, System.currentTimeMillis() - t0);
+            throw e;
+        }
+    }
+
+    /** 原实现（观测包装拆出，无 @Tool 注解） */
+    private String doQueryTrip(String destination, String days, String preference, String waypoints) {
         StringBuilder sb = new StringBuilder();
         // waypoints 非空=跨城途经分支，否则单城分支
         boolean crossCity = waypoints != null && !waypoints.isBlank();
@@ -282,6 +311,16 @@ public class AmapCompositeTool {
         return sb.toString();
     }
 
+    /** ★调用链明细：从工具输出提取首个 ⚠️ 失败片段（内部归因：哪个环节挂的） */
+    private static String extractWarn(String out) {
+        if (out == null) return "";
+        int i = out.indexOf("⚠️");
+        if (i < 0) i = out.indexOf("⚠");
+        if (i < 0) return "";
+        String seg = out.substring(i).replace('\n', ' ').replace('\r', ' ').trim();
+        return seg.length() > 100 ? seg.substring(0, 100) + "…" : seg;
+    }
+
     /** 从 maps_distance 返回文本里解析米数（优先取 meters 字段），失败返回 -1 */
     private double parseMeters(String r) {
         try {
@@ -309,12 +348,36 @@ public class AmapCompositeTool {
      * mode="urban":   市内衔接（geo→算距离→≤3km步行 / >3km公交）
      */
     @Tool(name = "query_route_unified", description = "路线统一查询工具：查两点间路线。mode=driving查自驾路线与距离；mode=urban查市内衔接(短距步行/长距公交)。可选routePref偏好(如公交/骑行/步行/不走高速)影响出行方式。跨城自驾用driving，市内景区串联用urban。")
+    /** 观测包装：综合工具成败/耗时统计 */
     public String queryRouteUnified(
             @ToolParam(name = "origin", description = "起点地名，如：重庆解放碑") String origin,
             @ToolParam(name = "destination", description = "终点地名，如：重庆磁器口") String destination,
             @ToolParam(name = "mode", description = "模式：driving=自驾(默认)，urban=市内步行/公交") String mode,
             @ToolParam(name = "day", description = "第几天（仅标签提示，可选）") String day,
-            @ToolParam(name = "routePref", description = "路线偏好（可选）如：公交/地铁优先、骑行、步行、不走高速。能映射的出行方式会自动切换，映射不到的作为路线提示") String routePref) {
+            @ToolParam(name = "routePref", description = "路线偏好（可选）") String routePref) {
+        long t0 = System.currentTimeMillis();
+        TOOL_CALLS.incrementAndGet();
+        try {
+            String out = doQueryRouteUnified(origin, destination, mode, day, routePref);
+            boolean ok = !out.contains("⚠️");
+            if (ok) TOOL_COST_MS.addAndGet(System.currentTimeMillis() - t0); else TOOL_FAILS.incrementAndGet();
+            utils.CallTrace.record(utils.SafeModel.lastTraceId(), "TOOL", "query_route_unified",
+                    (ok ? "综合工具调用成功 · " : "综合工具调用失败 · ")
+                            + (origin == null ? "?" : origin) + " → " + (destination == null ? "?" : destination)
+                            + " · " + (mode == null || mode.isBlank() ? "driving" : mode)
+                            + (ok ? "" : " ⚠" + extractWarn(out)),
+                    ok, System.currentTimeMillis() - t0);
+            return out;
+        } catch (RuntimeException e) {
+            TOOL_FAILS.incrementAndGet();
+            utils.CallTrace.record(utils.SafeModel.lastTraceId(), "TOOL", "query_route_unified",
+                    "异常: " + e.getMessage(), false, System.currentTimeMillis() - t0);
+            throw e;
+        }
+    }
+
+    /** 原实现（观测包装拆出，无 @Tool 注解） */
+    private String doQueryRouteUnified(String origin, String destination, String mode, String day, String routePref) {
         // 路线偏好→出行方式映射
         if (routePref != null && !routePref.isBlank()) {
             if (routePref.contains("公交") || routePref.contains("地铁") || routePref.contains("公共交通")) {

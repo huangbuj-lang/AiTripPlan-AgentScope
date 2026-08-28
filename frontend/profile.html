@@ -39,6 +39,7 @@
   .seg-btn.active { background:#00b894; color:#fff; border-color:#00b894; }
   .back-link { display:inline-block; margin-bottom:16px; color:#0984e3; font-size:14px; text-decoration:none; }
 </style>
+<link rel="stylesheet" href="css/travel-theme.css?v=20260828a">
 </head>
 <body>
 <div class="profile-wrap">
@@ -67,7 +68,7 @@
         <div class="form-row"><label>头像 URL</label><input id="avatarUrl" placeholder="https://... 图片链接"></div>
         <div class="form-row"><label>邮箱</label><input id="email" placeholder="you@example.com"></div>
         <div class="form-row"><label>个人简介</label><textarea id="bio" rows="3" placeholder="一句话介绍自己"></textarea></div>
-        <button class="btn-primary" onclick="saveInfo()"><i class="fa-solid fa-floppy-disk"></i> 保存资料</button>
+        <button class="btn-primary" onclick="saveInfo(this)"><i class="fa-solid fa-floppy-disk"></i> 保存资料</button>
         <div class="form-msg" id="infoMsg"></div>
       </div>
 
@@ -102,7 +103,7 @@
             <input type="checkbox" id="useByDefault" checked> 默认应用偏好到每次生成
           </label>
         </div>
-        <button class="btn-primary" onclick="savePrefs()"><i class="fa-solid fa-floppy-disk"></i> 保存偏好</button>
+        <button class="btn-primary" onclick="savePrefs(this)"><i class="fa-solid fa-floppy-disk"></i> 保存偏好</button>
         <div class="form-msg" id="prefsMsg"></div>
       </div>
 
@@ -120,7 +121,7 @@
         <h4 style="margin-top:0">修改密码</h4>
         <div class="form-row"><label>旧密码</label><input type="password" id="oldPwd"></div>
         <div class="form-row"><label>新密码（至少6位）</label><input type="password" id="newPwd"></div>
-        <button class="btn-primary" onclick="changePwd()">修改密码</button>
+        <button class="btn-primary" onclick="changePwd(this)">修改密码</button>
         <div class="form-msg" id="pwdMsg"></div>
 
         <div class="danger-zone">

@@ -5,17 +5,25 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import managerAgent.hook.EventStore;
+import managerAgent.tool.RemoteTimeout;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
+import utils.AgentPrompts;
+import utils.AgentPromptStore;
+import utils.AgentRuntimeConfig;
 import utils.CircuitBreaker;
 import utils.Config;
+import utils.ExternalServices;
 import utils.NacosUtil;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 管理端接口（均需 admin 角色，由 AdminInterceptor 校验）。
@@ -28,6 +36,7 @@ public class AdminController {
 
     @Resource
     private JdbcTemplate jdbcTemplate;
+    private final AtomicBoolean agentRestarting = new AtomicBoolean();
 
     // ==================== 系统状态 ====================
 
@@ -40,7 +49,7 @@ public class AdminController {
         manager.put("name", "Orchestrator"); // 主管（确定性编排器 TripOrchestrator）
         manager.put("label", "主管");
         manager.put("status", "running");
-        manager.put("port", 8081);
+        manager.put("port", 9091);
         r.put("manager", manager);
 
         boolean nacosOk = true;
@@ -93,8 +102,62 @@ public class AdminController {
         r.put("maxConcurrent", AppController.maxConcurrent());
         r.put("inUse", AppController.inUseSlots());
         r.put("sessions", EventStore.listSessions());
+        // 任务监控扩展：结果计数（本次进程运行以来）
+        r.put("countDone", EventStore.COUNT_DONE.get());
+        r.put("countFailed", EventStore.COUNT_FAILED.get());
+        r.put("countCancelled", EventStore.COUNT_CANCELLED.get());
+        long total = EventStore.COUNT_DONE.get() + EventStore.COUNT_FAILED.get() + EventStore.COUNT_CANCELLED.get();
+        r.put("failRate", total > 0 ? Math.round(EventStore.COUNT_FAILED.get() * 1000.0 / total) / 10.0 : 0);
+        // 历史任务列表：内存(近期) + DB(落库历史) 合并去重，新的在前最多200条
+        java.util.List<Map<String, Object>> history = new ArrayList<>();
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        for (EventStore.TaskMeta meta : EventStore.listHistory()) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("sessionId", meta.sessionId);
+            m.put("userId", meta.userId);
+            m.put("submitMs", meta.submitMs);
+            m.put("lastActiveMs", meta.lastActiveMs);
+            m.put("durationMs", meta.lastActiveMs - meta.submitMs);
+            m.put("status", meta.status);
+            m.put("currentStep", meta.currentStep);
+            m.put("modelCallsUsed", meta.status.equals("RUNNING")
+                    ? utils.SafeModel.MODEL_CALLS.get() - meta.modelCallsStart  // 运行中=实时差值
+                    : meta.modelCallsUsed);                                     // 已结束=定格差值
+            history.add(m);
+            seen.add(meta.sessionId);
+        }
+        for (Map<String, Object> dbm : utils.TracePersistence.listHistory(200)) {
+            String sid = String.valueOf(dbm.get("sessionId"));
+            if (seen.contains(sid)) continue;
+            Map<String, Object> m = new HashMap<>(dbm);
+            m.put("durationMs", ((Number) m.get("lastActiveMs")).longValue() - ((Number) m.get("submitMs")).longValue());
+            history.add(m);
+            seen.add(sid);
+            if (history.size() >= 200) break;
+        }
+        r.put("history", history);
+        // 正在运行任务的当前步骤
+        java.util.List<Map<String, Object>> runningList = new ArrayList<>();
+        for (Map<String, String> sessionInfo : listRunningSteps()) {
+            runningList.add(new HashMap<>(sessionInfo));
+        }
+        r.put("runningSteps", runningList);
         r.put("success", true);
         return r;
+    }
+
+    /** 正在运行会话的当前步骤列表（sessionId → 最近事件类型） */
+    private List<Map<String, String>> listRunningSteps() {
+        List<Map<String, String>> out = new ArrayList<>();
+        for (Map<String, Object> s : EventStore.listSessions()) {
+            if (Boolean.TRUE.equals(s.get("running"))) {
+                Map<String, String> m = new HashMap<>();
+                m.put("sessionId", String.valueOf(s.get("sessionId")));
+                m.put("step", String.valueOf(s.getOrDefault("currentStep", "—")));
+                out.add(m);
+            }
+        }
+        return out;
     }
 
     /** 强制中断指定会话 */
@@ -105,6 +168,315 @@ public class AdminController {
         r.put("success", true);
         r.put("message", "已向会话 " + sessionId + " 发送中断请求");
         return r;
+    }
+
+    /** 单个任务的调用链明细：主管(LLM/A2A) + 子Agent进程(TOOL/MCP，经 /trace 合并)，按时间排序 */
+    @GetMapping("/tasks/trace")
+    public Map<String, Object> taskTrace(@RequestParam("sessionId") String sessionId) {
+        Map<String, Object> r = new HashMap<>();
+        r.put("sessionId", sessionId);
+        java.util.List<Map<String, Object>> spans = new java.util.ArrayList<>(utils.CallTrace.traceAsMaps(sessionId));
+        boolean fromDb = false;
+        if (spans.isEmpty()) { // ★内存无（进程重启后）：从库恢复历史 span
+            spans = utils.TracePersistence.loadSpans(sessionId);
+            if (!spans.isEmpty()) fromDb = true;
+        }
+        // 任务开始时间：过滤掉子Agent进程里同 sessionId 上次执行残留的旧 span
+        long taskStartMs = managerAgent.hook.EventStore.taskStartMs(sessionId);
+        if (!fromDb) { // 库中已有完整合并结果，不再实时拉子Agent
+        for (String[] agent : new String[][]{{"路线", "8082"}, {"行程", "8085"}}) {
+            try {
+                String json = httpGetBody("http://localhost:" + agent[1] + "/trace?sessionId="
+                        + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8), 2000);
+                if (json == null) continue;
+                Map<?, ?> parsed = new com.fasterxml.jackson.databind.ObjectMapper().readValue(json, Map.class);
+                if (parsed.get("spans") instanceof java.util.List<?> list) {
+                    for (Object o : list) {
+                        if (o instanceof Map<?, ?> m) {
+                            Object tsObj = m.get("ts");
+                            long ts = tsObj instanceof Number n ? n.longValue() : 0L;
+                            if (taskStartMs > 0 && ts > 0 && ts < taskStartMs) continue; // 上次执行的残留
+                            Map<String, Object> mm = new HashMap<>(m.size() + 1);
+                            mm.putAll((Map<String, Object>) m);
+                            mm.put("agent", agent[0]); // 标记来源进程
+                            spans.add(mm);
+                        }
+                    }
+                }
+            } catch (Exception ignored) { }
+        }
+        } // end if(!fromDb)
+        // 只保留关键层：LLM/A2A/TOOL（MCP 底层每轮 ReAct 都调、量大刷屏，且成败已反映在外层 TOOL 行）
+        spans.removeIf(s -> !"LLM".equals(s.get("layer")) && !"A2A".equals(s.get("layer")) && !"TOOL".equals(s.get("layer")));
+        spans.sort((a, b) -> Long.compare(
+                ((Number) a.getOrDefault("ts", 0L)).longValue(),
+                ((Number) b.getOrDefault("ts", 0L)).longValue()));
+        r.put("spans", spans);
+        r.put("success", true);
+        return r;
+    }
+
+    /** HTTP GET 读 body（探活子Agent），失败返回 null */
+    private String httpGetBody(String url, int timeoutMs) {
+        try {
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            conn.setConnectTimeout(timeoutMs); conn.setReadTimeout(timeoutMs);
+            if (conn.getResponseCode() != 200) { conn.disconnect(); return null; }
+            String body = new String(conn.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            conn.disconnect();
+            return body;
+        } catch (Exception e) { return null; }
+    }
+
+    /** LLM 成本观测：各维度(任务/管线/论坛AI等)的调用次数与token消耗 + 全局汇总 */
+    @GetMapping("/costs")
+    public Map<String, Object> costs() {
+        Map<String, Object> r = new HashMap<>();
+        java.util.List<Map<String, Object>> dims = new ArrayList<>();
+        long totCalls = 0, totIn = 0, totOut = 0;
+        for (var e : utils.SafeModel.dimensionStatsSnapshot().entrySet()) {
+            long[] s = e.getValue();
+            Map<String, Object> m = new HashMap<>();
+            m.put("dimension", e.getKey());
+            m.put("calls", s[0]);
+            m.put("inputTokens", s[1]);
+            m.put("outputTokens", s[2]);
+            dims.add(m);
+            totCalls += s[0]; totIn += s[1]; totOut += s[2];
+        }
+        r.put("dimensions", dims);
+        Map<String, Object> total = new HashMap<>();
+        // ★total 先=主管内存值；下方子Agent探活聚合后再累加合并
+        total.put("calls", totCalls);
+        total.put("inputTokens", totIn);
+        total.put("outputTokens", totOut);
+        r.put("total", total);
+        // ★成本落库：把内存累计值 upsert 到当日维度表（历史趋势基础；重启后内存清零但DB保留当日已写值）
+        try {
+            for (var e : utils.SafeModel.dimensionStatsSnapshot().entrySet()) {
+                long[] st = e.getValue();
+                utils.TracePersistence.upsertLlmCost(e.getKey(), st[0], st[1], st[2]);
+            }
+        } catch (Exception ignored) { }
+        r.put("trend", utils.TracePersistence.costTrend(7)); // 近7日按天趋势
+        // ★子Agent成本聚合：探活 /stats 拉 tokens 并进 total 与 dimensions
+        for (String[] agent : new String[][]{{"RouteMakingAgent", "路线Agent", "8082"}, {"TripPlannerAgent", "行程Agent", "8085"}}) {
+            try {
+                java.net.URL u = new java.net.URL("http://localhost:" + agent[2] + "/stats");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+                conn.setConnectTimeout(1500); conn.setReadTimeout(1500);
+                if (conn.getResponseCode() == 200) {
+                    Map<?, ?> json = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readValue(conn.getInputStream(), Map.class);
+                    long c = numOf(json.get("model_calls"));
+                    long ti = numOf(json.get("tokens_in"));
+                    long to = numOf(json.get("tokens_out"));
+                    r.put("calls_" + agent[0], c);
+                    r.put("tokensIn_" + agent[0], ti);
+                    r.put("tokensOut_" + agent[0], to);
+                    dims.add(Map.of("dimension", agent[1] + "(子)", "calls", c, "inputTokens", ti, "outputTokens", to));
+                    Map<String, Object> t = total;
+                    t.put("calls", ((Number) t.get("calls")).longValue() + c);
+                    t.put("inputTokens", ((Number) t.get("inputTokens")).longValue() + ti);
+                    t.put("outputTokens", ((Number) t.get("outputTokens")).longValue() + to);
+                } else {
+                    r.put("calls_" + agent[0], -1);
+                    r.put("tokensIn_" + agent[0], -1);
+                    r.put("tokensOut_" + agent[0], -1);
+                }
+                conn.disconnect();
+            } catch (Exception ex) {
+                r.put("calls_" + agent[0], -1);
+            }
+        }
+        r.put("note", "进程内存值，重启清零");
+        // ★缓存监控回显：命中/未中/命中率/存量（PlanCache 内存计数，重启清零）
+        try {
+            r.put("cache", utils.cache.PlanCache.stats());
+        } catch (Exception ignored) {
+            r.put("cache", Map.of("hits", 0L, "misses", 0L, "hitRate", 0.0, "size", 0));
+        }
+        r.put("success", true);
+        return r;
+    }
+
+    /** ★Agent健康度：主管(本进程指标) + 子Agent(探活8082/8085 + 主管侧A2A成功率) 三卡综合 */
+    @GetMapping("/agents/health")
+    public Map<String, Object> agentsHealth() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("agents", java.util.List.of(
+                managerHealth(),
+                agentHealth("RouteMakingAgent", "路线Agent", 8082),
+                agentHealth("TripPlannerAgent", "行程Agent", 8085)));
+        r.put("success", true);
+        return r;
+    }
+
+    /** 主管Agent健康卡：本进程内指标（JVM 存活 / 模型调用 / 在途并发 / 熔断 / QPS / Token） */
+    private Map<String, Object> managerHealth() {
+        Map<String, Object> m = new HashMap<>();
+        m.put("name", "ManagerAgent");
+        m.put("label", "主管Agent");
+        m.put("port", 9091);
+        m.put("alive", true);
+        m.put("uptimeMs", java.lang.management.ManagementFactory.getRuntimeMXBean().getUptime());
+        m.put("modelCalls", utils.SafeModel.MODEL_CALLS.get());
+        m.put("inflightActive", utils.SafeModel.getInflightActive());
+        m.put("maxInflight", utils.SafeModel.getMaxInflight());
+        m.put("breakerOpen", utils.CircuitBreaker.getInstance().isOpen());
+        m.put("qps", utils.SafeModel.getMaxQps());
+        m.put("tokensIn", utils.SafeModel.TOKENS_INPUT.get());
+        m.put("tokensOut", utils.SafeModel.TOKENS_OUTPUT.get());
+        // A2A 字段默认值（主管不发起 A2A 调用）：与子Agent卡片一致显示 0/0/—
+        m.put("a2aCalls", 0L);
+        m.put("a2aFails", 0L);
+        m.put("a2aSuccessRate", -1.0);
+        m.put("a2aAvgCostMs", -1L);
+        m.put("light", utils.CircuitBreaker.getInstance().isOpen() ? "yellow" : "green");
+        return m;
+    }
+
+    /** 单个子Agent的健康信息：进程存活 + A2A调用统计 */
+    private Map<String, Object> agentHealth(String name, String label, int port) {
+        Map<String, Object> a = new HashMap<>();
+        a.put("name", name);
+        a.put("label", label);
+        a.put("port", port);
+        // 1. 探活：HTTP GET /stats，2s 连接/读取超时即视为挂
+        boolean alive = false;
+        long uptimeMs = -1;
+        int modelCalls = -1;
+        long mcpCalls = -1, mcpFails = -1;
+        final long[] a_lkCalls = {-1}, a_lkFails = {-1}, a_lkCostMs = {-1}; // lambda 内赋值用数组
+        final long[] a_toolCalls = {-1}, a_toolFails = {-1}, a_toolCostMs = {-1};
+        Map<String, long[]> mcpByName = new java.util.LinkedHashMap<>();
+        try {
+            java.net.URL url = new java.net.URL("http://localhost:" + port + "/stats");
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(2000);
+            conn.setReadTimeout(2000);
+            conn.setRequestMethod("GET");
+            if (conn.getResponseCode() == 200) {
+                alive = true;
+                String body = new String(conn.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                Map<?, ?> json = new com.fasterxml.jackson.databind.ObjectMapper().readValue(body, Map.class);
+                if (json.get("uptimeMs") instanceof Number n) {
+                    uptimeMs = n.longValue();
+                }
+                if (json.get("model_calls") instanceof Number n) {
+                    modelCalls = n.intValue();
+                }
+                if (json.get("mcp_calls") instanceof Number n) mcpCalls = n.longValue();
+                if (json.get("mcp_fails") instanceof Number n) mcpFails = n.longValue();
+                if (json.get("lk_calls") instanceof Number n) a_lkCalls[0] = n.longValue();
+                if (json.get("lk_fails") instanceof Number n) a_lkFails[0] = n.longValue();
+                if (json.get("lk_cost_ms") instanceof Number n) a_lkCostMs[0] = n.longValue();
+                if (json.get("tool_calls") instanceof Number n) a_toolCalls[0] = n.longValue();
+                if (json.get("tool_fails") instanceof Number n) a_toolFails[0] = n.longValue();
+                if (json.get("tool_cost_ms") instanceof Number n) a_toolCostMs[0] = n.longValue();
+                if (json.get("mcp_by_name") instanceof Map<?, ?> b) {
+                    b.forEach((k, v) -> {
+                        if (v instanceof java.util.List<?> arr && arr.size() >= 2) {
+                            mcpByName.put(String.valueOf(k), new long[]{
+                                    ((Number) arr.get(0)).longValue(), ((Number) arr.get(1)).longValue()});
+                        }
+                    });
+                }
+            }
+            conn.disconnect();
+        } catch (Exception ignored) { }
+        a.put("alive", alive);
+        a.put("uptimeMs", uptimeMs);
+        a.put("modelCalls", modelCalls);
+        a.put("mcpCalls", mcpCalls);
+        a.put("mcpFails", mcpFails);
+        a.put("mcpByName", mcpByName);
+        a.put("lkCalls", a_lkCalls[0]);
+        a.put("lkFails", a_lkFails[0]);
+        a.put("lkAvgMs", a_lkCalls[0] > 0 ? a_lkCostMs[0] / a_lkCalls[0] : -1);
+        a.put("toolCalls", a_toolCalls[0]);
+        a.put("toolFails", a_toolFails[0]);
+        a.put("toolAvgMs", a_toolCalls[0] > 0 ? a_toolCostMs[0] / a_toolCalls[0] : -1);
+        // 2. 主管侧 A2A 调用统计（RemoteAgentTool 埋点累计）
+        long calls = managerAgent.tool.RemoteAgentTool.AGENT_CALLS
+                .getOrDefault(name, new java.util.concurrent.atomic.AtomicLong()).get();
+        long fails = managerAgent.tool.RemoteAgentTool.AGENT_FAILS
+                .getOrDefault(name, new java.util.concurrent.atomic.AtomicLong()).get();
+        long costMs = managerAgent.tool.RemoteAgentTool.AGENT_COST_MS
+                .getOrDefault(name, new java.util.concurrent.atomic.AtomicLong()).get();
+        a.put("a2aCalls", calls);
+        a.put("a2aFails", fails);
+        a.put("a2aSuccessRate", calls > 0 ? Math.round((calls - fails) * 1000.0 / calls) / 10.0 : -1); // 百分比，-1=无调用
+        a.put("a2aAvgCostMs", calls > 0 ? costMs / calls : -1);
+        // 3. 综合灯色：绿=存活且成功率≥90%；黄=存活但失败率高；红=探活不通；灰=存活但从未被调用
+        String light;
+        if (!alive) light = "red";
+        else if (calls == 0) light = "gray";
+        else light = (calls - fails) * 100 >= calls * 90 ? "green" : "yellow";
+        a.put("light", light);
+        return a;
+    }
+
+    /** ★工具层细粒度观测：各子Agent的综合工具/知识库/内部MCP工具 调用数与成功率（探活 /stats 聚合） */
+    @GetMapping("/tools")
+    public Map<String, Object> tools() {
+        Map<String, Object> r = new HashMap<>();
+        java.util.List<Map<String, Object>> agents = new ArrayList<>();
+        for (String[] agent : new String[][]{{"RouteMakingAgent", "路线Agent", "8082"}, {"TripPlannerAgent", "行程Agent", "8085"}}) {
+            Map<String, Object> a = new HashMap<>();
+            a.put("name", agent[0]);
+            a.put("label", agent[1]);
+            try {
+                String body = httpGetBody("http://localhost:" + agent[2] + "/stats", 2000);
+                if (body == null) {
+                    a.put("alive", false);
+                    agents.add(a);
+                    continue;
+                }
+                a.put("alive", true);
+                Map<?, ?> json = new com.fasterxml.jackson.databind.ObjectMapper().readValue(body, Map.class);
+                long tc = numOf(json.get("tool_calls")), tf = numOf(json.get("tool_fails"));
+                a.put("toolCalls", tc); a.put("toolFails", tf);
+                a.put("toolRate", tc > 0 ? Math.round((tc - tf) * 1000.0 / tc) / 10.0 : -1);
+                long lc = numOf(json.get("lk_calls")), lf = numOf(json.get("lk_fails"));
+                a.put("lkCalls", lc); a.put("lkFails", lf);
+                a.put("lkRate", lc > 0 ? Math.round((lc - lf) * 1000.0 / lc) / 10.0 : -1);
+                long mc = numOf(json.get("mcp_calls")), mf = numOf(json.get("mcp_fails"));
+                a.put("mcpCalls", mc); a.put("mcpFails", mf);
+                a.put("mcpRate", mc > 0 ? Math.round((mc - mf) * 1000.0 / mc) / 10.0 : -1);
+                java.util.List<Map<String, Object>> byName = new ArrayList<>();
+                if (json.get("mcp_by_name") instanceof Map<?, ?> b) {
+                    b.forEach((k, v) -> {
+                        long c = -1, f = -1;
+                        if (v instanceof java.util.List<?> arr && arr.size() >= 2) {
+                            c = ((Number) arr.get(0)).longValue();
+                            f = ((Number) arr.get(1)).longValue();
+                        } else if (v instanceof Number[] n2 && n2.length >= 2) {
+                            c = n2[0].longValue(); f = n2[1].longValue();
+                        }
+                        if (c < 0) return;
+                        Map<String, Object> mm = new HashMap<>();
+                        mm.put("tool", String.valueOf(k));
+                        mm.put("calls", c); mm.put("fails", f);
+                        mm.put("rate", c > 0 ? Math.round((c - f) * 1000.0 / c) / 10.0 : -1);
+                        byName.add(mm);
+                    });
+                    byName.sort((x, y) -> Long.compare(((Number) y.get("calls")).longValue(), ((Number) x.get("calls")).longValue()));
+                }
+                a.put("mcpByName", byName);
+            } catch (Exception e) {
+                a.put("alive", false);
+            }
+            agents.add(a);
+        }
+        r.put("agents", agents);
+        r.put("success", true);
+        return r;
+    }
+
+    /** 数值安全转换：非数字返回 -1 */
+    private static long numOf(Object o) {
+        return o instanceof Number n ? n.longValue() : -1;
     }
 
     // ==================== 模型监控 ====================
@@ -130,11 +502,25 @@ public class AdminController {
         py.put("keyMasked", maskKey((String) py.get("key")));
         py.remove("key");
         r.put("python", py);
+        Map<String, Object> orchestration = utils.NacosModelConfig.orchestrationConfig();
+        RemoteTimeout.configure(orchestration);
+        r.put("orchestration", Map.of(
+                "maxConcurrentTasks", AppController.maxConcurrent(),
+                "remoteTimeoutSeconds", RemoteTimeout.currentSeconds(),
+                "source", orchestration != null && orchestration.get("maxConcurrentTasks") != null
+                        ? "nacos" : "env"));
+        Map<String, Object> timeoutConfig = utils.NacosModelConfig.timeoutsConfig();
+        r.put("timeouts", Map.of(
+                "defaultSeconds", utils.ModelTimeouts.defaultMillis() / 1000,
+                "moderationSeconds", utils.ModelTimeouts.moderationMillis() / 1000,
+                "aiAnswerSeconds", utils.ModelTimeouts.aiAnswerMillis() / 1000,
+                "tripEditSeconds", utils.ModelTimeouts.tripEditMillis() / 1000,
+                "source", timeoutConfig.isEmpty() ? "default" : "nacos"));
         r.put("success", true);
         return r;
     }
 
-    /** 保存模型配置：写 .env + Java 热更 + 重启子Agent。主模型/备用模型均为"任一字段非空即保存该组" */
+    /** 保存模型配置：先发布 Nacos 配置，成功后更新本进程并写入 Python 本地兜底缓存。 */
     @PostMapping("/model-config")
     public Map<String, Object> saveModelConfig(@RequestParam(required = false) String javaUrl,
                                                @RequestParam(required = false) String javaKey,
@@ -144,48 +530,131 @@ public class AdminController {
                                                @RequestParam(required = false) String fbName,
                                                @RequestParam(required = false) String pyUrl,
                                                @RequestParam(required = false) String pyKey,
-                                               @RequestParam(required = false) String pyName) {
+                                               @RequestParam(required = false) String pyName,
+                                               @RequestParam(required = false) Integer maxConcurrentTasks,
+                                               @RequestParam(required = false) Integer remoteTimeoutSeconds,
+                                               @RequestParam(required = false) Integer defaultTimeoutSeconds,
+                                               @RequestParam(required = false) Integer moderationTimeoutSeconds,
+                                               @RequestParam(required = false) Integer aiAnswerTimeoutSeconds,
+                                               @RequestParam(required = false) Integer tripEditTimeoutSeconds,
+                                               @RequestParam(required = false) Double qps,
+                                               @RequestParam(required = false) Integer maxInflight,
+                                               @RequestParam(required = false) Integer maxRetries,
+                                               @RequestParam(required = false) Long retryBaseMs,
+                                               @RequestParam(required = false) Integer breakerFailureThreshold,
+                                               @RequestParam(required = false) Long breakerWindowMs,
+                                               @RequestParam(required = false) Long breakerCoolDownMs) {
         Map<String, Object> r = new java.util.HashMap<>();
         try {
-            StringBuilder note = new StringBuilder();
+            if (maxConcurrentTasks != null
+                    && (maxConcurrentTasks < ConcurrencyGate.MIN_LIMIT
+                    || maxConcurrentTasks > ConcurrencyGate.HARD_LIMIT)) {
+                r.put("success", false);
+                r.put("message", "保存失败：最大并发任务必须在 "
+                        + ConcurrencyGate.MIN_LIMIT + "-" + ConcurrencyGate.HARD_LIMIT + " 之间");
+                return r;
+            }
+            if (remoteTimeoutSeconds != null
+                    && (remoteTimeoutSeconds < RemoteTimeout.MIN_SECONDS
+                    || remoteTimeoutSeconds > RemoteTimeout.MAX_SECONDS)) {
+                r.put("success", false);
+                r.put("message", "保存失败：远程调用超时必须在 "
+                        + RemoteTimeout.MIN_SECONDS + "-" + RemoteTimeout.MAX_SECONDS + " 秒之间");
+                return r;
+            }
+            Integer[] directTimeouts = {defaultTimeoutSeconds, moderationTimeoutSeconds,
+                    aiAnswerTimeoutSeconds, tripEditTimeoutSeconds};
+            for (Integer timeout : directTimeouts) {
+                if (timeout != null && (timeout < utils.ModelTimeouts.MIN_SECONDS
+                        || timeout > utils.ModelTimeouts.MAX_SECONDS)) {
+                    r.put("success", false);
+                    r.put("message", "保存失败：直连模型超时必须在 "
+                            + utils.ModelTimeouts.MIN_SECONDS + "-" + utils.ModelTimeouts.MAX_SECONDS + " 秒之间");
+                    return r;
+                }
+            }
             boolean javaChanged = (javaUrl != null && !javaUrl.isBlank())
                     || (javaKey != null && !javaKey.isBlank())
                     || (javaName != null && !javaName.isBlank());
-            if (javaChanged) {
-                // 主模型组：任一字段非空即保存，空字段保持原值
-                utils.ModelConfigHolder.update(javaUrl, javaKey, javaName);
-                if (javaUrl != null && !javaUrl.isBlank()) upsertEnv("MODEL_BASE_URL", javaUrl);
-                if (javaKey != null && !javaKey.isBlank()) upsertEnv("MODEL_API_KEY", javaKey);
-                if (javaName != null && !javaName.isBlank()) upsertEnv("MODEL_NAME", javaName);
-                managerAgent.tool.LlmClientReset.reset(); // 下次构建模型用新配置
-                // 子Agent是独立JVM，写完.env后须重启才生效
-                java.lang.Thread t2 = new Thread(() -> {
-                    try { Thread.sleep(800); } catch (Exception ignore) {}
-                    restartSubAgents();
-                });
-                t2.setDaemon(true);
-                t2.start();
-                note.append("Java侧已热更；子Agent正在重启以加载新模型；");
-            }
-            // 备用模型组：任一字段非空即保存 + 写.env
             boolean fbChanged = (fbUrl != null && !fbUrl.isBlank())
                     || (fbKey != null && !fbKey.isBlank())
                     || (fbName != null && !fbName.isBlank());
-            if (fbChanged) {
-                utils.ModelConfigHolder.updateFallback(fbUrl, fbKey, fbName);
-                if (fbUrl != null && !fbUrl.isBlank()) upsertEnv("FALLBACK_MODEL_BASE_URL", fbUrl);
-                if (fbKey != null && !fbKey.isBlank()) upsertEnv("FALLBACK_MODEL_API_KEY", fbKey);
-                if (fbName != null && !fbName.isBlank()) upsertEnv("FALLBACK_MODEL_NAME", fbName);
-                note.append("备用模型已热更；");
+            boolean pyChanged = pyUrl != null && !pyUrl.isBlank() || pyKey != null && !pyKey.isBlank()
+                    || pyName != null && !pyName.isBlank();
+            boolean orchestrationChanged = maxConcurrentTasks != null || remoteTimeoutSeconds != null;
+            boolean timeoutsChanged = defaultTimeoutSeconds != null || moderationTimeoutSeconds != null
+                    || aiAnswerTimeoutSeconds != null || tripEditTimeoutSeconds != null;
+            boolean limitsChanged = qps != null || maxInflight != null || maxRetries != null || retryBaseMs != null
+                    || breakerFailureThreshold != null || breakerWindowMs != null || breakerCoolDownMs != null;
+            if (!javaChanged && !fbChanged && !pyChanged && !orchestrationChanged
+                    && !timeoutsChanged && !limitsChanged) {
+                r.put("success", true);
+                r.put("message", "没有需要保存的修改");
+                return r;
             }
-            if (pyUrl != null && !pyUrl.isBlank() || pyKey != null && !pyKey.isBlank()
-                    || pyName != null && !pyName.isBlank()) {
-                // Python 侧：写统一配置文件 llm_config.json
-                savePyLlmConfig(pyUrl, pyKey, pyName);
-                note.append("Python侧已更新；");
+
+            Map<String, Object> java = new java.util.HashMap<>(utils.NacosModelConfig.javaConfig());
+            putIfPresent(java, "url", javaUrl);
+            putIfPresent(java, "key", javaKey);
+            putIfPresent(java, "name", javaName);
+
+            Map<String, Object> fallback = new java.util.HashMap<>(utils.NacosModelConfig.fallbackConfig());
+            putIfPresent(fallback, "url", fbUrl);
+            putIfPresent(fallback, "key", fbKey);
+            putIfPresent(fallback, "name", fbName);
+
+            Map<String, Object> python = new java.util.HashMap<>(readPyLlmConfig());
+            putIfPresent(python, "url", pyUrl);
+            putIfPresent(python, "key", pyKey);
+            putIfPresent(python, "name", pyName);
+
+            Map<String, Object> config = new java.util.LinkedHashMap<>();
+            config.put("java", java);
+            config.put("fallback", fallback);
+            config.put("python", python);
+            Map<String, Object> limits = new java.util.LinkedHashMap<>();
+            limits.put("qps", qps != null ? qps : utils.SafeModel.getMaxQps());
+            limits.put("maxInflight", maxInflight != null ? maxInflight : utils.SafeModel.getMaxInflight()); // ★在途并发
+            limits.put("maxRetries", maxRetries != null ? maxRetries : utils.SafeModel.getMaxRetries());
+            limits.put("retryBaseMs", retryBaseMs != null ? retryBaseMs : utils.SafeModel.getRetryBaseMs());
+            limits.put("breakerFailureThreshold", breakerFailureThreshold != null ? breakerFailureThreshold : utils.CircuitBreaker.getFailureThreshold());
+            limits.put("breakerWindowMs", breakerWindowMs != null ? breakerWindowMs : utils.CircuitBreaker.getWindowMs());
+            limits.put("breakerCoolDownMs", breakerCoolDownMs != null ? breakerCoolDownMs : utils.CircuitBreaker.getCoolDownMs());
+            config.put("limits", limits);
+            Map<String, Object> orchestration = utils.NacosModelConfig.orchestrationConfig();
+            if (orchestration == null) {
+                orchestration = new java.util.LinkedHashMap<>();
             }
+            if (orchestrationChanged) {
+                if (maxConcurrentTasks != null) {
+                    orchestration.put("maxConcurrentTasks", maxConcurrentTasks);
+                }
+                if (remoteTimeoutSeconds != null) {
+                    orchestration.put("remoteTimeoutSeconds", remoteTimeoutSeconds);
+                }
+            }
+            if (!orchestration.isEmpty()) {
+                config.put("orchestration", orchestration);
+            }
+            if (timeoutsChanged) {
+                Map<String, Object> timeouts = new java.util.LinkedHashMap<>(
+                        utils.NacosModelConfig.timeoutsConfig());
+                if (defaultTimeoutSeconds != null) timeouts.put("defaultSeconds", defaultTimeoutSeconds);
+                if (moderationTimeoutSeconds != null) timeouts.put("moderationSeconds", moderationTimeoutSeconds);
+                if (aiAnswerTimeoutSeconds != null) timeouts.put("aiAnswerSeconds", aiAnswerTimeoutSeconds);
+                if (tripEditTimeoutSeconds != null) timeouts.put("tripEditSeconds", tripEditTimeoutSeconds);
+                config.put("timeouts", timeouts);
+            }
+            config.put("updatedAt", Instant.now().toString());
+            utils.NacosModelConfig.publish(config);
+
+            utils.ModelConfigHolder.update(javaUrl, javaKey, javaName);
+            utils.ModelConfigHolder.updateFallback(fbUrl, fbKey, fbName);
+            if (javaChanged || fbChanged) managerAgent.tool.LlmClientReset.reset();
+            savePyLlmConfig(pyUrl, pyKey, pyName);
+
             r.put("success", true);
-            r.put("message", note.length() == 0 ? "没有需要保存的修改" : note.toString());
+            r.put("message", "配置已发布到Nacos；相关进程监听热更，无需重启");
         } catch (Exception e) {
             r.put("success", false);
             r.put("message", "保存失败：" + e.getMessage());
@@ -193,78 +662,59 @@ public class AdminController {
         return r;
     }
 
+    private void putIfPresent(Map<String, Object> config, String key, String value) {
+        if (value != null && !value.isBlank()) config.put(key, value.trim());
+    }
+
     /** 打码 key */
     private String maskKey(String k) {
         return (k == null || k.length() < 10) ? "" : k.substring(0, 6) + "****" + k.substring(k.length() - 4);
     }
 
-    /** 写/更新 .env 中的键（保持其他行不变） */
-    /** 重启子Agent(独立JVM配置启动时固化)：调 restart-agents.sh 让全链路换模型。 */
-    private synchronized void restartSubAgents() {
-        try {
-            String base = System.getProperty("user.dir");
-            java.io.File script = new java.io.File(base, "restart-agents.sh");
-            if (!script.exists()) {
-                String configured = utils.Config.get("RESTART_AGENTS_SCRIPT", "");
-                if (!configured.isBlank()) script = new java.io.File(configured);
-            }
-            if (!script.exists()) {
-                log.warn("找不到 restart-agents.sh，子Agent未重启；请配置 RESTART_AGENTS_SCRIPT");
-                return;
-            }
-            ProcessBuilder restart = new ProcessBuilder("bash", script.getCanonicalPath());
-            restart.directory(script.getParentFile());
-            restart.redirectErrorStream(true);
-            restart.redirectOutput(java.lang.ProcessBuilder.Redirect.appendTo(
-                    new java.io.File(script.getParentFile(), "logs/restart-agents.log")));
-            Process process = restart.start();
-            boolean done = process.waitFor(220, java.util.concurrent.TimeUnit.SECONDS);
-            if (done && process.exitValue() == 0) {
-                log.info("子Agent已单独重启并加载新模型配置；主管保持运行");
-            } else if (!done) {
-                process.destroyForcibly();
-                log.warn("子Agent重启超时，已终止重启脚本");
-            } else {
-                log.warn("子Agent重启脚本退出码 {}: 请查看 logs/restart-agents.log", process.exitValue());
-            }
-        } catch (Exception e) {
-            log.warn("重启子Agent异常: {}", e.getMessage());
-        }
-    }
-
-
-        private synchronized void upsertEnv(String key, String value) throws Exception {
-        java.io.File f = new java.io.File(System.getProperty("user.dir"), ".env");
-        java.util.List<String> lines = new java.util.ArrayList<>();
-        boolean found = false;
-        if (f.exists()) {
-            for (String line : java.nio.file.Files.readAllLines(f.toPath())) {
-                if (line.startsWith(key + "=")) {
-                    lines.add(key + "=" + value);
-                    found = true;
-                } else {
-                    lines.add(line);
-                }
-            }
-        }
-        if (!found) lines.add(key + "=" + value);
-        java.nio.file.Files.write(f.toPath(), lines);
-    }
-
     /** Python 侧统一配置文件 data-pipeline/llm_config.json */
     private java.io.File pyConfigFile() {
-        return new java.io.File(System.getProperty("user.dir"), "data-pipeline/llm_config.json");
+        return new java.io.File(projectRoot(), "data-pipeline/llm_config.json");
+    }
+
+    /**
+     * 项目根目录不能依赖 user.dir：IDE 或手动启动 jar 时，工作目录可能在 target。
+     * 向上查找同时包含 backend 与 data-pipeline 的目录，本地和云端部署都适用。
+     */
+    private java.io.File projectRoot() {
+        try {
+            String configured = Config.get("PROJECT_ROOT", "");
+            if (!configured.isBlank()) {
+                java.io.File configuredDir = new java.io.File(configured).getCanonicalFile();
+                if (new java.io.File(configuredDir, "data-pipeline").isDirectory()) return configuredDir;
+            }
+            java.io.File dir = new java.io.File(System.getProperty("user.dir")).getCanonicalFile();
+            while (dir != null) {
+                if (new java.io.File(dir, "data-pipeline").isDirectory()
+                        && new java.io.File(dir, "backend").isDirectory()) {
+                    return dir;
+                }
+                dir = dir.getParentFile();
+            }
+        } catch (Exception e) {
+            log.warn("解析项目根目录失败: {}", e.getMessage());
+        }
+        return new java.io.File(System.getProperty("user.dir"));
     }
 
     private Map<String, Object> readPyLlmConfig() {
         Map<String, Object> m = new java.util.HashMap<>();
-        try {
-            java.io.File f = pyConfigFile();
-            if (f.exists()) {
-                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-                m = om.readValue(f, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { });
-            }
-        } catch (Exception ignored) { }
+        Map<String, Object> remote = utils.NacosModelConfig.pythonConfig();
+        if (remote != null) {
+            m.putAll(remote);
+        } else {
+            try {
+                java.io.File f = pyConfigFile();
+                if (f.exists()) {
+                    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                    m = om.readValue(f, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { });
+                }
+            } catch (Exception ignored) { }
+        }
         m.putIfAbsent("url", "https://openrouter.ai/api/v1");
         m.putIfAbsent("key", "");
         m.putIfAbsent("name", "stealth/ox-alpha");
@@ -287,12 +737,321 @@ public class AdminController {
         Map<String, Object> r = new HashMap<>();
         r.put("state", cb.getState().name());
         r.put("consecutiveFailures", cb.getConsecutiveFailures());
-        r.put("primaryModel", Config.get("MODEL_NAME", "deepseek-v4-flash"));
-        r.put("fallbackModel", Config.get("FALLBACK_MODEL_NAME", "qwen3.7-max"));
-        r.put("maxQps", Config.getDouble("MODEL_MAX_QPS", 3));
-        r.put("maxRetries", Config.getInt("MODEL_MAX_RETRIES", 3));
+        r.put("primaryModel", utils.ModelConfigHolder.modelName());
+        r.put("fallbackModel", utils.ModelConfigHolder.fbModelName());
+        r.put("maxQps", utils.SafeModel.getMaxQps());
+        r.put("maxInflight", utils.SafeModel.getMaxInflight()); // ★在途并发上限
+        r.put("inflightActive", utils.SafeModel.getInflightActive()); // 当前在途数
+        r.put("maxRetries", utils.SafeModel.getMaxRetries());
+        r.put("retryBaseMs", utils.SafeModel.getRetryBaseMs());
+        r.put("breakerFailureThreshold", utils.CircuitBreaker.getFailureThreshold());
+        r.put("breakerWindowMs", utils.CircuitBreaker.getWindowMs());
+        r.put("breakerCoolDownMs", utils.CircuitBreaker.getCoolDownMs());
         r.put("success", true);
         return r;
+    }
+
+    // ==================== Agent 工具开关 ====================
+
+    /** Read effective agent runtime switches. Missing Nacos config means all defaults are on. */
+    @GetMapping("/agent-config")
+    public Map<String, Object> getAgentConfig() {
+        Map<String, Object> r = new HashMap<>();
+        Map<String, Object> tools = new HashMap<>();
+        tools.put("amap", AgentRuntimeConfig.toolEnabled("amap", true));
+        tools.put("localKnowledge", AgentRuntimeConfig.toolEnabled("localKnowledge", true));
+        tools.put("remoteRouteAgent", AgentRuntimeConfig.toolEnabled("remoteRouteAgent", true));
+        tools.put("remoteTripAgent", AgentRuntimeConfig.toolEnabled("remoteTripAgent", true));
+        r.put("tools", tools);
+        r.put("source", AgentRuntimeConfig.loaded() ? "nacos" : "default");
+        r.put("restartInProgress", agentRestarting.get());
+        r.put("success", true);
+        return r;
+    }
+
+    /** Save switches to Nacos. Registration-time switches require rebuilding child toolkits. */
+    @PostMapping("/agent-config")
+    public Map<String, Object> saveAgentConfig(@RequestParam Boolean amap,
+                                               @RequestParam Boolean localKnowledge,
+                                               @RequestParam Boolean remoteRouteAgent,
+                                               @RequestParam Boolean remoteTripAgent) {
+        Map<String, Object> r = new HashMap<>();
+        if (amap == null || localKnowledge == null || remoteRouteAgent == null || remoteTripAgent == null) {
+            r.put("success", false);
+            r.put("message", "保存失败：工具开关不能为空");
+            return r;
+        }
+        try {
+            boolean oldAmap = AgentRuntimeConfig.toolEnabled("amap", true);
+            boolean oldLocalKnowledge = AgentRuntimeConfig.toolEnabled("localKnowledge", true);
+            boolean restartRequired = oldAmap != amap || oldLocalKnowledge != localKnowledge;
+
+            Map<String, Object> config = new java.util.LinkedHashMap<>(AgentRuntimeConfig.currentConfig());
+            Map<String, Object> tools = new java.util.LinkedHashMap<>(AgentRuntimeConfig.toolsConfig());
+            tools.put("amap", amap);
+            tools.put("localKnowledge", localKnowledge);
+            tools.put("remoteRouteAgent", remoteRouteAgent);
+            tools.put("remoteTripAgent", remoteTripAgent);
+            config.put("tools", tools);
+            config.put("updatedAt", Instant.now().toString());
+            AgentRuntimeConfig.publish(config);
+
+            r.put("success", true);
+            r.put("restartRequired", restartRequired);
+            if (!restartRequired) {
+                r.put("restartTriggered", false);
+                r.put("message", "配置已保存到Nacos，远程Agent开关调用前热生效");
+            } else if (startAgentRestart()) {
+                r.put("restartTriggered", true);
+                r.put("message", "配置已保存到Nacos；正在重启路线/行程子Agent（8082/8085）");
+            } else {
+                r.put("restartTriggered", false);
+                r.put("message", "配置已保存到Nacos；已有子Agent重启任务在进行中");
+            }
+        } catch (Exception e) {
+            log.warn("Save agent runtime config failed: {}", e.getMessage(), e);
+            r.put("success", false);
+            r.put("message", "保存失败：" + e.getMessage());
+        }
+        return r;
+    }
+
+    // ==================== Agent 提示词与工具描述 ====================
+
+    /** Read prompts managed by Nacos Prompt management; the admin UI is read-only. */
+    @GetMapping("/agent-prompts")
+    public Map<String, Object> getAgentPrompts() {
+        Map<String, Object> r = new HashMap<>();
+        Map<String, Object> prompts = new LinkedHashMap<>();
+        Map<String, String> labels = AgentPrompts.labels();
+        AgentPrompts.defaults().forEach((key, defaultValue) -> {
+            Map<String, Object> item = new HashMap<>();
+            item.put("label", labels.getOrDefault(key, key));
+            item.put("value", AgentPromptStore.prompt(key, defaultValue));
+            item.put("defaultValue", defaultValue);
+            item.put("nacosPromptKey", AgentPromptStore.promptKey(key));
+            item.put("customized", AgentPromptStore.customized(key));
+            item.put("editable", false);
+            prompts.put(key, item);
+        });
+        r.put("prompts", prompts);
+        r.put("source", AgentPromptStore.source());
+        r.put("success", true);
+        return r;
+    }
+    // ==================== 高德凭证 ====================
+
+    /** Show masked AMap keys; blank inputs on save mean "keep the current key". */
+    @GetMapping("/amap-credentials")
+    public Map<String, Object> getAmapCredentials() {
+        Map<String, Object> r = new HashMap<>();
+        String webKey = ExternalServices.amapKey();
+        String mcpKey = ExternalServices.amapMcpKey();
+        Map<String, Object> stored = AgentRuntimeConfig.credentialsConfig();
+        r.put("webKeyMasked", maskKey(webKey));
+        r.put("webKeyConfigured", webKey != null && !webKey.isBlank());
+        r.put("mcpKeyMasked", maskKey(mcpKey));
+        r.put("mcpKeyConfigured", mcpKey != null && !mcpKey.isBlank());
+        r.put("source", stored.containsKey("amapKey") || stored.containsKey("amapMcpKey")
+                ? "nacos" : "env");
+        r.put("restartInProgress", agentRestarting.get());
+        r.put("success", true);
+        return r;
+    }
+
+    /** Save AMap keys to Nacos. A changed MCP key requires rebuilding child MCP clients. */
+    @PostMapping("/amap-credentials")
+    public Map<String, Object> saveAmapCredentials(
+            @RequestParam(required = false) String webKey,
+            @RequestParam(required = false) String mcpKey) {
+        Map<String, Object> r = new HashMap<>();
+        try {
+            webKey = webKey == null ? "" : webKey.trim();
+            mcpKey = mcpKey == null ? "" : mcpKey.trim();
+            if (webKey.isBlank() && mcpKey.isBlank()) {
+                r.put("success", true);
+                r.put("message", "没有需要保存的高德Key修改");
+                return r;
+            }
+
+            String oldWebKey = ExternalServices.amapKey();
+            String oldMcpKey = ExternalServices.amapMcpKey();
+            Map<String, Object> credentials = new java.util.LinkedHashMap<>(AgentRuntimeConfig.credentialsConfig());
+            if (!webKey.isBlank()) credentials.put("amapKey", webKey);
+            if (!mcpKey.isBlank()) credentials.put("amapMcpKey", mcpKey);
+
+            String storedWeb = String.valueOf(credentials.getOrDefault("amapKey", "")).trim();
+            String storedMcp = String.valueOf(credentials.getOrDefault("amapMcpKey", "")).trim();
+            String newWebKey = storedWeb.isBlank() ? oldWebKey : storedWeb;
+            String newMcpKey = storedMcp.isBlank()
+                    ? (storedWeb.isBlank() ? oldMcpKey : storedWeb)
+                    : storedMcp;
+            boolean webChanged = !newWebKey.equals(oldWebKey);
+            boolean mcpChanged = !newMcpKey.equals(oldMcpKey);
+            if (!webChanged && !mcpChanged) {
+                r.put("success", true);
+                r.put("restartRequired", false);
+                r.put("restartTriggered", false);
+                r.put("message", "高德Key未变化");
+                return r;
+            }
+
+            Map<String, Object> config = new java.util.LinkedHashMap<>(AgentRuntimeConfig.currentConfig());
+            config.put("credentials", credentials);
+            config.put("updatedAt", Instant.now().toString());
+            AgentRuntimeConfig.publish(config);
+
+            r.put("success", true);
+            r.put("restartRequired", mcpChanged);
+            if (!mcpChanged) {
+                r.put("restartTriggered", false);
+                r.put("message", "高德Key已保存到Nacos，主管接口热生效");
+            } else if (startAgentRestart()) {
+                r.put("restartTriggered", true);
+                r.put("message", "高德Key已保存到Nacos；MCP Key变化，正在重启路线/行程子Agent（8082/8085）");
+            } else {
+                r.put("restartTriggered", false);
+                r.put("message", "高德Key已保存到Nacos；已有子Agent重启任务在进行中");
+            }
+        } catch (Exception e) {
+            log.warn("Save AMap credentials failed: {}", e.getMessage(), e);
+            r.put("success", false);
+            r.put("message", "保存失败：" + e.getMessage());
+        }
+        return r;
+    }
+
+    /** The manager owns the restart so a child process never needs to kill itself. */
+    private boolean startAgentRestart() {
+        if (!agentRestarting.compareAndSet(false, true)) return false;
+        Thread thread = new Thread(() -> {
+            try {
+                java.io.File root = projectRoot();
+                boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
+                java.io.File script = new java.io.File(root, windows ? "restart-agents.ps1" : "restart-agents.sh");
+                if (!script.isFile()) {
+                    log.error("Agent restart script not found: {}", script.getAbsolutePath());
+                    return;
+                }
+                java.io.File logDir = new java.io.File(root, "logs");
+                if (!logDir.isDirectory() && !logDir.mkdirs()) {
+                    log.error("Agent restart log directory cannot be created: {}", logDir.getAbsolutePath());
+                    return;
+                }
+                java.io.File logFile = new java.io.File(logDir, "agent-tool-restart.log");
+                ProcessBuilder processBuilder;
+                if (windows) {
+                    String windir = System.getenv("WINDIR");
+                    java.io.File powershell = windir == null
+                            ? null
+                            : new java.io.File(windir, "System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+                    String executable = powershell != null && powershell.isFile()
+                            ? powershell.getAbsolutePath()
+                            : "powershell";
+                    processBuilder = new ProcessBuilder(executable, "-NoProfile", "-NonInteractive",
+                            "-ExecutionPolicy", "Bypass", "-File", script.getCanonicalPath());
+                } else {
+                    processBuilder = new ProcessBuilder(bashExecutable(),
+                            script.getCanonicalPath().replace('\\', '/'));
+                }
+                processBuilder.directory(root);
+                processBuilder.redirectErrorStream(true);
+                processBuilder.redirectOutput(ProcessBuilder.Redirect.to(logFile));
+                log.info("Restarting child agents using {}", processBuilder.command());
+                Process process = processBuilder.start();
+                int code = process.waitFor();
+                if (code == 0) {
+                    log.info("Child agents restarted after agent tool switch change");
+                } else {
+                    log.error("Child agent restart failed with code {}: {}", code, logFile.getAbsolutePath());
+                }
+            } catch (Exception e) {
+                log.error("Child agent restart failed", e);
+            } finally {
+                agentRestarting.set(false);
+            }
+        }, "agent-tool-restart");
+        thread.setDaemon(true);
+        thread.start();
+        return true;
+    }
+
+    /** Windows System32 bash is WSL and cannot use drive paths; prefer Git Bash when available. */
+    private String bashExecutable() {
+        String configured = Config.get("BASH_BIN", "");
+        if (!configured.isBlank()) return configured;
+        String os = System.getProperty("os.name", "").toLowerCase();
+        if (!os.contains("win")) return "bash";
+
+        for (String key : new String[]{"GIT_BASH_PATH", "HERMES_GIT_BASH_PATH"}) {
+            String configuredPath = System.getenv(key);
+            if (configuredPath != null && new java.io.File(configuredPath).isFile()) {
+                return configuredPath;
+            }
+        }
+
+        String gitBash = bashExecutableFromGitWhere();
+        if (gitBash != null) return gitBash;
+
+        java.util.LinkedHashSet<String> roots = new java.util.LinkedHashSet<>();
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv != null) {
+            for (String path : pathEnv.split(";")) {
+                if (path.isBlank()) continue;
+                java.io.File directory = new java.io.File(path);
+                roots.add(directory.getPath());
+                java.io.File parent = directory.getParentFile();
+                if (parent != null) roots.add(parent.getPath());
+            }
+        }
+        for (String key : new String[]{"ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"}) {
+            String value = System.getenv(key);
+            if (value != null && !value.isBlank()) roots.add(value);
+        }
+        roots.add("C:\\Program Files");
+        roots.add("C:\\Program Files (x86)");
+
+        for (String root : roots) {
+            for (String relative : new String[]{"Git\\bin\\bash.exe", "Git\\usr\\bin\\bash.exe",
+                    "bin\\bash.exe", "usr\\bin\\bash.exe"}) {
+                java.io.File candidate = new java.io.File(root, relative);
+                if (candidate.isFile()) return candidate.getAbsolutePath();
+            }
+        }
+
+        log.warn("Windows Git Bash not found; falling back to PATH bash. Set BASH_BIN to Git Bash's bash.exe");
+        return "bash";
+    }
+
+    /** Git is often on PATH while bash.exe is not; derive Git Bash from the located git.exe. */
+    private String bashExecutableFromGitWhere() {
+        try {
+            Process process = new ProcessBuilder("where.exe", "git").start();
+            if (!process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                return null;
+            }
+            try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    process.getInputStream(), java.nio.charset.Charset.defaultCharset()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    java.io.File git = new java.io.File(line.trim());
+                    if (!git.isFile()) continue;
+
+                    java.io.File directory = git.getParentFile();
+                    for (int depth = 0; depth < 3 && directory != null; depth++) {
+                        for (String relative : new String[]{"bin\\bash.exe", "usr\\bin\\bash.exe"}) {
+                            java.io.File candidate = new java.io.File(directory, relative);
+                            if (candidate.isFile()) return candidate.getAbsolutePath();
+                        }
+                        directory = directory.getParentFile();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Cannot locate Git Bash through where.exe git", e);
+        }
+        return null;
     }
 
     // ==================== 数据管理 ====================
@@ -628,21 +1387,30 @@ public class AdminController {
         try {
             String val = (value == null ? "" : value.trim());
             if (field.equals("cost")) {
-                // 定价读特征表：景点→ticket_price，酒店→cost；主表cost也同步
-                String featureSql;
-                if (type.equals("attractions")) {
-                    featureSql = "UPDATE attractions_features SET ticket_price='" + val.replace("'", "''")
-                            + "' WHERE src_id=" + id;
-                } else {
-                    featureSql = "UPDATE hotels_features SET cost='" + val.replace("'", "''")
-                            + "' WHERE src_id=" + id;
+                int mainRows = jdbcTemplate.update(
+                        "UPDATE " + tableName(type) + " SET cost = ? WHERE id = ?", val, id);
+                if (mainRows == 0) {
+                    r.put("message", "主记录不存在，未保存");
+                    return r;
                 }
-                jdbcTemplate.update(featureSql);
-                jdbcTemplate.update("UPDATE " + tableName(type) + " SET cost='" + val.replace("'", "''") + "' WHERE id=" + id);
+                String featureSql = switch (type) {
+                    case "attractions" -> "UPDATE attractions_features SET ticket_price = ? WHERE src_id = ?";
+                    case "foods" -> "UPDATE foods_features SET cost = ? WHERE src_id = ?";
+                    default -> "UPDATE hotels_features SET cost = ? WHERE src_id = ?";
+                };
+                int featureRows = jdbcTemplate.update(featureSql, val, id);
+                if (featureRows == 0) {
+                    r.put("message", "主记录已保存，但关联特征记录不存在；动态定价可能不会生效");
+                    return r;
+                }
             } else {
                 String col = field.equals("name") ? "name" : field;
-                jdbcTemplate.update("UPDATE " + tableName(type) + " SET " + col + "='" + val.replace("'", "''")
-                        + "' WHERE id=" + id);
+                int rows = jdbcTemplate.update(
+                        "UPDATE " + tableName(type) + " SET " + col + " = ? WHERE id = ?", val, id);
+                if (rows == 0) {
+                    r.put("message", "记录不存在，未保存");
+                    return r;
+                }
             }
             r.put("success", true);
             r.put("message", "已保存");
@@ -662,19 +1430,9 @@ public class AdminController {
     public Map<String, Object> runPricing() {
         Map<String, Object> r = new HashMap<>();
         try {
-            String projectDir = System.getProperty("user.dir");
-            // user.dir 可能是项目根或 backend/manager_agent，多候选路径都试
-            java.io.File script = null;
-            for (String rel : new String[]{"data-pipeline/pricing.py", "../../data-pipeline/pricing.py"}) {
-                java.io.File f = new java.io.File(projectDir, rel);
-                if (f.exists()) { script = f; break; }
-            }
-            if (script == null) {
-                java.io.File fallback = new java.io.File(projectDir + "/../data-pipeline/pricing.py");
-                if (fallback.exists()) script = fallback;
-            }
+            java.io.File script = new java.io.File(projectRoot(), "data-pipeline/pricing.py");
             if (script == null) { r.put("success", false); r.put("message", "找不到 pricing.py"); return r; }
-            ProcessBuilder pb = new ProcessBuilder("python3", script.getCanonicalPath());
+            ProcessBuilder pb = new ProcessBuilder(utils.Config.get("PYTHON_BIN", "python"), script.getCanonicalPath());
             pb.directory(new java.io.File(script.getCanonicalPath()).getParentFile().getParentFile());
             pb.redirectErrorStream(true);
             Process p = pb.start();
@@ -754,12 +1512,7 @@ public class AdminController {
         }
         String jobId = "pipe_" + System.currentTimeMillis();
         PIPELINE_JOBS.put(jobId, "running");
-        String projectDir = System.getProperty("user.dir");
-        // manager_agent 工作目录为 backend/manager_agent，项目根在上两级
-        java.io.File script = new java.io.File(projectDir, "../../data-pipeline/update_all.py");
-        if (!script.exists()) {
-            script = new java.io.File("D:/hermes-agent/data-pipeline/update_all.py"); // 兜底（不应命中）
-        }
+        java.io.File script = new java.io.File(projectRoot(), "data-pipeline/update_all.py");
         final String scriptPath;
         try {
             scriptPath = script.getCanonicalPath();
@@ -770,7 +1523,7 @@ public class AdminController {
         }
         PIPELINE_POOL.submit(() -> {
             try {
-                ProcessBuilder pb = new ProcessBuilder("python3", scriptPath);
+                ProcessBuilder pb = new ProcessBuilder(utils.Config.get("PYTHON_BIN", "python"), scriptPath);
                 pb.directory(new java.io.File(scriptPath).getParentFile().getParentFile());
                 pb.redirectErrorStream(true);
                 pb.redirectOutput(new java.io.File(System.getProperty("java.io.tmpdir"), "atp_pipeline_" + jobId + ".log"));

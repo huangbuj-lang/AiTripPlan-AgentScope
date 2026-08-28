@@ -88,7 +88,7 @@ public class LoginController {
         if (users.isEmpty()) {
             recordFail(username); // 用户不存在也计入失败，防用户名枚举撞库
             result.put("success", false);
-            result.put("message", "用户不存在，请先注册");
+            result.put("message", "用户名或密码错误");
             return result;
         }
         Map<String, Object> user = users.get(0);
@@ -96,7 +96,7 @@ public class LoginController {
         if (!passwordEncoder.matches(password, hashed)) { // BCrypt比对密码
             recordFail(username);
             result.put("success", false);
-            result.put("message", "密码错误");
+            result.put("message", "用户名或密码错误");
             return result;
         }
         LOGIN_FAILS.remove(username); // 登录成功：清除失败记录

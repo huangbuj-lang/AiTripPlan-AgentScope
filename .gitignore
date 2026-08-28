@@ -29,4 +29,9 @@ desktop.ini
 
 # ===== 备份 =====
 *.bak
-*~data-pipeline/*.log
+*~
+# ===== 构建产物 =====
+.next/
+node_modules/
+__pycache__/
+*.pyc

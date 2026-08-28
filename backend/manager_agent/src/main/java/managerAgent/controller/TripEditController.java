@@ -9,16 +9,16 @@ import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.GenerateOptions;
-import io.agentscope.core.model.Model;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
-import utils.AgentUtils;
+import utils.AgentPrompts;
+import utils.LlmClient;
 import utils.JsonUtils;
+import utils.ModelTimeouts;
 
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,20 +34,6 @@ public class TripEditController {
 
     @Resource
     private JdbcTemplate jdbcTemplate;
-
-    /** 重排某天用的裸模型（懒加载单例，共用 SafeModel 限速/熔断降级链） */
-    private static volatile Model model;
-
-    private Model model() {
-        if (model == null) {
-            synchronized (TripEditController.class) {
-                if (model == null) {
-                    model = AgentUtils.buildModel();
-                }
-            }
-        }
-        return model;
-    }
 
     private long uid(HttpSession session) {
         return ((Number) session.getAttribute("userId")).longValue();
@@ -169,10 +155,7 @@ public class TripEditController {
 
     /** 调 LLM 生成某天的新行程区块（返回 JSON 字符串） */
     private String regenerateDaySection(TripPlanData plan, String dayTitle, String instruction) {
-        String sysPrompt = "你是旅行行程编辑助手。根据行程背景重新规划其中一天，只输出一个 JSON 对象："
-                + "{\"title\":\"区块标题\",\"items\":[{\"time\":\"09:00\",\"place\":\"景点/地点\","
-                + "\"activity\":\"活动描述\",\"cost\":\"费用\",\"note\":\"备注\"}]}\n"
-                + "items 为该天按时间排序的具体安排，内容必须具体真实。除 JSON 外不要输出任何文字。";
+        String sysPrompt = AgentPrompts.tripEditor();
         String userPrompt = "行程背景：" + plan.getTitle() + "，目的地 " + plan.getDestination()
                 + "，共 " + plan.getDays() + " 天。\n请重新规划「" + dayTitle + "」"
                 + (instruction == null || instruction.isBlank() ? "" : "，调整要求：" + instruction) + "。";
@@ -195,8 +178,8 @@ public class TripEditController {
                 .additionalBodyParams(Map.of("response_format", Map.of("type", "json_object")))
                 .build();
         try {
-            ChatResponse resp = model().stream(List.of(system, user), null, options)
-                    .blockLast(Duration.ofSeconds(120));
+            ChatResponse resp = LlmClient.model().stream(List.of(system, user), null, options)
+                    .blockLast(ModelTimeouts.tripEditDuration());
             StringBuilder sb = new StringBuilder();
             if (resp != null) {
                 for (ContentBlock block : resp.getContent()) {

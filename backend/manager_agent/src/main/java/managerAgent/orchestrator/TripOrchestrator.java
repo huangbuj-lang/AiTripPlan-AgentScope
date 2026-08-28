@@ -15,7 +15,9 @@ import io.agentscope.core.model.Model;
 import lombok.extern.slf4j.Slf4j;
 import managerAgent.hook.CancelledException;
 import managerAgent.hook.EventStore;
+import managerAgent.tool.RemoteTimeout;
 import managerAgent.tool.RemoteAgentTool;
+import utils.AgentPrompts;
 import utils.AgentUtils;
 import utils.JsonUtils;
 
@@ -26,6 +28,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** 确定性编排器：解析 → 并行 DAG → 聚合，流程由 Java 确定，LLM 只负责内容生成。 */
 @Slf4j
@@ -66,6 +69,11 @@ public class TripOrchestrator {
     /** 执行编排核心（个人中心沉淀偏好可 null）：解析需求 → 偏好分类 → 并行调用专家 → 聚合。 */
     private TripPlanData runCore(String userPrompt, TripRequest.Preferences prefs) {
         ReqAndData rd = resolveAndFetch(userPrompt, prefs);
+        // ★输入侧缺失亮红灯：哪路专家数据为空，聚合前明确告知（避免静默产出半成品还显示成功）
+        String missingInput = missingInputs(rd.routeResult, rd.planResult);
+        if (!missingInput.isBlank()) {
+            EventStore.add(sessionId, "整合", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
+        }
         // ③ 聚合：结构化 JSON（失败退回 markdown 原文兜底）
         EventStore.add(sessionId, "整合", "正在整合路线与行程数据...");
         TripPlanData plan = aggregate(rd.req, rd.routeResult, rd.planResult);
@@ -81,6 +89,10 @@ public class TripOrchestrator {
     /** 多方案编排：并行聚合出美食向/出片向/省钱向 3 套方案供前端对比。 */
     public PlanSet runMultiScheme(String userPrompt) {
         ReqAndData rd = resolveAndFetch(userPrompt, null);
+        String missingInput = missingInputs(rd.routeResult, rd.planResult); // 多方案路径同样亮红灯
+        if (!missingInput.isBlank()) {
+            EventStore.add(sessionId, "整合", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
+        }
         EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
         PlanSet set = aggregateMulti(rd.req, rd.routeResult, rd.planResult);
         // 每套方案补降级 markdown（前端打印/导出用）
@@ -108,6 +120,17 @@ public class TripOrchestrator {
                 + buildPreferenceLabel(req));
         checkCancel();
 
+        /* ★ 结果缓存（进程内）：key=SHA1(目的+|天数|出发|+个人中心沉淀偏好)。
+           仅缓存专家产物，LLM 聚合仍每次执行——防串 + 偏好变化即时生效。 */
+        String storedPrefs = (req.getPreferences() != null && !req.getPreferences().isEmpty())
+                ? req.getPreferences().toPromptText() : "";
+        utils.cache.PlanCache.Entry hit = utils.cache.PlanCache.get(
+                req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs, req.getPreference());
+        if (hit != null) {
+            EventStore.add(sessionId, "解析", "· 命中结果缓存，跳过专家调用 ·");
+            return new ReqAndData(req, hit.routeResult, hit.planResult);
+        }
+
         // ② 偏好分流：LLM 把文本+个人中心偏好分为行程/路线/聚合三类
         boolean hasTextPref = req.getPreference() != null && !req.getPreference().isBlank();
         boolean hasStoredPref = req.getPreferences() != null && !req.getPreferences().isEmpty();
@@ -128,6 +151,8 @@ public class TripOrchestrator {
             String planResult = await(PARALLEL_POOL.submit(() ->
                     remoteTool.callTripPlannerAgent(planTask(req, waypoints))), "行程Agent");
             checkCancel();
+            utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
+                    req.getPreference(), routeResult, planResult);
             return new ReqAndData(req, routeResult, planResult);
         }
         EventStore.add(sessionId, "行程", "市内游，先规划行程提取景点清单...");
@@ -138,6 +163,8 @@ public class TripOrchestrator {
         String routeResult2 = await(PARALLEL_POOL.submit(() ->
                 remoteTool.callRouteMakingAgent(routeTask(req, sights))), "路线Agent");
         checkCancel();
+        utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
+                req.getPreference(), routeResult2, planFirst);
         return new ReqAndData(req, routeResult2, planFirst);
     }
 
@@ -154,10 +181,8 @@ public class TripOrchestrator {
     // ==================== ① 需求解析 ====================
 
     private TripRequest parseRequest(String prompt) {
-        String sysPrompt = "你是旅行需求解析器。从用户输入提取结构化信息，只输出一个 JSON 对象，字段名固定如下：\n"
-                + "{\"origin\":\"起点城市\",\"destination\":\"目的地城市\",\"days\":整数天数,"
-                + "\"date\":\"出行日期\",\"preference\":\"偏好(如自驾/亲子/美食)\"}\n"
-                + "缺失字段给空字符串或默认值。除 JSON 外不要输出任何文字。";
+        utils.SafeModel.setStage("解析需求"); // ★调用链：该 LLM span 说明标注"在做什么"
+        String sysPrompt = AgentPrompts.requestParser();
         String text = callModelJson(sysPrompt, prompt);
         TripRequest req = JsonUtils.extractAndParse(text, TripRequest.class);
         if (req == null) { // 解析失败：从原文粗提取兜底
@@ -167,6 +192,19 @@ public class TripOrchestrator {
             req.setDays(1);
         }
         req.setRaw(prompt);
+        // ★调用链：把解析结果摘要回填到该 LLM span 说明（"解析需求 · 目的地:xx 天数:x"）
+        try {
+            StringBuilder sum = new StringBuilder("目的地:")
+                    .append(req.getDestination() == null || req.getDestination().isBlank() ? "?" : req.getDestination())
+                    .append(" 天数:").append(req.getDays());
+            if (req.getOrigin() != null && !req.getOrigin().isBlank()) {
+                sum.append(" 起点:").append(req.getOrigin());
+            }
+            if (req.getPreference() != null && !req.getPreference().isBlank()) {
+                sum.append(" 偏好:").append(req.getPreference());
+            }
+            utils.CallTrace.appendLastLlmDetail(sessionId, sum.toString());
+        } catch (Exception ignored) { }
         return req;
     }
 
@@ -291,13 +329,27 @@ public class TripOrchestrator {
         return String.join(",", seen);
     }
 
+    /** 从专家产物提取高德天气原文，格式兼容：
+     *   【天气】\n<原文>   或   【目的地天气|xxx】\n<原文>   或   【xxx天气】\n<原文> */
+    private String extractWeatherRaw(String combined) {
+        if (combined == null || combined.isBlank()) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("【[^】]*天气[^】]*】\\s*\\n([\\s\\S]{2,120}?)\\n")
+                .matcher(combined);
+        if (m.find()) {
+            return m.group(1).trim();
+        }
+        // 兜底：提取 "天气：" 后最近一行
+        java.util.regex.Matcher m2 = java.util.regex.Pattern
+                .compile("天气[\\s:：]([^\\n\\r]{2,80})")
+                .matcher(combined);
+        return m2.find() ? m2.group(1).trim() : null;
+    }
+
     /** 偏好分类：1次LLM把偏好分为行程(tripPref)/路线(routePref)/聚合(aggPref)三类。 */
     private void classifyPreference(TripRequest req) {
-        String sys = "你是旅行偏好分类器。把用户偏好分类到三个字段，只输出一个 JSON 对象，字段名固定：\n"
-                + "{\"tripPref\":\"适合行程Agent的偏好(与景点美食住宿相关，如亲子/美食/小众/博物馆)；无则空\",\n"
-                + "\"routePref\":\"适合路线Agent的偏好(与出行方式道路相关，如公交/骑行/步行/不走高速)；无则空\",\n"
-                + "\"aggPref\":\"不适合二者、只影响整体编排的偏好(如放松休闲/性价比紧凑/节假日)；无则空\"}\n"
-                + "只输出 JSON 不要多余文字。";
+        utils.SafeModel.setStage("偏好分类"); // ★调用链：该 LLM span 说明标注阶段
+        String sys = AgentPrompts.preferenceClassifier();
         // 个人中心偏好并入分类输入
         String prefInput = req.getPreference();
         if (req.getPreferences() != null && !req.getPreferences().isEmpty()) {
@@ -311,6 +363,13 @@ public class TripOrchestrator {
                 req.setTripPref(str(node.get("tripPref")));
                 req.setRoutePref(str(node.get("routePref")));
                 req.setAggPref(str(node.get("aggPref")));
+                // ★调用链：分类结果摘要回填
+                StringBuilder sum = new StringBuilder("行程偏好:")
+                        .append(req.getTripPref() == null || req.getTripPref().isBlank() ? "无" : req.getTripPref());
+                if (req.getRoutePref() != null && !req.getRoutePref().isBlank()) {
+                    sum.append(" 路线偏好:").append(req.getRoutePref());
+                }
+                utils.CallTrace.appendLastLlmDetail(sessionId, sum.toString());
                 return;
             }
         } catch (Exception ignored) { }
@@ -332,11 +391,19 @@ public class TripOrchestrator {
 
     /** 等待 Future 结果，超时/异常返回空串并记录事件 */
     private String await(Future<String> future, String label) {
+        RemoteTimeout.configure(utils.NacosModelConfig.orchestrationConfig());
+        Duration timeout = RemoteTimeout.timeout();
         try {
-            String r = future.get(180, TimeUnit.SECONDS);
+            String r = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
             return r == null ? "" : r;
         } catch (CancelledException e) {
             throw e;
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            log.warn("{} 调用超时({}s)，已取消后台任务", label, RemoteTimeout.currentSeconds());
+            EventStore.add(sessionId, "Agent结果",
+                    label + " ❌ 调用超时(" + RemoteTimeout.currentSeconds() + "s)");
+            return "";
         } catch (Exception e) {
             log.error("{} 调用失败: {}", label, e.getMessage());
             EventStore.add(sessionId, "Agent结果", label + " ❌ 调用失败(" + e.getMessage() + ")");
@@ -350,19 +417,35 @@ public class TripOrchestrator {
         return aggregateWithStyle(req, routeResult, planResult, null);
     }
 
+    /** 输入侧缺失描述：路线/行程哪路为空返回对应文案，齐全返回空串 */
+    private String missingInputs(String routeResult, String planResult) {
+        boolean noRoute = routeResult == null || routeResult.isBlank();
+        boolean noPlan = planResult == null || planResult.isBlank();
+        if (noRoute && noPlan) return "路线与行程数据均缺失";
+        if (noRoute) return "路线数据缺失";
+        if (noPlan) return "行程数据缺失";
+        return "";
+    }
+
+    /** 聚合提示词的缺失标注铁律：仅在有输入缺失时注入，要求LLM如实标注禁止编造 */
+    private String missingInputRule(String routeResult, String planResult) {
+        boolean noRoute = routeResult == null || routeResult.isBlank();
+        boolean noPlan = planResult == null || planResult.isBlank();
+        if (!noRoute && !noPlan) return "";
+        StringBuilder rule = new StringBuilder("\n★数据缺失铁律：本次");
+        if (noRoute) rule.append("【路线数据】完全缺失（交通衔接不可用），");
+        if (noPlan) rule.append("【行程数据】完全缺失（景点/住宿/美食数据不可用），");
+        rule.append("涉及缺失侧的内容必须在 note 字段如实标注「该部分数据获取失败」，")
+            .append("严禁凭常识编造衔接方式/景点/价格。宁缺毋假。");
+        return rule.toString();
+    }
+
     /** 单套方案聚合（style=null 表示默认无风格；否则注入风格约束） */
     private TripPlanData aggregateWithStyle(TripRequest req, String routeResult, String planResult, String style) {
-        String sysPrompt = "你是行程聚合器。根据需求与专家数据，输出一个结构化 JSON 对象，字段名固定如下：\n"
-                + "{\"title\":\"行程标题\",\"destination\":\"目的地\",\"days\":天数,\"date\":\"日期\",\"weather\":\"天气\","
-                + "\"sections\":[{\"type\":\"timeline|transport|stay|tips\",\"title\":\"区块标题\",\"items\":[{\"time\":\"\","
-                + "\"activity\":\"\",\"place\":\"\",\"category\":\"\",\"cost\":\"\",\"note\":\"\",\"from\":\"\",\"to\":\"\","
-                + "\"way\":\"\",\"duration\":\"\",\"name\":\"\",\"price\":\"\",\"kind\":\"\",\"text\":\"\"}]}]}\n"
-                + "sections 按「每日行程(timeline)/交通(transport)/住宿餐饮(stay)/实用信息(tips)」组织，"
-                + "每天的行程放在一个 type=timeline 的 section 里，title 用「第N天」。"
-                + "内容必须具体（真实景点名/价格/餐厅酒店名）。除 JSON 外不要输出任何文字。"
-                + "★place硬规则：timeline 的 items 中 place 字段只填地点名称（如「星海广场」），括号内门牌号/地铁口/道路名等地址信息一律放 note 字段，禁止把地址当地名。\n"
-                + "★sections 必须包含住宿餐饮(stay)区块（含酒店/餐厅推荐），不得省略。\n"
-                + buildStyleHint(style);
+        utils.SafeModel.setStage("聚合生成"); // ★调用链：聚合 LLM span 标注阶段
+        String sysPrompt = AgentPrompts.tripAggregator()
+                + buildStyleHint(style)
+                + missingInputRule(routeResult, planResult); // ★缺失侧如实标注铁律（数据齐全时为空串不加约束）
         String userPrompt = "用户需求：" + req.getRaw()
                 + buildPreferencePrompt(req)  // 偏好约束
                 + "\n\n【路线数据】\n" + clip(routeResult) + "\n\n【行程数据】\n" + clip(planResult);
@@ -370,7 +453,7 @@ public class TripOrchestrator {
         TripPlanData plan = JsonUtils.extractAndParse(text, TripPlanData.class);
         if (plan == null) {
             // 首次解析失败：带精简概览+修改指示重试一次（不整段回灌）
-            String fix = "你是行程聚合器。上次结构化 JSON 解析失败。请基于【用户需求】与【数据概要】只输出一份合法 JSON 行程（字段同前），重点是 sections 每天 timeline。数据较大已截断，可省次要 detail，保留每天真实安排。\n"
+            String fix = AgentPrompts.tripAggregatorParseRetry()
                     + "【用户需求】" + req.getRaw() + "\n"
                     + "【路线数据概要】\n" + clip(routeResult, 800) + "\n"
                     + "【行程数据概要】\n" + clip(planResult, 1500);
@@ -384,8 +467,7 @@ public class TripOrchestrator {
         String missing = aggregateGap(plan);
         if (!missing.isBlank()) {
             EventStore.add(sessionId, "整合", "聚合结果缺失(" + missing + ")，聚合Agent重试1次...");
-            String fix = "你是行程聚合器。上次聚合结果缺失：" + missing
-                    + "。请重新整合【用户需求】与【数据】，补齐缺失内容，输出完整合法 JSON 行程（字段同前）。\n"
+            String fix = AgentPrompts.tripAggregatorGapRetry().replace("{missing}", missing)
                     + "【用户需求】" + req.getRaw() + "\n"
                     + "【路线数据概要】\n" + clip(routeResult, 800) + "\n"
                     + "【行程数据概要】\n" + clip(planResult, 1500);
@@ -399,6 +481,31 @@ public class TripOrchestrator {
                 return null;
             }
         }
+        // ★天气处理：优先专家数据（高德 query_trip 原文）→ 清洗剔除 LLM 表格残留；
+        //   专家文本无有效天气时直连高德预报接口补真实天气（不依赖 LLM 重述，防编造）
+        if (plan != null) {
+            String weatherRaw = cleanWeather(extractWeatherRaw(routeResult + "\n" + planResult));
+            if (weatherRaw == null || weatherRaw.isBlank()) {
+                String direct = fetchAmapWeather(req.getDestination(), Math.min(req.getDays(), 7));
+                if (direct != null && !direct.isBlank()) {
+                    weatherRaw = direct;
+                    EventStore.add(sessionId, "整合", "天气直连高德预报：" + direct);
+                }
+            }
+            if (weatherRaw != null && !weatherRaw.isBlank()) {
+                plan.setWeather(weatherRaw); // 覆盖 LLM 聚合值（已清洗）
+                EventStore.add(sessionId, "整合", "天气透传：" + weatherRaw);
+            } else if (plan.getWeather() != null && !plan.getWeather().isBlank()) {
+                plan.setWeather(cleanWeather(plan.getWeather())); // 保留 LLM 聚合（已清洗）
+                EventStore.add(sessionId, "整合", "专家数据无天气，保留 LLM 聚合：" + plan.getWeather());
+            }
+        }
+        // ★调用链：聚合结果摘要回填（"聚合生成 · 生成:xx日游"）
+        try {
+            String t = plan.getTitle();
+            utils.CallTrace.appendLastLlmDetail(sessionId,
+                    "生成:" + (t == null || t.isBlank() ? (req.getDestination() + req.getDays() + "日游") : t));
+        } catch (Exception ignored) { }
         if (plan.getTitle().isBlank()) {
             plan.setTitle(req.getDestination() + req.getDays() + "日游");
         }
@@ -409,6 +516,63 @@ public class TripOrchestrator {
             plan.setDays(req.getDays());
         }
         return plan;
+    }
+
+    /** 天气清洗：剔除 LLM 输出中的 markdown 表格残留（与前端 cleanWeatherText 一致） */
+    private String cleanWeather(String w) {
+        if (w == null) return null;
+        String s = w.trim();
+        if (s.matches("\\|.+\\|")) return ""; // 整行管道符表格结构 → 无有效天气内容
+        return s.replaceAll("^\\s*\\|+\\s*|\\s*\\|+\\s*$", "").trim();
+    }
+
+    /** ★高德天气直连：按目的地取未来几天真实预报（不依赖 LLM 重述，防编造/表格残留），失败返回 null */
+    private String fetchAmapWeather(String city, int days) {
+        try {
+            String key = utils.ExternalServices.amapKey();
+            if (key == null || key.isBlank() || city == null || city.isBlank()) return null;
+            String clean = city.trim().replaceAll("\\d+\\s*[日天]|[一二三四五六七八九十]+\\s*[日天]|游$", "").trim();
+            if (clean.isBlank()) return null;
+            Thread.sleep(350); // QPS 3 限速
+            String qs = "city=" + java.net.URLEncoder.encode(clean, "UTF-8")
+                    + "&output=json&key=" + key + "&extensions=all";
+            java.net.URL u = new java.net.URL("https://restapi.amap.com/v3/weather/weatherInfo?" + qs);
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(8000);
+            String b = new String(c.getInputStream().readAllBytes(), "UTF-8");
+            java.util.Map<String, Object> root = utils.JsonUtils.parse(b, java.util.Map.class);
+            if (root == null) return null;
+            Object fc = root.get("forecasts");
+            if (!(fc instanceof java.util.List) || ((java.util.List<?>) fc).isEmpty()) return null;
+            Object castsObj = ((java.util.Map<?, ?>) ((java.util.List<?>) fc).get(0)).get("casts");
+            if (!(castsObj instanceof java.util.List)) return null;
+            StringBuilder sb = new StringBuilder();
+            int n = 0;
+            for (Object co : (java.util.List<?>) castsObj) {
+                if (n >= days) break;
+                java.util.Map<?, ?> cast = (java.util.Map<?, ?>) co;
+                Object dv = cast.get("date");
+                Object dy = cast.get("dayweather");
+                Object nt = cast.get("nightweather");
+                Object dt = cast.get("daytemp");
+                Object ntt = cast.get("nighttemp");
+                if (dv == null || dy == null) continue;
+                String date = String.valueOf(dv);
+                String md = date.length() >= 10
+                        ? (Integer.parseInt(date.substring(5, 7)) + "月" + Integer.parseInt(date.substring(8, 10)) + "日")
+                        : date;
+                String w = String.valueOf(dy);
+                if (nt != null && !String.valueOf(nt).equals(w)) w = w + "转" + nt;
+                String temps = (ntt == null ? "" : String.valueOf(ntt) + "℃~") + (dt == null ? "" : String.valueOf(dt) + "℃");
+                if (sb.length() > 0) sb.append("；");
+                sb.append(md).append(" ").append(w).append(" ").append(temps);
+                n++;
+            }
+            return sb.length() > 0 ? sb.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 聚合评分：检查结构化行程缺失项（空串=合格），纯代码不调LLM。 */
@@ -451,7 +615,7 @@ public class TripOrchestrator {
         for (int i = 0; i < 3; i++) {
             TripPlanData plan = null;
             try {
-                plan = futures[i].get(180, TimeUnit.SECONDS);
+                plan = futures[i].get(300, TimeUnit.SECONDS);
             } catch (Exception e) {
                 log.error("方案「{}」聚合失败: {}", styles[i][1], e.getMessage());
             }
@@ -505,7 +669,8 @@ public class TripOrchestrator {
 
     /** 请求 JSON 输出的单次裸 LLM 调用 */
     private String callModelJson(String sysPrompt, String userPrompt) {
-        // 所有裸 LLM 调用统一走 LlmClient
+        // 所有裸 LLM 调用统一走 LlmClient；先绑定会话上下文，让 LLM 调用链 span 归到本任务
+        utils.SafeModel.setSessionId(sessionId);
         return utils.LlmClient.chatJson(sysPrompt, userPrompt);
     }
 

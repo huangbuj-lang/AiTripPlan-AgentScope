@@ -54,7 +54,7 @@ function renderDay(sec, si, dayIdx) {
         '<div class="day-head"><b>' + esc(title) + '</b>' +
         '<span class="day-ops">' +
         '<button class="mini-btn" onclick="addItem(' + si + ')">+ 添加一项</button> ' +
-        '<button class="mini-btn regen" onclick="regen(' + si + ',' + dayIdx + ')">🔄 重排这一天</button>' +
+        '<button class="mini-btn regen" onclick="regen(' + si + ',' + dayIdx + ',this)">🔄 重排这一天</button>' +
         '</span></div>' +
         '<div class="ed-items">' + items + '</div>' +
         '</div>';
@@ -80,21 +80,31 @@ function delItem(si, ii) {
     render();
 }
 
-// 保存修改
-function save() {
+// 保存修改（忙碌态防连点）
+function save(btn) {
     if (!plan) return;
+    if (btn && btn.disabled) return;
+    const origLabel = btn ? btn.innerHTML : '';
+    const restore = () => { if (btn) { btn.disabled = false; btn.innerHTML = origLabel; } };
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中...'; }
     fetch('/api/trips/' + tripId, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(plan)
     }).then(r => r.json()).then(d => {
         document.getElementById('saveMsg').textContent = d.message || (d.success ? '已保存' : '保存失败');
         document.getElementById('saveMsg').style.color = d.success ? '#00b894' : '#e17055';
-    }).catch(() => document.getElementById('saveMsg').textContent = '保存失败');
+        restore();
+    }).catch(() => { document.getElementById('saveMsg').textContent = '保存失败'; restore(); });
 }
 
-// 增量重排某一天
-function regen(si, dayIdx) {
+// 增量重排某一天（LLM 重排较慢：按钮忙碌态防连点；点「取消」不再误触发重排）
+function regen(si, dayIdx, btn) {
     const instruction = prompt('可输入调整要求（如“换成美食主题”），留空则按原背景重排：');
+    if (instruction === null) return; /* 用户点了取消 */
+    if (btn && btn.disabled) return;
+    const origLabel = btn ? btn.innerHTML : '';
+    const restore = () => { if (btn) { btn.disabled = false; btn.innerHTML = origLabel; } };
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 重排中...'; }
     document.getElementById('saveMsg').textContent = '重排中，请稍候...';
     fetch('/api/trips/' + tripId + '/regenerate-day', {
         method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -102,7 +112,8 @@ function regen(si, dayIdx) {
     }).then(r => r.json()).then(d => {
         if (d.success && d.plan) { plan = d.plan; render(); document.getElementById('saveMsg').textContent = d.message; document.getElementById('saveMsg').style.color = '#00b894'; }
         else { document.getElementById('saveMsg').textContent = d.message || '重排失败'; document.getElementById('saveMsg').style.color = '#e17055'; }
-    }).catch(() => { document.getElementById('saveMsg').textContent = '重排失败'; document.getElementById('saveMsg').style.color = '#e17055'; });
+        restore();
+    }).catch(() => { document.getElementById('saveMsg').textContent = '重排失败'; document.getElementById('saveMsg').style.color = '#e17055'; restore(); });
 }
 
 load();

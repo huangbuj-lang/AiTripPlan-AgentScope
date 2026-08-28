@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
+import utils.AgentPrompts;
 import utils.AgentUtils;
 import utils.Config;
 import utils.LimitedMemory;
@@ -47,14 +48,17 @@ public class RouteMakingAgent {
         );
         log.info("=============");
 
-        return AgentUtils.getReActAgentBuilder( // 注入到Nacos
+        // ★Skill 热更：拉取 Nacos skill 仓库，把技能说明拼进 sysPrompt（失败降级为无skill）
+        String skillPrompt = utils.SkillManager.wireAndPromptSafely(toolkit,
+                Config.getInt("SKILL_REFRESH_SEC", 30));
+        return AgentUtils.getReActAgentBuilder(
                         "RouteMakingAgent",
                         "擅长处理自驾游路线制定"
                 )
                         .memory(new LimitedMemory(Config.getInt("MEMORY_SIZE", 20))) // 限量记忆
                         .toolkit(toolkit) // 工具包
-                        // ★规范外部化：sysPrompt 从 resources/agent-rules.md 读取（内容与原硬编码一致）
-                        .sysPrompt(loadSysPrompt())
+                        // ★规范外部化：sysPrompt 从 resources/agent-rules.md 读取 + 拼接Nacos技能清单
+                        .sysPrompt(AgentPrompts.routeAgentSystem(loadSysPrompt() + skillPrompt))
                         .build();
             }
 

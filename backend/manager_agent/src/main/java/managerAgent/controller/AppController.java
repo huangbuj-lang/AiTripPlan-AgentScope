@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import utils.JsonUtils;
 import utils.SafeModel;
+import utils.ExternalServices;
 
 /**
  * 用户与Agent互动的HTTP接口
@@ -28,23 +29,22 @@ public class AppController {
     @Resource
     private JdbcTemplate jdbcTemplate;
 
-    // 全局并发任务数上限（环境变量配置，默认1）
-    private static final int MAX_CONCURRENT_TASKS = Integer.parseInt(
-            System.getenv().getOrDefault("MAX_CONCURRENT_TASKS", "1"));
-
-    // 异步任务线程池（大小=并发上限）
+    // 异步任务线程池：并发数量由 TASK_GATE 控制，线程空闲后自动回收
     private static final java.util.concurrent.ExecutorService TASK_POOL =
-            java.util.concurrent.Executors.newFixedThreadPool(MAX_CONCURRENT_TASKS);
+            new java.util.concurrent.ThreadPoolExecutor(0, Integer.MAX_VALUE, 60L,
+                    java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.SynchronousQueue<>());
 
-    // 并发信号量：达到上限时拒绝新任务
-    private static final java.util.concurrent.Semaphore TASK_SLOTS =
-            new java.util.concurrent.Semaphore(MAX_CONCURRENT_TASKS);
+    // 并发闸门：支持 Nacos 运行时调整，非法值不生效
+    private static final ConcurrencyGate TASK_GATE = new ConcurrencyGate(initialMax());
 
     /** 并发上限（管理端任务监控展示） */
-    public static int maxConcurrent() { return MAX_CONCURRENT_TASKS; }
+    public static int maxConcurrent() {
+        syncConcurrency();
+        return TASK_GATE.max();
+    }
 
     /** 当前占用的并发槽数（管理端任务监控展示） */
-    public static int inUseSlots() { return MAX_CONCURRENT_TASKS - TASK_SLOTS.availablePermits(); }
+    public static int inUseSlots() { return TASK_GATE.active(); }
 
     /**
      * HTTP入口：提交任务给主管Agent异步处理
@@ -57,8 +57,9 @@ public class AppController {
                       HttpSession session) {
 
         // 获取并发槽位，失败则拒绝
-        if (!TASK_SLOTS.tryAcquire()) {
-            return "⚠️ 有任务正在执行中（最多同时 " + MAX_CONCURRENT_TASKS + " 个），请等当前任务完成后再试！";
+        syncConcurrency();
+        if (!TASK_GATE.tryAcquire()) {
+            return "⚠️ 有任务正在执行中（最多同时 " + TASK_GATE.max() + " 个），请等当前任务完成后再试！";
         }
 
         // 绑定会话归属：防止他人凭 sessionId 越权读取/取消本用户任务
@@ -68,8 +69,11 @@ public class AppController {
         }
 
         EventStore.clear(sessionId); // 清空该会话的旧事件
+        utils.CallTrace.clear(sessionId); // ★清空调用链旧span，防重复提交时新旧混染
+        EventStore.startTask(sessionId, userIdObj instanceof Number n ? n.longValue() : -1); // 任务监控：登记开始
 
-        TASK_POOL.submit(() -> { // 异步执行任务
+        TASK_POOL.submit(() -> {
+            String taskStatus = "DONE"; // 任务最终状态（异常路径改写）
             try {
                 TripOrchestrator orchestrator = new TripOrchestrator(sessionId); // 确定性编排器（会话隔离）
                 // 用户画像注入：与用户输入放一起
@@ -90,16 +94,106 @@ public class AppController {
                     EventStore.setResult(sessionId, JsonUtils.toJson(plan)); // 缓存结构化 JSON 结果（含降级 markdown 字段）
                 }
             } catch (CancelledException e) {
+                taskStatus = "CANCELLED";
                 EventStore.setResult(sessionId, "⏹ 任务已由用户中断。"); // 用户取消的友好提示（类型化判断）
             } catch (Exception e) {
+                taskStatus = "FAILED";
                 EventStore.setResult(sessionId, "❌ 任务执行出错：" + e.getMessage()); // 缓存错误信息
                 log.error("任务执行失败: {}", e.getMessage(), e);
             } finally {
-                TASK_SLOTS.release(); // 释放并发槽位
+                TASK_GATE.release(); // 释放并发槽位
+                managerAgent.hook.EventStore.TaskMeta doneMeta = EventStore.finishTask(sessionId, taskStatus); // 登记结束并计数
+                persistObservation(sessionId, taskStatus, userIdObj, doneMeta); // ★观测落库：任务历史 + 调用链span
             }
         });
 
         return "✅ 任务已接收，正在后台执行中！请查看思考过程，完成后结果自动显示。";
+    }
+
+    /** ★观测落库（任务终态）：task_history upsert + 调用链span合并三进程落库（异步线程，失败不影响主流程） */
+    private static void persistObservation(String sessionId, String taskStatus, Object userIdObj,
+                                           managerAgent.hook.EventStore.TaskMeta meta) {
+        try {
+            long userId = userIdObj instanceof Number n ? n.longValue() : -1;
+            if (meta == null) return;
+            int modelCalls = meta.modelCallsUsed > 0 ? (int) meta.modelCallsUsed : 0;
+            utils.TracePersistence.upsertTask(sessionId, userId, taskStatus, meta.currentStep,
+                    meta.submitMs, meta.lastActiveMs, modelCalls, "");
+            // ★成本落库：任务终态把主管内存累计+两子Agent tokens 写当日维度表
+            try {
+                for (var e : utils.SafeModel.dimensionStatsSnapshot().entrySet()) {
+                    long[] st = e.getValue();
+                    utils.TracePersistence.upsertLlmCost(e.getKey(), st[0], st[1], st[2]);
+                }
+                for (String[] agent : new String[][]{{"行程Agent", "8085"}, {"路线Agent", "8082"}}) { // 子Agent维度
+                    try {
+                        java.net.URL u = new java.net.URL("http://localhost:" + agent[1] + "/stats");
+                        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+                        conn.setConnectTimeout(1500); conn.setReadTimeout(1500);
+                        if (conn.getResponseCode() == 200) {
+                            Map<?, ?> json = new com.fasterxml.jackson.databind.ObjectMapper().readValue(conn.getInputStream(), Map.class);
+                            long mc = json.get("model_calls") instanceof Number n ? n.longValue() : 0;
+                            long ti = json.get("tokens_in") instanceof Number n ? n.longValue() : 0;
+                            long to = json.get("tokens_out") instanceof Number n ? n.longValue() : 0;
+                            if (mc > 0) utils.TracePersistence.upsertLlmCost(agent[0], mc, ti, to);
+                        }
+                        conn.disconnect();
+                    } catch (Exception ignore) { }
+                }
+            } catch (Exception ignored) { }
+            // 调用链 span：合并主管(内存) + 两子Agent(/trace)，终态后一次性落库
+            java.util.List<Map<String, Object>> spans = new java.util.ArrayList<>(
+                    utils.CallTrace.traceAsMaps(sessionId));
+            for (String[] agent : new String[][]{{"路线", "8082"}, {"行程", "8085"}}) {
+                try {
+                    java.net.URL u = new java.net.URL("http://localhost:" + agent[1] + "/trace?sessionId="
+                            + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8));
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+                    conn.setConnectTimeout(2000); conn.setReadTimeout(2000);
+                    if (conn.getResponseCode() == 200) {
+                        Map<?, ?> parsed = new com.fasterxml.jackson.databind.ObjectMapper()
+                                .readValue(conn.getInputStream(), Map.class);
+                        if (parsed.get("spans") instanceof java.util.List<?> list) {
+                            for (Object o : list) {
+                                if (o instanceof Map<?, ?> m) {
+                                    Map<String, Object> mm = new java.util.HashMap<>(m.size() + 1);
+                                    mm.putAll((Map<String, Object>) m);
+                                    mm.put("agent", agent[0]);
+                                    spans.add(mm);
+                                }
+                            }
+                        }
+                    }
+                    conn.disconnect();
+                } catch (Exception ignored) { }
+            }
+            spans.sort((a, b) -> Long.compare(
+                    ((Number) a.getOrDefault("ts", 0L)).longValue(),
+                    ((Number) b.getOrDefault("ts", 0L)).longValue()));
+            utils.TracePersistence.saveSpans(sessionId, spans);
+        } catch (Exception e) {
+            System.err.println("[persistObservation] 落库失败(忽略): " + e.getMessage());
+        }
+    }
+
+    private static int initialMax() {
+        try {
+            return Integer.parseInt(System.getenv().getOrDefault("MAX_CONCURRENT_TASKS", "1").trim());
+        } catch (NumberFormatException e) {
+            return 1;
+        }
+    }
+
+    private static void syncConcurrency() {
+        java.util.Map<String, Object> orchestration = utils.NacosModelConfig.orchestrationConfig();
+        if (orchestration == null) {
+            return;
+        }
+        if (orchestration.get("maxConcurrentTasks") instanceof Number number) {
+            TASK_GATE.setMax(number.intValue());
+        } else {
+            TASK_GATE.setMax(initialMax());
+        }
     }
 
     /**
@@ -108,6 +202,9 @@ public class AppController {
     @RequestMapping(value = "/result", method = RequestMethod.GET)
     public String result(@RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
                          HttpSession session) {
+        if (!EventStore.isKnown(sessionId)) {
+            return "❌ 任务不存在或已失效，请重新提交"; // 服务重启后旧任务丢失：让前端清理恢复状态
+        }
         Object userIdObj = session.getAttribute("userId");
         if (userIdObj == null || !EventStore.isOwner(sessionId, ((Number) userIdObj).longValue())) {
             return "⏳ 任务还在执行中..."; // 非本人会话：不泄露他人结果
@@ -155,9 +252,9 @@ public class AppController {
             resp.put("error", "name 不能为空");
             return resp;
         }
-        String key = System.getenv().getOrDefault("AMAP_KEY", "");
+        String key = ExternalServices.amapKey();
         if (key.isBlank()) {
-            resp.put("error", "AMAP_KEY 未配置");
+            resp.put("error", "高德Key未配置，请在管理端填写或配置AMAP_KEY");
             return resp;
         }
         try {
@@ -167,7 +264,7 @@ public class AppController {
             if (city != null && !city.isBlank()) {
                 qs += "&city=" + java.net.URLEncoder.encode(city.trim(), "UTF-8");
             }
-            java.net.URL url = new java.net.URL("https://restapi.amap.com/v3/place/text?" + qs);
+            java.net.URL url = new java.net.URL(ExternalServices.amapPlaceSearchUrl(qs));
             java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(5000);

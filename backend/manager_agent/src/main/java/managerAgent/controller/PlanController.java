@@ -119,7 +119,7 @@ public class PlanController {
                     "../../data-pipeline/extract_pref.py");
             if (!script.exists()) return;
             String contentArg = planContent.length() > 3000 ? planContent.substring(0, 3000) : planContent;
-            final ProcessBuilder pb = new ProcessBuilder("python", script.getCanonicalPath(),
+            final ProcessBuilder pb = new ProcessBuilder(utils.Config.get("PYTHON_BIN", "python"), script.getCanonicalPath(),
                     "--user", String.valueOf(userId), "--content", contentArg);
             pb.redirectErrorStream(true);
             pb.redirectOutput(java.io.File.createTempFile("atp_extract_", ".log"));

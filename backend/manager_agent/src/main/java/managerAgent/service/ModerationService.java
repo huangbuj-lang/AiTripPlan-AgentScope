@@ -6,14 +6,14 @@ import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.GenerateOptions;
-import io.agentscope.core.model.Model;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import utils.AgentUtils;
+import utils.AgentPrompts;
+import utils.LlmClient;
+import utils.ModelTimeouts;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -34,25 +34,11 @@ public class ModerationService {
     /** 审核专用线程池（独立小池，不抢占主生成并发槽） */
     private static final ExecutorService MOD_POOL = Executors.newFixedThreadPool(2);
 
-    /** 裸模型（懒加载单例，与主生成共用 SafeModel 限速/熔断降级链） */
-    private static volatile Model model;
-
     /** DFA 敏感词表（快筛用，可扩展/从 DB 配置加载） */
     private static final String[] SENSITIVE_WORDS = {
             "代开发票", "办证", "加微信", "加V信", "联系方式私聊", "赌博", "博彩", "诈骗",
             "色情", "卖淫", "嫖娼", "毒品", "枪支", "枪支弹药", "刷单", "兼职日结", "传销"
     };
-
-    private Model model() {
-        if (model == null) {
-            synchronized (ModerationService.class) {
-                if (model == null) {
-                    model = AgentUtils.buildModel();
-                }
-            }
-        }
-        return model;
-    }
 
     /** 同步 DFA 敏感词快筛：命中任一敏感词返回 true（零成本拦截明显违规） */
     public boolean containsSensitive(String text) {
@@ -95,10 +81,7 @@ public class ModerationService {
 
     /** LLM 语义审核：返回 0/1/2（解析失败按 pass 处理，不误伤） */
     private int llmVerdict(String text) {
-        String sysPrompt = "你是内容审核员。判断文本是否违规，只输出一个 JSON 对象："
-                + "{\"verdict\":\"pass|review|block\",\"reason\":\"简短理由\"}\n"
-                + "pass=正常；review=存疑(广告/软色情/低质/边界模糊，交人工)；block=明确违规(色情/暴力/违法/严重广告/人身攻击)。"
-                + "除 JSON 外不要输出任何文字。";
+        String sysPrompt = AgentPrompts.moderation();
         Msg system = Msg.builder().role(MsgRole.SYSTEM)
                 .content(TextBlock.builder().text(sysPrompt).build()).build();
         Msg user = Msg.builder().role(MsgRole.USER)
@@ -106,8 +89,8 @@ public class ModerationService {
         GenerateOptions options = GenerateOptions.builder()
                 .additionalBodyParams(Map.of("response_format", Map.of("type", "json_object")))
                 .build();
-        ChatResponse resp = model().stream(List.of(system, user), null, options)
-                .blockLast(Duration.ofSeconds(60));
+        ChatResponse resp = LlmClient.model().stream(List.of(system, user), null, options)
+                .blockLast(ModelTimeouts.moderationDuration());
         String out = textOf(resp);
         String verdict = extractVerdict(out);
         return switch (verdict) {

@@ -14,7 +14,7 @@ public final class ProfileHook {
             java.io.File script = new java.io.File(System.getProperty("user.dir"),
                     "data-pipeline/profile.py");
             if (!script.exists()) return;
-            final ProcessBuilder pb = new ProcessBuilder("python", script.getCanonicalPath(),
+            final ProcessBuilder pb = new ProcessBuilder(utils.Config.get("PYTHON_BIN", "python"), script.getCanonicalPath(),
                     "--user", String.valueOf(userId));
             pb.redirectErrorStream(true);
             pb.redirectOutput(java.io.File.createTempFile("atp_profile_", ".log"));

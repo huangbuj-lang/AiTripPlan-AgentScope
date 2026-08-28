@@ -20,19 +20,22 @@ for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
         ENV[m.group(1)] = m.group(2).strip().strip('"').strip("'")
 
 from llm_config import chat as _llm_chat  # ★统一模型配置（管理端可热更）
+from pipeline_config import get_profile_config  # ★数据管线配置（Nacos 可热更）
 
 RDS_HOST = ENV.get("RDS_HOST", "127.0.0.1:3306")
 RDS_USER = ENV.get("RDS_USER", "root")
 RDS_PASS = ENV.get("RDS_PASSWORD", "")
 
-ALLOW_PREFIX = ("常去", "偏好", "风格")  # 与前端标签云配色映射保持一致
+def _allow_prefixes():
+    prefixes = get_profile_config().get("allowPrefixes", ["常去", "偏好", "风格"])
+    return tuple(prefixes) if isinstance(prefixes, list) else ("常去", "偏好", "风格")
 
 
 def sql(query, fetch=True):
     host, port = (RDS_HOST.split(":") + ["3306"])[:2]
     cmd = ["mysql", f"-h{host}", f"-P{port}", f"-u{RDS_USER}", f"-p{RDS_PASS}",
            "--default-character-set=utf8mb4", "-D", "aitripplan", "-N", "-B", "-e", query]
-    r = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    r = subprocess.run(cmd, check=False, capture_output=True, text=True, encoding="utf-8")
     if r.returncode != 0:
         print(f"⚠️ SQL错误: {r.stderr.strip()[:150]}")
         return []
@@ -46,18 +49,23 @@ def _clean(s, limit=160):
     return s[:limit]
 
 
+def _profile_limit():
+    return int(get_profile_config().get("maxRecords", 30))
+
+
 def collect_digest(user_id):
     """汇总该用户全部原始数据为一段文本；返回 (digest, 是否有数据)。"""
+    n = _profile_limit()
     lines, has = [], False
-    trips = sql(f"SELECT city, days, plan_content FROM trip_plans WHERE user_id={user_id} ORDER BY id LIMIT 30")
+    trips = sql(f"SELECT city, days, plan_content FROM trip_plans WHERE user_id={user_id} ORDER BY id LIMIT {n}")
     if trips:
         has = True
         lines.append(f"【保存的行程】共{len(trips)}条：")
         for i, (city, days, content) in enumerate(trips, 1):
             lines.append(f"{i}. {_clean(city, 20)}·{_clean(days, 4)}日 | {_clean(content)}")
-    posts = sql(f"SELECT title, content FROM posts WHERE user_id={user_id} ORDER BY id DESC LIMIT 30")
+    posts = sql(f"SELECT title, content FROM posts WHERE user_id={user_id} ORDER BY id DESC LIMIT {n}")
     likes = sql(f"SELECT p.title, p.content FROM post_likes l JOIN posts p ON p.id=l.post_id "
-                f"WHERE l.user_id={user_id} ORDER BY l.created_at DESC LIMIT 30")
+                f"WHERE l.user_id={user_id} ORDER BY l.created_at DESC LIMIT {n}")
     if posts:
         has = True
         lines.append(f"【发布的帖子】共{len(posts)}篇：")
@@ -111,7 +119,7 @@ def ask_llm(digest):
     raw = json.loads(m.group())
     tags = {}
     for k, v in raw.items():
-        if not isinstance(k, str) or not k.startswith(ALLOW_PREFIX):
+        if not isinstance(k, str) or not k.startswith(_allow_prefixes()):
             continue
         try:
             w = int(v)

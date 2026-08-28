@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import utils.JsonUtils;
+import utils.ExternalServices;
 
 import java.security.SecureRandom;
 import java.util.HashMap;
@@ -176,8 +177,8 @@ public class ShareController {
             }
             if (places.isEmpty()) { result.put("error", "第 " + day + " 天没有可定位的景点"); return result; }
             // 逐个 geocode（复用高德 place/text，350ms 限速）
-            String key = System.getenv().getOrDefault("AMAP_KEY", "");
-            if (key.isBlank()) { result.put("error", "AMAP_KEY 未配置"); return result; }
+            String key = ExternalServices.amapKey();
+            if (key.isBlank()) { result.put("error", "高德Key未配置，请在管理端填写或配置AMAP_KEY"); return result; }
             String city = trip.get("city") == null ? "" : String.valueOf(trip.get("city"));
             List<String> allPts = new java.util.ArrayList<>();
             for (String name : places) {
@@ -189,7 +190,7 @@ public class ShareController {
             // 拼 ditu 链接
             String[] first = allPts.get(0).split(",", -1);
             String[] last = allPts.get(allPts.size() - 1).split(",", -1);
-            StringBuilder nav = new StringBuilder("https://ditu.amap.com/ssr/dir?type=0&policy=10");
+            StringBuilder nav = new StringBuilder(ExternalServices.amapNavigationUrl());
             nav.append("&fname=").append(java.net.URLEncoder.encode(first.length >= 3 ? first[2] : "", "UTF-8"));
             nav.append("&flat=").append(first[1]).append("&flon=").append(first[0]);
             nav.append("&dname=").append(java.net.URLEncoder.encode(last.length >= 3 ? last[2] : "", "UTF-8"));
@@ -214,27 +215,86 @@ public class ShareController {
         return result;
     }
 
-    /** 地名→坐标+POI ID（复用高德 place/text），失败返回 null；350ms 间隔防超QPS */
+    /** 目的地中心坐标缓存：city→{lon,lat}（进程内，防重复请求） */
+    private static final java.util.concurrent.ConcurrentHashMap<String, double[]> DEST_CENTER_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 地名→坐标+POI ID：关键词带目的地限定 + 目的地围栏校验（防同名景点错配，如"五彩池"被解析到黄龙），失败返回 null；350ms 限速 */
     private String[] geocode(String key, String name, String city) {
         try {
-            String qs = "keywords=" + java.net.URLEncoder.encode(name, "UTF-8")
+            String cleanCity = cleanCityName(city);
+            // ★关键词组合：目的地+景点名（如 "九寨沟 五彩池"），提升同城景点命中率
+            String kw = (cleanCity != null && !cleanCity.isBlank() && !name.contains(cleanCity))
+                    ? name + " " + cleanCity : name;
+            String qs = "keywords=" + java.net.URLEncoder.encode(kw, "UTF-8")
+                    + "&output=json&key=" + key + "&offset=5&extensions=base";
+            if (cleanCity != null && !cleanCity.isBlank()) qs += "&city=" + java.net.URLEncoder.encode(cleanCity, "UTF-8");
+            java.net.URL u = new java.net.URL(ExternalServices.amapPlaceSearchUrl(qs));
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(8000);
+            String b = new String(c.getInputStream().readAllBytes(), "UTF-8");
+            com.fasterxml.jackson.databind.JsonNode pois = new com.fasterxml.jackson.databind.ObjectMapper().readTree(b).path("pois");
+            double[] center = destCenter(key, cleanCity);
+            for (com.fasterxml.jackson.databind.JsonNode poi : pois) {
+                String loc = poi.path("location").asText("");
+                String[] parts = loc.split(",");
+                if (parts.length < 2) continue;
+                // ★围栏校验：坐标须落在目的地中心 150km 内，越界视为同名错配，跳过
+                if (center != null) {
+                    double d = distKm(Double.parseDouble(parts[1]), Double.parseDouble(parts[0]),
+                            center[1], center[0]);
+                    if (d > 150) continue;
+                }
+                Thread.sleep(350);
+                return new String[]{parts[0], parts[1], poi.path("id").asText("")};
+            }
+            Thread.sleep(350);
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 目的地中心坐标（place/text 首条，进程内缓存） */
+    private double[] destCenter(String key, String city) {
+        if (city == null || city.isBlank()) return null;
+        double[] hit = DEST_CENTER_CACHE.get(city);
+        if (hit != null) return hit;
+        try {
+            Thread.sleep(350); // QPS 3 限速
+            String qs = "keywords=" + java.net.URLEncoder.encode(city, "UTF-8")
                     + "&output=json&key=" + key + "&offset=1&extensions=base";
-            if (city != null && !city.isBlank()) qs += "&city=" + java.net.URLEncoder.encode(city, "UTF-8");
-            java.net.URL u = new java.net.URL("https://restapi.amap.com/v3/place/text?" + qs);
+            java.net.URL u = new java.net.URL(ExternalServices.amapPlaceSearchUrl(qs));
             java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
             c.setConnectTimeout(5000);
             c.setReadTimeout(8000);
             String b = new String(c.getInputStream().readAllBytes(), "UTF-8");
             com.fasterxml.jackson.databind.JsonNode poi = new com.fasterxml.jackson.databind.ObjectMapper().readTree(b).path("pois").path(0);
-            if (poi.isMissingNode()) return null;
             String loc = poi.path("location").asText("");
-            String[] parts = loc.split(",");
-            Thread.sleep(350);
-            if (parts.length < 2) return null;
-            return new String[]{parts[0], parts[1], poi.path("id").asText("")};
+            String[] p = loc.split(",");
+            if (p.length < 2) return null;
+            double[] v = {Double.parseDouble(p[0]), Double.parseDouble(p[1])};
+            DEST_CENTER_CACHE.put(city, v);
+            return v;
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** 目的地名清洗：去掉 "3 日"/"三日游" 等后缀 */
+    private String cleanCityName(String city) {
+        if (city == null) return null;
+        return city.trim().replaceAll("\\d+\\s*[日天]|[一二三四五六七八九十]+\\s*[日天]|游$", "").trim();
+    }
+
+    /** 两点球面距离（km） */
+    private double distKm(double lat1, double lon1, double lat2, double lon2) {
+        double r = 6371.0;
+        double dLat = Math.toRadians(lat2 - lat1), dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * r * Math.asin(Math.sqrt(a));
     }
 
     /** 查询某行程的分享状态（前端"我的行程"展示分享链接） */

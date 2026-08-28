@@ -11,6 +11,8 @@
 """
 import os, re, subprocess, datetime, json
 
+from pipeline_config import get_pricing_config
+
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV = {}
 for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
@@ -25,7 +27,7 @@ def sql(query, fetch=True):
     host, port = (RDS_HOST.split(":") + ["3306"])[:2]
     cmd = ["mysql", f"-h{host}", f"-P{port}", f"-u{RDS_USER}", f"-p{RDS_PASS}",
            "--default-character-set=utf8mb4", "-D", "aitripplan", "-N", "-B", "-e", query]
-    r = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    r = subprocess.run(cmd, check=False, capture_output=True, text=True, encoding="utf-8")
     if r.returncode != 0:
         print(f"⚠️ SQL错误: {r.stderr.strip()[:150]}"); return []
     if not fetch: return []
@@ -37,7 +39,7 @@ HOLIDAYS = {"2026-01-01": "元旦", "2026-02-16": "春节", "2026-02-17": "春�
             "2026-09-25": "中秋", "2026-10-01": "国庆", "2026-10-02": "国庆", "2026-10-03": "国庆"}
 
 def holiday_factor(date_str):
-    return 1.3 if date_str in HOLIDAYS else 1.0
+    return get_pricing_config().get("holidayFactor", 1.3) if date_str in HOLIDAYS else 1.0
 
 # 用户输入城市归一化："成都三日"/"成都七日自行车"→"成都"；匹配标准城市库前缀优先，无匹配返回None
 def normalize_city(raw, std_cities):
@@ -116,7 +118,7 @@ def main():
         heat_f = 1.0 + min(h, 50) * 0.01  # 热度系数 1.0~1.5
         wf = 1.15 if "雨" in (weather.get(city) or "") else 1.0  # 雨天室内需求微升（简化）
         factor = round(heat_f * hf * wf, 2)
-        hotel_base = 300.0  # 酒店基准占位（OTA房价无公开API，接通后替换）
+        hotel_base = get_pricing_config().get("hotelBase", 300.0)  # 酒店基准（Nacos 可热更）
         ticket_list = ticket_avg.get(city) or []
         ticket_base = round(sum(ticket_list) / len(ticket_list), 1) if ticket_list else 60.0
         food_base = round(food_avg.get(city, 50.0), 1)

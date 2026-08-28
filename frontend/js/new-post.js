@@ -8,6 +8,12 @@ function init() {
     fetch('/api/forum/boards').then(r => r.json()).then(d => {
         const sel = document.getElementById('boardId');
         sel.innerHTML = (d.boards || []).map(b => '<option value="' + b.id + '">' + b.name + '</option>').join('');
+        // ★从版块页带参进入时自动预选（如 ?boardId=2 旅行问答）
+        const want = new URLSearchParams(location.search).get('boardId');
+        if (want && sel.querySelector('option[value="' + want + '"]')) {
+            sel.value = want;
+            sel.dispatchEvent(new Event('change')); // 触发结伴字段显隐 + AI提示更新
+        }
     });
     fetch('/api/my-plans').then(r => r.json()).then(d => {
         const sel = document.getElementById('tripId');
@@ -16,16 +22,22 @@ function init() {
     });
 }
 
-// 结伴同行（boardId=3）显示目的地+日期字段
+// 结伴同行（boardId=3）显示目的地+日期字段；问答版（boardId=2）提示可请求AI答主
 document.getElementById('boardId').addEventListener('change', function () {
     document.getElementById('mateFields').style.display = (this.value === '3') ? 'block' : 'none';
+    document.getElementById('aiHint').style.display = (this.value === '2') ? 'block' : 'none';
 });
 
-function submit() {
+function submit(btn) {
     const title = document.getElementById('title').value.trim();
     const content = document.getElementById('content').value.trim();
     const boardId = document.getElementById('boardId').value;
     if (!title || !content) { setMsg('请填写标题和内容', false); return; }
+    // ★防重复提交：点击即禁用并转圈，成功跳转或失败恢复
+    if (btn && btn.disabled) return;
+    const origLabel = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 发布中...'; }
+    const restore = () => { if (btn) { btn.disabled = false; btn.innerHTML = origLabel; } };
 
     const body = new URLSearchParams({ title: title, content: content, boardId: boardId });
     const tripId = document.getElementById('tripId').value;
@@ -39,9 +51,9 @@ function submit() {
         .then(r => r.json())
         .then(d => {
             if (d.success) { location.href = 'forum.html'; }
-            else setMsg(d.message, false);
+            else { setMsg(d.message, false); restore(); }
         })
-        .catch(() => setMsg('发布失败，请重试', false));
+        .catch(() => { setMsg('发布失败，请重试', false); restore(); });
 }
 
 function setMsg(text, ok) {

@@ -2,6 +2,7 @@ package utils.mcp;
 
 import io.agentscope.core.tool.mcp.McpClientBuilder;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
+import utils.ExternalServices;
 
 import java.time.Duration;
 import java.util.concurrent.Semaphore;
@@ -9,15 +10,12 @@ import java.util.concurrent.Semaphore;
 /**
  * 高德 MCP 客户端工厂：创建并初始化高德客户端。
  * 高德官方 Streamable HTTP 地址：https://mcp.amap.com/mcp?key=你的key
- * key 从环境变量 AMAP_MCP_KEY 读取（不硬编码进源码）。
+ * key 从 Nacos credentials 读取，环境变量 AMAP_MCP_KEY/AMAP_KEY 作为兜底。
  *
  * 并发控制：高德个人认证 QPS=3，Semaphore 限流，
  * 同时最多3个高德请求在飞，超出自动排队等待，保证不触发高德限流。
  */
 public class AmapMcpClientFactory {
-
-    /** 高德MCP端点（key通过查询参数） */
-    private static final String AMAP_MCP_BASE = "https://mcp.amap.com/mcp";
 
     /**
      * 并发信号量：QPS=3；两个子服务共用同一个 key，
@@ -44,14 +42,11 @@ public class AmapMcpClientFactory {
 
     /** 创建并初始化高德MCP客户端（阻塞直到就绪），返回带限流装饰的客户端 */
     public static McpClientWrapper createInitialized() {
-        String key = System.getenv("AMAP_MCP_KEY");
-        if (key == null || key.isBlank()) {
-            key = System.getenv("AMAP_KEY"); // 兜底用已有高德Web key
+        String key = ExternalServices.amapMcpKey();
+        if (key.isBlank()) {
+            throw new IllegalStateException("缺少高德MCP key（管理端/Nacos credentials 或 AMAP_MCP_KEY/AMAP_KEY）");
         }
-        if (key == null || key.isBlank()) {
-            throw new IllegalStateException("缺少高德MCP key（环境变量 AMAP_MCP_KEY 或 AMAP_KEY）");
-        }
-        String url = AMAP_MCP_BASE + "?key=" + key;
+        String url = ExternalServices.amapMcpUrl(key);
         McpClientWrapper mcp = McpClientBuilder.create("Amap-mcp")
                 .streamableHttpTransport(url)
                 .timeout(Duration.ofSeconds(120))

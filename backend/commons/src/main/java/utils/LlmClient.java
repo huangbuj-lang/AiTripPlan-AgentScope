@@ -70,11 +70,11 @@ public final class LlmClient {
 
     /** JSON 模式便捷重载 */
     public static String chatJson(String sysPrompt, String userPrompt) {
-        return chat(sysPrompt, userPrompt, true, 120_000L);
+        return chat(sysPrompt, userPrompt, true, ModelTimeouts.defaultMillis());
     }
 
     /** 普通文本模式便捷重载 */
     public static String chatText(String sysPrompt, String userPrompt) {
-        return chat(sysPrompt, userPrompt, false, 120_000L);
+        return chat(sysPrompt, userPrompt, false, ModelTimeouts.defaultMillis());
     }
 }

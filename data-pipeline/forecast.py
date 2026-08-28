@@ -6,6 +6,8 @@
 """
 import os, re, subprocess, datetime, json, statistics
 
+from pipeline_config import get_forecast_config
+
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV = {}
 for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
@@ -20,7 +22,7 @@ def sql(query, fetch=True):
     host, port = (RDS_HOST.split(":") + ["3306"])[:2]
     cmd = ["mysql", f"-h{host}", f"-P{port}", f"-u{RDS_USER}", f"-p{RDS_PASS}",
            "--default-character-set=utf8mb4", "-D", "aitripplan", "-N", "-B", "-e", query]
-    r = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    r = subprocess.run(cmd, check=False, capture_output=True, text=True, encoding="utf-8")
     if r.returncode != 0:
         print(f"⚠️ SQL错误: {r.stderr.strip()[:150]}"); return []
     if not fetch: return []
@@ -52,6 +54,7 @@ def normalize_city(raw, std_cities):
     return raw
 
 def main():
+    fc_days = int(get_forecast_config().get("days", 7))
     sql("""CREATE TABLE IF NOT EXISTS forecast_output (
         city VARCHAR(50), day DATE, forecast_idx DECIMAL(6,2), PRIMARY KEY(city, day)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", fetch=False)
@@ -76,7 +79,7 @@ def main():
         # 简单线性趋势：最近5天均值 vs 整体均值
         recent = statistics.mean(vals[-5:]) if len(vals) >= 5 else avg
         trend = (recent / avg) if avg > 0 else 1.0
-        for i in range(1, 8):
+        for i in range(1, fc_days + 1):
             day = (today + datetime.timedelta(days=i)).isoformat()
             # 周末因子（简化）：周六日 1.3
             wf = 1.3 if datetime.date.fromisoformat(day).weekday() >= 5 else 1.0

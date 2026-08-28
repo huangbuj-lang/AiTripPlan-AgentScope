@@ -15,12 +15,17 @@
   .form-row input, .form-row textarea, .form-row select { width:100%; padding:11px 14px; border:1px solid #dfe6e9; border-radius:8px; font-size:14px; box-sizing:border-box; outline:none; }
   .form-row textarea { min-height:200px; font-family:inherit; }
   .form-row input:focus, .form-row textarea:focus, .form-row select:focus { border-color:#00b894; }
+  .form-row select { appearance:none; -webkit-appearance:none; color:#2d3436; background:#fff url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%2374857F' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center/12px; cursor:pointer; transition:border-color .15s; }
+  .form-row select:hover { border-color:#cfe0da; }
+  .form-row select option { background:#fff; color:#2d3436; }
+  .form-row select option:checked { background:#f2f7f5; color:#1a8a72; }
   .btn-primary { background:linear-gradient(135deg,#00b894,#00a381); color:#fff; border:none; border-radius:8px; padding:12px 26px; font-size:15px; font-weight:600; cursor:pointer; }
   .btn-ghost { background:#f1f2f6; color:#636e72; border:none; border-radius:8px; padding:12px 20px; font-size:14px; cursor:pointer; margin-left:10px; }
   .form-msg { font-size:13px; margin-top:10px; } .form-msg.ok { color:#00b894; } .form-msg.err { color:#e17055; }
   .hint { font-size:12px; color:#b2bec3; margin-top:4px; }
   .back-link { display:inline-block; margin-bottom:16px; color:#0984e3; font-size:14px; text-decoration:none; }
 </style>
+<link rel="stylesheet" href="css/travel-theme.css?v=20260828a">
 </head>
 <body>
 <div class="np-wrap">
@@ -30,6 +35,7 @@
     <div class="form-row">
       <label>版块</label>
       <select id="boardId"></select>
+      <div class="hint" id="aiHint" style="display:none; color:#e08a00; margin-top:6px"><i class="fa-solid fa-robot"></i> 问答版帖子可以请求 AI 答主回答（发帖后在自己帖子页操作）</div>
     </div>
     <div class="form-row">
       <label>标题</label>
@@ -48,7 +54,7 @@
       <textarea id="content" placeholder="分享你的旅行见闻、攻略或问题..."></textarea>
       <div class="hint">支持 # 标题、**加粗**、- 列表、[链接](url) 等 Markdown 语法</div>
     </div>
-    <button class="btn-primary" onclick="submit()"><i class="fa-solid fa-paper-plane"></i> 发布</button>
+    <button class="btn-primary" onclick="submit(this)"><i class="fa-solid fa-paper-plane"></i> 发布</button>
     <button class="btn-ghost" onclick="location.href='forum.html'">取消</button>
     <div class="form-msg" id="msg"></div>
   </div>

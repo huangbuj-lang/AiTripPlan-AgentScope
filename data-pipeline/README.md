@@ -25,5 +25,5 @@ python3 data-pipeline/profile.py
 
 ## 坑
 - 客服服务**只能用 `python` 启动**（3.11）；`python3` 是 3.14，pydantic_core 二进制不兼容 → ModuleNotFoundError
-- 客服页 http://localhost:8081/chat.html 依赖 8090 服务存活
+- 客服页 http://localhost:9091/chat.html 依赖 8090 服务存活
 - ③⑥ 输入含 trip_plans.city 历史脏值（如"西安七日自行车"），如实标注，未改现有数据

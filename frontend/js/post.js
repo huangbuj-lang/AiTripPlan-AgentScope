@@ -8,10 +8,14 @@ let replyTo = null; // 当前回复的评论（null=回复帖子）
 let currentUserId = null;   // 当前登录用户 ID
 let postAuthorId = null;    // 楼主 ID
 let boardId = null;         // 版块 ID（判断是否问答版块可请求 AI 答主）
+let likedByMe = false;      // 本会话内是否已点赞（点赞接口只返回切换结果，用于渲染实心/空心）
+let favedByMe = false;      // 本会话内是否已收藏
+let myRole = 'user';        // 当前登录者角色（admin 可删任何帖子）
 
-// 获取当前登录用户（用于判断是否楼主 / AI 采纳 / 举报权限）
-fetch('/api/check-login').then(r => r.json()).then(d => {
-    if (d.success) currentUserId = d.userId;
+// 获取当前登录用户（用于判断是否楼主 / AI 采纳 / 举报权限 / 删帖权限）
+let loginReady = fetch('/api/check-login').then(r => r.json()).then(d => {
+    if (d.success) { currentUserId = d.userId; myRole = d.role || 'user'; }
+    return d;
 });
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -72,9 +76,9 @@ function renderTripPreview(plan) {
     return lines.slice(0, 6).map(l => '<li>' + esc(l) + '</li>').join('');
 }
 
-// 加载帖子详情
+// 加载帖子详情（先等登录态，删除键的显隐才不会有时序抖动）
 function loadPost() {
-    fetch('/api/forum/posts/' + postId).then(r => r.json()).then(d => {
+    loginReady.then(() => fetch('/api/forum/posts/' + postId)).then(r => r.json()).then(d => {
         if (!d.success) { document.getElementById('postCard').innerHTML = '<div class="empty">' + d.message + '</div>'; return; }
         const p = d.post;
         postAuthorId = p.user_id;
@@ -89,7 +93,12 @@ function loadPost() {
                 '<button class="btn-primary" onclick="copyTrip()"><i class="fa-solid fa-copy"></i> 同款行程一键复制</button></div>';
         }
         document.getElementById('postCard').innerHTML =
-            '<h1>' + esc(p.title) + '</h1>' +
+            '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">' +
+            '<h1 style="flex:1">' + esc(p.title) + '</h1>' +
+            (currentUserId != null && (String(currentUserId) === String(postAuthorId) || myRole === 'admin')
+                ? '<button class="pd-del" onclick="delPost()" title="' + (String(currentUserId) === String(postAuthorId) ? '删除帖子（不可恢复）' : '管理员下架（可恢复）') + '"><i class="fa-regular fa-trash-can"></i> 删除</button>'
+                : '') +
+            '</div>' +
             '<div class="pd-meta">' +
             '<span><i class="fa-regular fa-user"></i> ' + esc(p.author || '') + '</span>' +
             '<span><i class="fa-regular fa-clock"></i> ' + fmtTime(p.created_at) + '</span>' +
@@ -99,8 +108,8 @@ function loadPost() {
             '</div>' +
             '<div class="pd-content">' + DOMPurify.sanitize(renderMarkdown(p.content)) + '</div>' + trip +
             '<div class="pd-actions">' +
-            '<button class="act-btn" id="likeBtn" onclick="toggleLike()"><i class="fa-regular fa-heart"></i> 赞 ' + (p.like_count || 0) + '</button>' +
-            '<button class="act-btn" id="favBtn" onclick="toggleFav()"><i class="fa-regular fa-star"></i> 收藏</button>' +
+            '<button class="act-btn' + (likedByMe ? ' active' : '') + '" id="likeBtn" onclick="toggleLike()"><i class="fa-' + (likedByMe ? 'solid' : 'regular') + ' fa-heart"></i> 赞 ' + (p.like_count || 0) + '</button>' +
+            '<button class="act-btn' + (favedByMe ? ' active' : '') + '" id="favBtn" onclick="toggleFav()"><i class="fa-' + (favedByMe ? 'solid' : 'regular') + ' fa-star"></i> 收藏</button>' +
             (boardId === 2 ? '<button class="act-btn" onclick="requestAi()"><i class="fa-solid fa-robot"></i> 请求 AI 答主</button>' : '') +
             '<button class="act-btn" onclick="reportPost()"><i class="fa-solid fa-flag"></i> 举报</button>' +
             '</div>';
@@ -111,21 +120,39 @@ function copyTrip() {
     fetch('/api/forum/posts/' + postId + '/copy-trip', { method: 'POST' }).then(r => r.json()).then(d => alert(d.message || '复制成功'));
 }
 
+/* 点赞：实心/空心即时反馈 + 忙碌态防连点；数量由 loadPost 重渲染刷新 */
 function toggleLike() {
-    fetch('/api/forum/posts/' + postId + '/like', { method: 'POST' }).then(r => r.json()).then(d => {
-        const btn = document.getElementById('likeBtn');
-        btn.classList.toggle('active', d.liked);
-        btn.innerHTML = '<i class="fa-regular fa-heart"></i> 赞';
-        loadPost();
-    });
+    const btn = document.getElementById('likeBtn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    fetch('/api/forum/posts/' + postId + '/like', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) { likedByMe = !!d.liked; loadPost(); } /* 状态留存，重渲染后心形保持一致 */
+            else alert(d.message || '操作失败');
+        })
+        .catch(() => alert('网络异常，请重试'))
+        .finally(() => { btn.disabled = false; });
 }
 
+/* 收藏：实心/空心星星即时反馈，去掉打断式弹窗 */
 function toggleFav() {
-    fetch('/api/forum/posts/' + postId + '/favorite', { method: 'POST' }).then(r => r.json()).then(d => {
-        const btn = document.getElementById('favBtn');
-        btn.classList.toggle('active', d.favorited);
-        alert(d.favorited ? '已收藏' : '已取消收藏');
-    });
+    const btn = document.getElementById('favBtn');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    fetch('/api/forum/posts/' + postId + '/favorite', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                favedByMe = !!d.favorited;
+                btn.classList.toggle('active', favedByMe);
+                btn.innerHTML = '<i class="fa-' + (favedByMe ? 'solid' : 'regular') + ' fa-star"></i> 收藏';
+            } else {
+                alert(d.message || '操作失败');
+            }
+        })
+        .catch(() => alert('网络异常，请重试'))
+        .finally(() => { btn.disabled = false; });
 }
 
 // 加载评论
@@ -164,6 +191,9 @@ function submitComment() {
     const input = document.getElementById('commentInput');
     const content = input.value.trim();
     if (!content) return;
+    const sendBtn = document.querySelector('.comment-input button');
+    if (sendBtn && sendBtn.disabled) return; /* 防重复提交 */
+    if (sendBtn) sendBtn.disabled = true;
     const body = new URLSearchParams({ content: content });
     if (replyTo) { body.append('parentId', replyTo.parentId); body.append('replyUserId', replyTo.userId); }
     fetch('/api/forum/posts/' + postId + '/comments', {
@@ -171,7 +201,8 @@ function submitComment() {
     }).then(r => r.json()).then(d => {
         if (d.success) { input.value = ''; replyTo = null; input.placeholder = '写下你的评论...'; loadComments(); }
         else alert(d.message);
-    });
+    }).catch(() => alert('评论发送失败，请重试'))
+      .finally(() => { if (sendBtn) sendBtn.disabled = false; });
 }
 
 function requestAi() {
@@ -199,6 +230,19 @@ function reportPost() {
         method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ targetType: 1, targetId: postId, reason: reason.trim() })
     }).then(r => r.json()).then(d => alert(d.message || '已提交'));
+}
+
+/** 删帖：楼主→真删；管理员删别人的→管理端下架（status=0 可恢复），成功后回论坛列表 */
+function delPost() {
+    const isMine = currentUserId != null && String(currentUserId) === String(postAuthorId);
+    if (!confirm(isMine ? '确认删除这篇帖子？删除后不可恢复。' : '（管理员）下架该帖子？可在管理端恢复。')) return;
+    const url = isMine ? '/api/forum/posts/' + postId
+                       : '/api/admin/moderation/action?targetType=1&targetId=' + postId + '&action=hide';
+    fetch(url, { method: isMine ? 'DELETE' : 'POST' })
+        .then(r => r.json()).then(d => {
+            if (d.success) { location.href = 'forum.html'; }
+            else alert(d.message || '删除失败');
+        }).catch(() => alert('请求失败，请重试'));
 }
 
 loadPost();

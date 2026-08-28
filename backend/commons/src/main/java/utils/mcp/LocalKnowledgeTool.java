@@ -25,6 +25,13 @@ import java.util.List;
 public class LocalKnowledgeTool {
 
     private static final String DB = "aitripplan";
+
+    // ==================== ★观测埋点：知识库查询成败/次数/耗时（管理端子Agent健康展示） ====================
+    public static final java.util.concurrent.atomic.AtomicLong LK_CALLS = new java.util.concurrent.atomic.AtomicLong(0);
+    public static final java.util.concurrent.atomic.AtomicLong LK_FAILS = new java.util.concurrent.atomic.AtomicLong(0);
+    /** 累计耗时（ms），配合 CALLS 算平均 */
+    public static final java.util.concurrent.atomic.AtomicLong LK_COST_MS = new java.util.concurrent.atomic.AtomicLong(0);
+
     // 知识点/美食/酒店 特征表
     private static final String[][] TABLES = {
         {"景点", "attractions_features"},
@@ -49,8 +56,31 @@ public class LocalKnowledgeTool {
             @ToolParam(name = "city", description = "城市名，如：成都") String city,
             @ToolParam(name = "preference", description = "偏好描述，可用自然语言，如：带娃亲子/出片拍照/地道美食/性价比高") String preference) {
         if (city == null || city.isBlank()) {
+            LK_CALLS.incrementAndGet(); LK_FAILS.incrementAndGet(); // 参数缺失也算失败调用
             return "【本地知识获取失败】city 必填";
         }
+        long lkStart = System.currentTimeMillis();
+        LK_CALLS.incrementAndGet();
+        try {
+            String out = doQuery(city, preference);
+            LK_COST_MS.addAndGet(System.currentTimeMillis() - lkStart);
+            boolean lkOk = !out.contains("获取失败");
+            utils.CallTrace.record(utils.SafeModel.lastTraceId(), "TOOL", "query_local_knowledge",
+                    lkOk ? "知识库调用成功 · " + city + (preference == null || preference.isBlank() ? "" : " · " + preference)
+                         : "知识库调用失败 · " + out.substring(0, Math.min(60, out.length())),
+                    lkOk, System.currentTimeMillis() - lkStart);
+            return out;
+        } catch (RuntimeException re) {
+            LK_FAILS.incrementAndGet();
+            LK_COST_MS.addAndGet(System.currentTimeMillis() - lkStart);
+            utils.CallTrace.record(utils.SafeModel.lastTraceId(), "TOOL", "query_local_knowledge",
+                    "异常: " + re.getMessage(), false, System.currentTimeMillis() - lkStart);
+            throw re;
+        }
+    }
+
+    /** 原查询逻辑（观测埋点拆出的主体） */
+    private String doQuery(String city, String preference) {
         String p = preference == null ? "" : preference.trim();
         // ★偏好归一：自由文本 → 标准标签（同义词表）
         List<String> prefTags = PrefSynonyms.normalize(p);
@@ -95,13 +125,14 @@ public class LocalKnowledgeTool {
                 }
                 if (table == null) continue;
                 boolean isAttraction = "attractions_features".equals(table);
+                boolean hasSuitableTags = isAttraction || "foods_features".equals(table); // ★hotels_features 无 suitable_tags 列
                 String sel = isAttraction
                         ? "SELECT name, label, rating, level, suggest_duration, tips, best_time FROM " + table
                         : "SELECT name, label, rating, level, NULL AS suggest_duration, NULL AS tips, NULL AS best_time FROM " + table;
 
                 // 两段式：先带偏好标签过滤；命中0条回退该城评分top
                 List<String> rows = new ArrayList<>();
-                if (!prefTags.isEmpty()) {
+                if (!prefTags.isEmpty() && hasSuitableTags) {
                     StringBuilder cond = new StringBuilder();
                     for (String tag : prefTags) {
                         if (cond.length() > 0) cond.append(" OR ");
@@ -141,10 +172,12 @@ public class LocalKnowledgeTool {
                 }
             }
             if (!any) {
+                LK_FAILS.incrementAndGet(); // 无数据也算业务失败（健康页可见）
                 return "【本地知识获取失败】该城市暂无沉淀数据，请依赖高德实时查询";
             }
             return sb.toString();
         } catch (Exception e) {
+            LK_FAILS.incrementAndGet(); // 数据库异常计失败
             return "【本地知识获取失败】连接数据库异常: " + e.getMessage() + "（不影响高德实时查询，请直接使用高德数据）";
         }
     }

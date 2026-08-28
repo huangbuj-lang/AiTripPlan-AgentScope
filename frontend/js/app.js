@@ -15,12 +15,9 @@ let eventSource = null;    // SSE 实时事件流（阶段四 F-3，替代 /even
 let knownCount = 0;        // 已显示的事件数（保留，向后兼容）
 let lastEventCount = 0;    // 发送前的事件总数（用于增量显示）
 let lastResultMarkdown = ''; // 最近一次最终结果的 markdown 原文（保存行程用，避免存 HTML）
-let lastResultJson = '';
-let personalMapUrl = ''; // 高德APP专属地图唤端链接（手机打开）
-let personalWebUrl = ''; // 高德网页版路线链接（浏览器直接可看）      // 最近一次最终结果的结构化 JSON 原文（保存行程用，供分享/二次编辑）
 
 // ★会话隔离：每个窗口独立 sessionId（localStorage 持久），请求带上它避免多窗口互扰
-const sessionId = (function () {
+let sessionId = (function () {
     let sid = localStorage.getItem('atp_session_id');
     if (!sid) {
         sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -30,20 +27,104 @@ const sessionId = (function () {
 })();
 
 // ===== ★ 登录状态检查（页面加载时执行） =====
+
+// ===== ★生成进度条（阶段驱动）：提交→解析→路线→行程→整合→完成 =====
+const GEN_STAGES = {
+    '解析': { pct: 8, label: '解析旅行需求...' },
+    '路线': { pct: 20, label: '路线Agent规划路线...' },
+    '行程': { pct: 35, label: '行程Agent规划行程...' },
+    '整合': { pct: 85, label: '主管整合生成方案...' },
+    '完成': { pct: 100, label: '生成完成！' }
+};
+
+// ★平滑推进：行程/整合阶段耗时长（1-2分钟），事件只在阶段开始时发一次，
+//   之后每 1.5s +1% 缓步推进，避免"半分钟到72%然后卡死"的假进度
+let genSmoothTimer = null;
+function startGenSmooth(targetMax) {
+    stopGenSmooth();
+    genSmoothTimer = setInterval(() => {
+        const pctEl = document.querySelector('.gen-pct');
+        const fill = document.querySelector('.gen-fill');
+        if (!pctEl || !fill) { stopGenSmooth(); return; }
+        const cur = parseInt(pctEl.textContent, 10) || 0;
+        if (cur >= targetMax) { stopGenSmooth(); return; }
+        updateGenProgress(cur + 1, null); // label 传 null 表示保留现有文字
+    }, 1500);
+}
+function stopGenSmooth() {
+    if (genSmoothTimer) { clearInterval(genSmoothTimer); genSmoothTimer = null; }
+}
+
+function genProgressHTML(pct, label) {
+    return '<div class="gen-progress"><div class="gen-track"><div class="gen-fill" style="width:' + pct + '%"></div></div>'
+        + '<div class="gen-label"><span class="gen-pct">' + pct + '%</span><span class="gen-label-text">' + escapeHtml(label || '') + '</span></div></div>';
+}
+
+function updateGenProgress(pct, label) {
+    const fill = document.querySelector('.gen-fill');
+    if (!fill) return;
+    fill.style.width = pct + '%';
+    const pctEl = document.querySelector('.gen-pct');
+    if (pctEl) pctEl.textContent = pct + '%';
+    const lbl = document.querySelector('.gen-label-text');
+    if (lbl && label !== null && label !== undefined) lbl.textContent = label;
+}
+
+// ★页面重载后恢复进行中的任务：localStorage 标记 + /result 探测
+// 修复竞态：任务恰在页面跳转时完成时，标记可能已被旧页面清除 → 只要有 sessionId 就探测 /result
+function tryRestoreRunning() {
+    const mark = localStorage.getItem('atp_gen_running');
+    let m = null;
+    try { m = mark ? JSON.parse(mark) : null; } catch (e) { localStorage.removeItem('atp_gen_running'); m = null; }
+    if (m && m.sid !== sessionId) { localStorage.removeItem('atp_gen_running'); m = null; }
+    fetch('/result?sessionId=' + encodeURIComponent(sessionId))
+        .then(r => r.text())
+        .then(text => {
+            if (text.includes('任务不存在')) {
+                // ★任务已失效（服务重启/从未提交）：清理本地标记，恢复默认界面，不再卡进度条
+                localStorage.removeItem('atp_gen_running');
+                document.getElementById('resultBody').innerHTML = '';
+                document.getElementById('sendBtn').disabled = false;
+                document.getElementById('cancelBtn').style.display = 'none';
+                return;
+            }
+            if (!text.includes('还在执行中')) {
+                // ★任务已完成：直接渲染最终结果（不丢进度条/结果）
+                if (text && text.trim()) { fetchResult(); return; }
+                return;
+            }
+            // 任务仍在跑：恢复进度条 + 重连事件流 + 结果轮询（仅标记存在时，避免误恢复）
+            if (!m) return;
+            document.getElementById('resultBody').innerHTML = genProgressHTML(30, '任务进行中，正在恢复进度...');
+            document.getElementById('sendBtn').disabled = true;
+            document.getElementById('cancelBtn').style.display = 'inline-block';
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource('/events/stream?sessionId=' + encodeURIComponent(sessionId));
+            eventSource.addEventListener('event', function (e) {
+                try { appendThinkItem(JSON.parse(e.data)); } catch (err) { /* 忽略非法数据 */ }
+            });
+            if (resultTimer) clearInterval(resultTimer);
+            resultTimer = setInterval(fetchResult, 2000);
+            // ★标记保留（任务仍在跑）：任务完成时由 fetchResult 清除；这里删会导致再次返回首页无法恢复
+        })
+        .catch(() => localStorage.removeItem('atp_gen_running'));
+}
+
 function checkLogin() {
     fetch('/api/check-login')
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                document.getElementById('userName').textContent = '👤 ' + data.username;
-                document.getElementById('myPlansBtn').style.display = 'inline-block';
                 document.getElementById('forumBtn').style.display = 'inline-block';
                 document.getElementById('profileBtn').style.display = 'inline-block';
+                document.getElementById('myPlansBtn').style.display = 'inline-block';
                 document.getElementById('logoutBtn').style.display = 'inline-block';
                 // ★管理员额外显示「管理端」入口
                 if (data.role === 'admin') {
                     document.getElementById('adminBtn').style.display = 'inline-block';
                 }
+                // ★切页回来：恢复进行中的生成任务进度
+                tryRestoreRunning();
             } else {
                 // 未登录：跳转登录页（相对路径，兼容部署上下文）
                 location.href = 'login.html';
@@ -122,7 +203,7 @@ function savePlan() {
     fetch('/api/save-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ city: city, days: days, planContent: payload, planJson: lastResultJson })
+        body: new URLSearchParams({ city: city, days: days, planContent: payload })
     })
         .then(r => r.json())
         .then(data => {
@@ -181,6 +262,7 @@ function viewPlan(id) {
                 }
                 if (structuredCol && (structuredCol.sections || structuredCol.title)) {
                     currentPlanData = structuredCol; // ★历史行程也恢复专属地图数据源
+                    viewingPlanId = id;              // ★记录行程ID：日历改期后保存用
                     lastResultJson = typeof p.plan_json === 'string' ? p.plan_json : JSON.stringify(structuredCol);
                     document.getElementById('resultBody').innerHTML = renderStructuredPlan(structuredCol);
                     document.getElementById('saveBar').style.display = 'flex';
@@ -227,16 +309,10 @@ function viewPlan(id) {
 }
 
 // 删除某条行程
-function deletePlan(id) {
-    if (!confirm('确定删除这条行程吗？')) return;
-    fetch('/api/delete-plan?id=' + id, { method: 'POST' })
-        .then(r => r.json())
-        .then(() => { showMyPlans(); })
-        .catch(() => { });
-}
 
-
-// ★P0：分享行程（生成/刷新只读分享链接）
+/**
+ * 分享行程：生成免登录分享链接
+ */
 function sharePlan(id) {
     fetch('/api/trips/' + id + '/share', { method: 'POST' })
         .then(r => r.json())
@@ -256,6 +332,15 @@ function sharePlan(id) {
         })
         .catch(() => { alert('分享失败，请重试'); });
 }
+
+function deletePlan(id) {
+    if (!confirm('确定删除这条行程吗？')) return;
+    fetch('/api/delete-plan?id=' + id, { method: 'POST' })
+        .then(r => r.json())
+        .then(() => { showMyPlans(); })
+        .catch(() => { });
+}
+
 // 关闭弹层
 function closeMyPlans() { document.getElementById('myPlansModal').style.display = 'none'; }
 
@@ -270,9 +355,8 @@ checkLogin();
 function send() {
     const prompt = document.getElementById('prompt').value.trim();
     if (!prompt) { alert('请输入旅行需求！'); return; }
-    // ★偏好选项卡已整体移除（含方案对比）：直接提交，multiScheme 固定 false；
-    //   偏好来源 = 用户输入文本 + 个人中心沉淀（主管统一分类）
-    doSubmit(prompt, 'false');
+    // ★偏好选项卡已按需求移除：直接无偏好提交（历史偏好仍由后端个人中心沉淀生效）
+    doSubmit(prompt, '', '', '', 'false');
 }
 
 /**
@@ -281,6 +365,8 @@ function send() {
  */
 function cancelTask() {
     if (!confirm('确定要停止当前任务吗？')) return;
+    stopGenSmooth();
+    localStorage.removeItem('atp_gen_running');
     fetch('/cancel?sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
         .then(r => r.text())
         .then(msg => {
@@ -296,22 +382,100 @@ function cancelTask() {
         .catch(() => { /* 网络抖动，忽略 */ });
 }
 
+// ==================== ★预检卡片（功能1：意图拆解）+ 偏好记忆（功能5） ====================
+
+/** 当前选中的偏好（内存态，提交时读取） */
+let currentPref = { walkTolerance: '', chronotype: '', museumRatio: '', scheme: 'single' };
+
+/** 弹出预检卡片：回填历史偏好，绑定选项点击 */
+function showPrecheck() {
+    // 重置选中态
+    document.querySelectorAll('.precheck-opt').forEach(b => b.classList.remove('active'));
+    currentPref = { walkTolerance: '', chronotype: '', museumRatio: '', scheme: 'single' };
+    // 默认单方案高亮
+    highlightOpt('schemeOpts', 'single');
+    // 拉取历史偏好回填默认值（隐形学习：下次不用重新勾选）
+    fetch('/api/get-preference')
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                currentPref = { walkTolerance: d.walkTolerance || '', chronotype: d.chronotype || '', museumRatio: d.museumRatio || '', scheme: currentPref.scheme };
+                highlightOpt('walkOpts', d.walkTolerance);
+                highlightOpt('chronoOpts', d.chronotype);
+                highlightOpt('museumOpts', d.museumRatio);
+            }
+        })
+        .catch(() => { /* 未登录或网络问题：不填默认值 */ });
+    document.getElementById('precheckModal').style.display = 'flex';
+    // 绑定选项点击（每次弹出重新绑定）
+    bindPrecheckOpts('walkOpts', 'walkTolerance');
+    bindPrecheckOpts('chronoOpts', 'chronotype');
+    bindPrecheckOpts('museumOpts', 'museumRatio');
+    bindPrecheckOpts('schemeOpts', 'scheme');
+}
+
+/** 高亮历史回填的选项 */
+function highlightOpt(groupId, value) {
+    if (!value) return;
+    document.querySelectorAll('#' + groupId + ' .precheck-opt').forEach(b => {
+        if (b.getAttribute('data-v') === value) b.classList.add('active');
+    });
+}
+
+/** 绑定一组选项的点击（单选） */
+function bindPrecheckOpts(groupId, key) {
+    document.querySelectorAll('#' + groupId + ' .precheck-opt').forEach(b => {
+        b.onclick = function () {
+            document.querySelectorAll('#' + groupId + ' .precheck-opt').forEach(x => x.classList.remove('active'));
+            b.classList.add('active');
+            currentPref[key] = b.getAttribute('data-v');
+        };
+    });
+}
+
+/** 关闭预检卡片 */
+function closePrecheck() {
+    document.getElementById('precheckModal').style.display = 'none';
+}
+
+/** 确认生成：skip=true 跳过偏好（全不限）；否则带勾选偏好提交 */
+function submitWithPreference(skip) {
+    document.getElementById('precheckModal').style.display = 'none';
+    const prompt = document.getElementById('prompt').value.trim();
+    if (!prompt) { alert('请输入旅行需求！'); return; }
+    const walk = skip ? '' : (currentPref.walkTolerance || '');
+    const chrono = skip ? '' : (currentPref.chronotype || '');
+    const museum = skip ? '' : (currentPref.museumRatio || '');
+    const multi = (!skip && currentPref.scheme === 'multi') ? 'true' : 'false';
+    // ★偏好持久化：非跳过时保存（隐形学习）；跳过不覆盖历史偏好
+    if (!skip) {
+        fetch('/api/save-preference?walkTolerance=' + encodeURIComponent(walk)
+            + '&chronotype=' + encodeURIComponent(chrono)
+            + '&museumRatio=' + encodeURIComponent(museum), { method: 'POST' })
+            .catch(() => { /* 保存失败不影响生成 */ });
+    }
+    doSubmit(prompt, walk, chrono, museum, multi);
+}
 
 /** 实际提交任务（原 send 的提交逻辑，增加偏好参数） */
-function doSubmit(prompt, multi) {
+function doSubmit(prompt, walk, chrono, museum, multi) {
     if (polling) { clearInterval(polling); polling = null; }
     if (eventSource) { eventSource.close(); eventSource = null; }
     if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
 
     // 重置界面
     document.getElementById('thinkBody').innerHTML = '';
-    document.getElementById('resultBody').innerHTML = '<div class="empty">正在生成...</div>';
+    document.getElementById('resultBody').innerHTML = genProgressHTML(8, '正在提交任务...');
+    localStorage.setItem('atp_gen_running', JSON.stringify({ sid: sessionId, t: Date.now() }));
     document.getElementById('status').textContent = '⏳ 任务提交中...';
     document.getElementById('status').classList.add('show');
     document.getElementById('sendBtn').disabled = true;
 
     // ① 提交任务（带偏好参数）
     fetch('/app?prompt=' + encodeURIComponent(prompt) + '&sessionId=' + encodeURIComponent(sessionId)
+        + '&walkTolerance=' + encodeURIComponent(walk)
+        + '&chronotype=' + encodeURIComponent(chrono)
+        + '&museumRatio=' + encodeURIComponent(museum)
         + '&multiScheme=' + encodeURIComponent(multi), { method: 'POST' })
         .then(r => r.text())
         .then(msg => {
@@ -324,7 +488,6 @@ function doSubmit(prompt, multi) {
                 if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
                 return;
             }
-            document.getElementById('status').textContent = '🧠 主管Agent正在规划中，请稍候...';
             document.getElementById('cancelBtn').style.display = 'inline-block';
             lastEventCount = 0;
             if (eventSource) eventSource.close();
@@ -354,6 +517,7 @@ function fetchResult() {
             if (text.includes('还在执行中')) return;  // 没完成，继续等
 
             // 完成！渲染为 A4 行程规划表
+            localStorage.removeItem('atp_gen_running');
             clearInterval(resultTimer); resultTimer = null;
             if (eventSource) { eventSource.close(); eventSource = null; }
             if (polling) { clearInterval(polling); polling = null; }
@@ -368,11 +532,9 @@ function fetchResult() {
                 document.getElementById('resultBody').innerHTML = renderPlanSet(structured);
             } else if (structured && (structured.sections || structured.title)) {
                 lastResultMarkdown = structured.markdown || ''; // 记录降级 markdown，供保存
-                lastResultJson = text; // 记录结构化 JSON 原文，供保存行程（分享/二次编辑）
                 document.getElementById('resultBody').innerHTML = renderStructuredPlan(structured);
             } else {
                 lastResultMarkdown = text; // 记录原文，供保存行程使用
-                lastResultJson = ''; // 非结构化结果，不保存 JSON
                 document.getElementById('resultBody').innerHTML = renderPlanSheet(text);
             }
             document.getElementById('status').textContent = '✅ 计划生成完成！';
@@ -388,6 +550,14 @@ function fetchResult() {
  * 追加一条思考过程事件到界面（SSE 与轮询共用）
  */
 function appendThinkItem(ev) {
+    // ★阶段驱动进度条：按事件类型推进（解析/路线/行程/整合/完成）
+    const st = GEN_STAGES[ev.type];
+    if (st) {
+        updateGenProgress(st.pct, st.label);
+        if (ev.type === '行程') startGenSmooth(80);      // 行程Agent 1-2分钟：35%→80% 平滑
+        else if (ev.type === '整合') startGenSmooth(96); // 整合阶段：85%→96% 平滑
+        else if (ev.type === '完成') stopGenSmooth();
+    }
     const body = document.getElementById('thinkBody');
     const empty = body.querySelector('.empty');
     if (empty) empty.remove();
@@ -995,10 +1165,6 @@ let currentPlanData = null;
 function renderStructuredPlan(plan) {
     if (!plan) return '<div class="empty">（空响应）</div>';
     currentPlanData = plan;
-    // ★切换行程时清空按天路线缓存（避免点景点跳到上一个行程的地图）
-    dayMapUrls = [];
-    dayMapTitles = [];
-    dayMapPlanFp = planFingerprint();
     const sections = plan.sections || [];
 
     // 提取天数区块（timeline）与其余区块
@@ -1008,13 +1174,17 @@ function renderStructuredPlan(plan) {
     // 标题头
     let html = '<div class="plan-header">';
     const landmark = CITY_LANDMARKS[plan.destination] || '';
-    if (landmark) html += '<div class="plan-landmark">' + landmark + '</div>';
     html += '<h2 class="plan-title">' + escapeHtml(plan.title || '旅行规划') + '</h2>';
     html += '<div class="plan-meta">';
     if (plan.days) html += '<span>🗓 <b>' + plan.days + '</b> 天</span>';
-    if (plan.date) html += '<span>📅 ' + escapeHtml(plan.date) + '</span>';
-    if (plan.weather) html += '<span>🌤 ' + escapeHtml(plan.weather) + '</span>';
+    if (plan.date) html += '<span class="date-chip" id="dateChip" style="cursor:pointer" title="点击查看日历" onclick="openTripCalendar()">📅 ' + escapeHtml(plan.date) + '</span>';
+    const wth = cleanWeatherText(plan.weather);
+    if (wth) html += '<span>🌤 ' + escapeHtml(wth) + '</span>';
     html += '</div></div>';
+
+    // 目的地参考：只读展示城市级价格与客流，不参与行程生成
+    html += '<div id="travelInsight" class="travel-insight" aria-live="polite"></div>';
+    setTimeout(() => { loadTravelInsight(plan); }, 0);
 
     // 无 timeline 区块：整单走 markdown 兜底（历史行程兼容）
     if (days.length === 0) {
@@ -1062,7 +1232,7 @@ function renderStructuredPlan(plan) {
         others.forEach(sec => {
             const type = sec.type || 'other';
             html += '<div class="plan-section ' + (STRUCT_CLASS[type] || 'sec-other') + '">'
-                + '<div class="sec-title">' + (STRUCT_ICON[type] || '📋') + ' ' + escapeHtml(sec.title || '行程详情') + '</div><ul>'
+                + '<div class="sec-title"><span class="sec-icon">' + (STRUCT_ICON[type] || '📋') + '</span><span>' + escapeHtml(sec.title || '行程详情') + '</span></div><ul>'
                 + (sec.items || []).map(it => {
                     const t = formatSectionItem(type, it);
                     return t ? '<li>' + escapeHtml(t) + '</li>' : '';
@@ -1094,25 +1264,12 @@ function amapLink(place) {
         + escapeHtml(name) + '</a>';
 }
 
-/** 点击景点：跳转马蜂窝对应景点介绍页（实测免登录可看，搜索结果首条即景点页） */
+/** 点击景点：跳马蜂窝搜索页 */
 function gotoAmap(fallbackUrl, name, city) {
     window.open('https://www.mafengwo.cn/search/q.php?q=' + encodeURIComponent(name), '_blank');
 }
 
-/** 找景点名在 currentPlanData 中属于第几天（0基），找不到返回 -1 */
-function findDayIndexOfPlace(name) {
-    if (!currentPlanData || !currentPlanData.sections) return -1;
-    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
-    for (let i = 0; i < days.length; i++) {
-        const items = (days[i].items || []).filter(it => it && (it.place || it.name));
-        for (const it of items) {
-            const pl = (it.place || it.name || '').trim();
-            if (pl && (pl === name || pl.indexOf(name) >= 0 || name.indexOf(pl) >= 0)) return i;
-        }
-    }
-    return -1;
-}
-
+/** 按点数生成轨迹曲线路径 */
 /** 提取第 dayIdx 天（0基）的地点序列；返回 null 表示无该天 */
 function dayPlaces(dayIdx) {
     if (!currentPlanData || !currentPlanData.sections) return null;
@@ -1198,8 +1355,6 @@ function openDayMap(dayIdx, cb) {
         });
 }
 
-
-/** 按点数生成轨迹曲线路径 */
 function routePath(n) {
     n = Math.max(2, n || 2);
     const pts = [];
@@ -1246,8 +1401,6 @@ function selectDay(di) {
     // 状态副标题
     const st = document.getElementById('journeyDay');
     if (st) st.textContent = (day.title || ('第 ' + (di + 1) + ' 天')) + ' 的轨迹';
-    const statusBar = document.getElementById('status');
-    if (statusBar) statusBar.innerHTML = '<span class="status-dot"></span>正在查看 <b>' + escapeHtml(day.title || ('第 ' + (di + 1) + ' 天')) + '</b> 的轨迹';
 }
 
 /** 打开某天详情弹窗 */
@@ -1288,17 +1441,17 @@ function renderLegacySheet(plan) {
     let html = '<div class="plan-sheet">';
     html += '<div class="plan-header">';
     const landmark = CITY_LANDMARKS[plan.destination] || '';
-    if (landmark) html += '<div class="plan-landmark">' + landmark + '</div>';
     html += '<h2 class="plan-title">' + escapeHtml(plan.title || '旅行规划') + '</h2>';
     html += '<div class="plan-meta">';
     if (plan.days) html += '<span>🗓 行程天数：' + plan.days + ' 天</span>';
-    if (plan.date) html += '<span>📅 ' + escapeHtml(plan.date) + '</span>';
-    if (plan.weather) html += '<span>🌤 ' + escapeHtml(plan.weather) + '</span>';
+    if (plan.date) html += '<span class="date-chip" style="cursor:pointer" title="点击查看日历" onclick="openTripCalendar()">📅 ' + escapeHtml(plan.date) + '</span>';
+    const wth = cleanWeatherText(plan.weather);
+    if (wth) html += '<span>🌤 ' + escapeHtml(wth) + '</span>';
     html += '<span>📝 由 AI 旅行规划助手生成</span></div></div>';
     sections.forEach(sec => {
         const type = sec.type || 'other';
         html += '<div class="plan-section ' + (STRUCT_CLASS[type] || 'sec-other') + '">'
-            + '<div class="sec-title">' + (STRUCT_ICON[type] || '📋') + ' ' + escapeHtml(sec.title || '行程详情') + '</div><ul>';
+            + '<div class="sec-title"><span class="sec-icon">' + (STRUCT_ICON[type] || '📋') + '</span><span>' + escapeHtml(sec.title || '行程详情') + '</span></div><ul>';
         (sec.items || []).forEach(it => {
             const t = formatSectionItem(type, it);
             if (t) html += '<li>' + escapeHtml(t) + '</li>';
@@ -1374,6 +1527,317 @@ function exportPDF(ev) {
 }
 
 /** 构造打印视图内容：顶部=每天概览(与生成一致)，下面=每天详情(弹窗内容) */
+function openTripCalendar() {
+    const plan = currentPlanData || {};
+    const days = Math.min(30, Math.max(1, Number(plan.days) || 1));
+    const start = parsePlanDate(plan.date) ? new Date(parsePlanDate(plan.date)) : new Date();
+    start.setHours(0, 0, 0, 0);
+    calRange = { start: start, days: days };
+    // 视图钳制：行程起始日早于本月 → 从本月开始看（范围外日期已置灰不可点）
+    const now = new Date();
+    const view = start < new Date(now.getFullYear(), now.getMonth(), 1)
+        ? { y: now.getFullYear(), m: now.getMonth() }
+        : { y: start.getFullYear(), m: start.getMonth() };
+    calView = view;
+    ensureCalModal();
+    document.getElementById('calModal').style.display = 'flex';
+    renderCalGrid();
+}
+
+function closeTripCalendar() {
+    const m = document.getElementById('calModal');
+    if (m) m.style.display = 'none';
+    if (!calRange || !currentPlanData) return;
+    // ★修复：仅当用户点了新出发日才算改期；纯打开再关闭（或点的还是原出发日）→ 不重算格式、不写库
+    const oldDate = currentPlanData.date || '';
+    const oldStart = parsePlanDate(oldDate);
+    if (oldStart) {
+        if (localDateString(calRange.start) === oldStart) return;
+    } else {
+        if (fmtTripDateRange(calRange.start, calRange.days) === oldDate) return;
+    }
+    const newDate = fmtTripDateRange(calRange.start, calRange.days);
+    currentPlanData.date = newDate;
+    applyTripDateChange(newDate);
+}
+
+function ensureCalModal() {
+    if (document.getElementById('calModal')) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'calModal';
+    wrap.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(30,46,41,.45);z-index:9999;align-items:center;justify-content:center';
+    wrap.onclick = e => { if (e.target === wrap) closeTripCalendar(); };
+    wrap.innerHTML =
+        '<div style="background:#fff;border-radius:18px;padding:22px 24px;width:min(92vw,380px);box-shadow:0 18px 60px rgba(0,0,0,.18);font-family:inherit">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">' +
+        '<button id="calPrev" style="border:none;background:#f2f8f6;border-radius:9px;width:32px;height:32px;cursor:pointer;font-size:15px;color:#1FAE8F">‹</button>' +
+        '<b id="calTitle" style="font-size:15.5px;color:#1E2E29;letter-spacing:.5px"></b>' +
+        '<button id="calNext" style="border:none;background:#f2f8f6;border-radius:9px;width:32px;height:32px;cursor:pointer;font-size:15px;color:#1FAE8F">›</button>' +
+        '</div>' +
+        '<div id="calWeekRow" style="display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11.5px;color:#74857F;margin-bottom:4px"></div>' +
+        '<div id="calGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px"></div>' +
+        '<div style="margin-top:12px;display:flex;align-items:center;gap:14px;font-size:11.5px;color:#74857F">' +
+        '<span><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#1FAE8F;margin-right:4px"></i>行程日期</span>' +
+        '<span style="margin-left:auto"><button onclick="closeTripCalendar()" style="border:none;background:#f2f8f6;border-radius:8px;padding:6px 16px;cursor:pointer;color:#74857F;font-size:12.5px">关闭</button></span>' +
+        '</div></div>';
+    document.body.appendChild(wrap);
+    document.getElementById('calPrev').onclick = () => calNav(-1);
+    document.getElementById('calNext').onclick = () => calNav(1);
+}
+
+function renderCalGrid() {
+    const { y, m } = calView;
+    const now = new Date();
+    const minD = new Date(now.getFullYear(), now.getMonth(), 1);   // 本月1日
+    const maxD = new Date(now.getFullYear() + 2, now.getMonth(), 1); // 未来两年
+    document.getElementById('calTitle').textContent = y + ' 年 ' + (m + 1) + ' 月';
+    document.getElementById('calWeekRow').innerHTML = ['日','一','二','三','四','五','六'].map(w => '<span>' + w + '</span>').join('');
+
+    const grid = document.getElementById('calGrid');
+    grid.innerHTML = '';
+    const first = new Date(y, m, 1);
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const startPad = first.getDay(); // 周几开头
+
+    const rangeStart = calRange.start;
+    const rangeEnd = new Date(rangeStart); rangeEnd.setDate(rangeEnd.getDate() + calRange.days - 1);
+    const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    const inRange = d => d >= rangeStart && d <= rangeEnd;
+
+    // 视图越界（早于本月1日 / 晚于两年后）禁止翻到
+    document.getElementById('calPrev').disabled = new Date(y, m, 1) <= minD;
+    document.getElementById('calNext').disabled = new Date(y, m, 1) >= maxD;
+
+    for (let i = 0; i < startPad; i++) grid.appendChild(document.createElement('span'));
+    for (let d = 1; d <= daysInMonth; d++) {
+        const cur = new Date(y, m, d);
+        const cell = document.createElement('span');
+        cell.textContent = d;
+        cell.style.cssText = 'text-align:center;padding:7px 0;font-size:13px;border-radius:9px;cursor:pointer;transition:.12s;color:#1E2E29';
+        const outOfBound = cur < minD || cur > new Date(maxD.getFullYear(), maxD.getMonth() + 1, 0);
+        if (outOfBound) {
+            cell.style.color = '#c4d2cc';
+            cell.style.cursor = 'default';
+        } else if (inRange(cur)) {
+            const isStart = sameDay(cur, rangeStart);
+            cell.style.background = '#1FAE8F';
+            cell.style.color = '#fff';
+            cell.style.fontWeight = '700';
+            if (isStart) cell.style.boxShadow = '0 0 0 2px rgba(31,174,143,.28)';
+            cell.title = isStart ? '行程开始' : '行程中';
+        }
+        if (!outOfBound) {
+            cell.onmouseenter = () => { if (!inRange(cur)) cell.style.background = '#e8f8f5'; };
+            cell.onmouseleave = () => { if (!inRange(cur)) cell.style.background = ''; };
+            cell.onclick = () => {
+                // 点任意日期 → 从该日起按行程天数重新高亮
+                calRange = { start: cur, days: calRange.days };
+                renderCalGrid();
+            };
+        }
+        grid.appendChild(cell);
+    }
+}
+
+function calNav(delta) {
+    let m = calView.m + delta;
+    if (m < 0) { m = 11; calView.y--; }
+    if (m > 11) { m = 0; calView.y++; }
+    calView.m = m;
+    renderCalGrid();
+}
+
+function parsePlanDate(value) {
+    if (!value) return null;
+    const iso = String(value).match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (iso) return localDateString(new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
+    const cn = String(value).match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+    if (cn) return localDateString(new Date(Number(cn[1]), Number(cn[2]) - 1, Number(cn[3])));
+    // "8月27日-29日"区间格式：无年份，取区间首日；跨年风险场景（12月→次���1月）按出发年=当前年推断
+    const range = String(value).match(/(\d{1,2})月(\d{1,2})日-(\d{1,2})月(\d{1,2})日/);
+    if (range) {
+        const now = new Date();
+        return localDateString(new Date(now.getFullYear(), Number(range[1]) - 1, Number(range[2])));
+    }
+    // "8月27日"单日格式
+    const single = String(value).match(/(\d{1,2})月(\d{1,2})日/);
+    if (single) {
+        const now = new Date();
+        return localDateString(new Date(now.getFullYear(), Number(single[1]) - 1, Number(single[2])));
+    }
+    return null;
+}
+
+function parsePlanEndDate(value) {
+    if (!value) return null;
+    const range = String(value).match(/(\d{1,2})月(\d{1,2})日-(?:(\d{1,2})月)?(\d{1,2})日/);
+    if (!range) return null;
+    const start = parsePlanDate(value);
+    if (!start) return null;
+    const startDt = new Date(start);
+    // "27日-29日"：结束月缺省=开始月；"27日-1月2日"：结束月显式给出（跨月/跨年）
+    const endMonth = range[3] ? Number(range[3]) - 1 : startDt.getMonth();
+    const endDt = new Date(startDt.getFullYear(), endMonth, Number(range[4]));
+    if (endDt < startDt) endDt.setFullYear(endDt.getFullYear() + 1); // 跨年区间（12月-次年1月）
+    return localDateString(endDt);
+}
+
+function fmtTripDateRange(start, days) {
+    const end = new Date(start); end.setDate(end.getDate() + Math.max(1, days) - 1);
+    if (days <= 1 || start.getMonth() !== end.getMonth()) {
+        return (start.getMonth() + 1) + '月' + start.getDate() + '日-' + (end.getMonth() + 1) + '月' + end.getDate() + '日';
+    }
+    return (start.getMonth() + 1) + '月' + start.getDate() + '日-' + end.getDate() + '日';
+}
+
+function localDateString(date) {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return date.getFullYear() + '-' + month + '-' + day;
+}
+
+/** 清洗天气摘要：剔除 LLM 偶尔输出的 markdown 表格残留（如 "| 白天/夜间温度 | 风力 |"） */
+function cleanWeatherText(w) {
+    if (!w) return w;
+    const s = String(w).trim();
+    if (/^\|.+\|$/.test(s)) return ''; // 整行管道符表格结构 → 无有效天气内容
+    return s;
+}
+
+function applyTripDateChange(newDate) {
+    // 1) 立即刷新主界面日期徽章 + 打印视图（同一数据源）
+    const chip = document.querySelector('.plan-meta .date-chip'); // ★修复：定位可见徽章(#printView 里也有同名副本，getElementById 会拿错)
+    if (chip) chip.textContent = '📅 ' + newDate;
+    if (typeof buildPrintView === 'function') buildPrintView(); // 打印/PDF 导出用的隐藏视图
+    lastResultMarkdown = (stripPlanJson(lastResultMarkdown) + '\n\n出行的日期是 ' + newDate + '。').trim(); // markdown 摘要同步
+    // 2) 持久化（历史行程有ID走后端保存；新生成未保存的行程只更新本地，保存时自然带上）
+    if (!viewingPlanId) return;
+    fetch('/api/trips/' + viewingPlanId, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentPlanData)
+    }).catch(() => { /* 静默：网络异常时下次改期或保存行程会再次落库 */ });
+}
+
+let calView = null;          // 当前日历视图 {y, m}（m: 0-11）
+let calRange = null;         // 高亮区间 {start: Date, days: n}
+let viewingPlanId = null;    // 当前查看的历史行程ID（日历改期后保存用）
+let lastResultJson = '';     // 最近一次结构化结果 JSON（供再保存）
+
+async function loadTravelInsight(plan) {
+    const box = document.getElementById('travelInsight');
+    if (!box || !plan || !plan.destination) return;
+
+    const startDate = parsePlanDate(plan.date) || localDateString(new Date());
+    const days = Math.min(30, Math.max(1, Number(plan.days) || 1));
+    const params = new URLSearchParams({
+        city: plan.destination,
+        startDate: startDate,
+        days: String(days)
+    });
+
+    try {
+        const res = await fetch('/api/insights?' + params.toString(), { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        if (!res.ok || !data || !data.available || !box.isConnected) {
+            box.remove();
+            return;
+        }
+        renderTravelInsight(box, plan.destination, data);
+    } catch (e) {
+        if (box.isConnected) box.remove();
+    }
+}
+
+function renderTravelInsight(box, city, data) {
+    /* 动态定价（酒店/餐饮/门票价格块）已按需求移除，只保留客流指数 */
+    const forecast = Array.isArray(data.forecast) ? data.forecast : [];
+    const metrics = [];
+
+    if (forecast.length > 0) {
+        const values = forecast.map(d => Number(d.index)).filter(Number.isFinite);
+        if (values.length > 0) {
+            const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
+            metrics.push({
+                label: '客流指数',
+                value: avg.toFixed(2),
+                note: crowdLevel(avg)
+            });
+        }
+    }
+
+    if (metrics.length === 0) {
+        box.remove();
+        return;
+    }
+
+    const head = document.createElement('div');
+    head.className = 'ti-head';
+    const title = document.createElement('div');
+    title.className = 'ti-title';
+    title.textContent = '目的地参考 · ' + city;
+    const badge = document.createElement('span');
+    badge.className = 'ti-badge';
+    badge.textContent = '城市级';
+    head.append(title, badge);
+
+    const grid = document.createElement('div');
+    grid.className = 'ti-grid';
+    metrics.forEach(metric => {
+        const item = document.createElement('div');
+        item.className = 'ti-item';
+        const name = document.createElement('span');
+        name.className = 'ti-label';
+        name.textContent = metric.label;
+        const value = document.createElement('b');
+        value.className = 'ti-value';
+        value.textContent = metric.value;
+        item.append(name, value);
+        if (metric.note) {
+            const note = document.createElement('span');
+            note.className = 'ti-note';
+            note.textContent = metric.note;
+            item.appendChild(note);
+        }
+        grid.appendChild(item);
+    });
+
+    const source = document.createElement('div');
+    source.className = 'ti-source';
+    source.textContent = '参考数据，非实时报价';
+    box.append(head, grid, source);
+}
+
+function crowdLevel(value) {
+    if (value < 0.8) return '较宽松';
+    if (value < 1.2) return '中等';
+    return '较高';
+}
+
+function formatCny(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '-';
+    return '¥' + (Number.isInteger(num) ? num.toLocaleString('zh-CN') : num.toFixed(1).replace(/\.0$/, ''));
+}
+
+function newSession() {
+    // 重置为全新会话：清掉旧 sessionId 关联的事件/结果，防上次任务残留
+    sessionId = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    return sessionId;
+}
+
+function findDayIndexOfPlace(name) {
+    if (!currentPlanData || !currentPlanData.sections) return -1;
+    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    for (let i = 0; i < days.length; i++) {
+        const items = (days[i].items || []).filter(it => it && (it.place || it.name));
+        for (const it of items) {
+            const pl = (it.place || it.name || '').trim();
+            if (pl && (pl === name || pl.indexOf(name) >= 0 || name.indexOf(pl) >= 0)) return i;
+        }
+    }
+    return -1;
+}
+
 function buildPrintView() {
     const box = document.getElementById('printView');
     if (!box) return;
@@ -1389,8 +1853,9 @@ function buildPrintView() {
     html += '<h1>' + escapeHtml(plan.title || '旅行规划') + '</h1>';
     html += '<div class="pv-meta">';
     if (plan.days) html += '<span>🗓 行程天数：<b>' + plan.days + '</b> 天</span>';
-    if (plan.date) html += '<span>📅 ' + escapeHtml(plan.date) + '</span>';
-    if (plan.weather) html += '<span>🌤 ' + escapeHtml(plan.weather) + '</span>';
+    if (plan.date) html += '<span class="date-chip" style="cursor:pointer" title="点击查看日历" onclick="openTripCalendar()">📅 ' + escapeHtml(plan.date) + '</span>';
+    const wth = cleanWeatherText(plan.weather);
+    if (wth) html += '<span>🌤 ' + escapeHtml(wth) + '</span>';
     html += '</div></div>';
 
     // ===== 第一部分：每天概览（轨迹点 + 天卡片内容，与生成时一致） =====
@@ -1522,7 +1987,7 @@ function initPrintButton() {
         // 操作条(打印/导出 + 保存):结果区有内容才显示
         const saveBar = document.getElementById('saveBar');
         const text = (body.textContent || '').trim();
-        const has = text && !text.includes('正在生成') && !text.includes('等待生成') && !text.includes('（空响应）');
+        const has = text && !text.includes('正在生成') && !text.includes('等待生成') && !body.querySelector('.gen-progress') && !text.includes('（空响应）');
         if (saveBar) saveBar.style.display = has ? 'flex' : 'none';
     };
 

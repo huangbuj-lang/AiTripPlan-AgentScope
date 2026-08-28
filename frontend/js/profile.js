@@ -80,7 +80,8 @@ function renderAvatar(url) {
 }
 
 // 保存资料
-function saveInfo() {
+function saveInfo(btn) {
+    const restore = btnBusy(btn, '保存中...');
     const body = new URLSearchParams({
         nickname: document.getElementById('nickname').value,
         avatarUrl: document.getElementById('avatarUrl').value,
@@ -92,8 +93,9 @@ function saveInfo() {
         .then(d => {
             showMsg('infoMsg', d.message, d.success);
             if (d.success) { loadInfo(); }
+            restore();
         })
-        .catch(() => showMsg('infoMsg', '保存失败', false));
+        .catch(() => { showMsg('infoMsg', '保存失败', false); restore(); });
 }
 
 // 加载偏好
@@ -122,7 +124,8 @@ function safeParseArray(v) {
 }
 
 // 保存偏好
-function savePrefs() {
+function savePrefs(btn) {
+    const restore = btnBusy(btn, '保存中...');
     const avoid = document.getElementById('avoidList').value.split(/[,，]/).map(s => s.trim()).filter(Boolean);
     const body = new URLSearchParams({
         travelStyle: JSON.stringify(selectedStyles),
@@ -133,8 +136,8 @@ function savePrefs() {
     if (currentPace) body.append('pace', currentPace);
     fetch('/api/profile/preferences', { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body })
         .then(r => r.json())
-        .then(d => showMsg('prefsMsg', d.message, d.success))
-        .catch(() => showMsg('prefsMsg', '保存失败', false));
+        .then(d => { showMsg('prefsMsg', d.message, d.success); restore(); })
+        .catch(() => { showMsg('prefsMsg', '保存失败', false); restore(); });
 }
 
 // 加载统计
@@ -153,7 +156,8 @@ function loadStats() {
 }
 
 // 修改密码
-function changePwd() {
+function changePwd(btn) {
+    const restore = btnBusy(btn, '提交中...');
     const oldPwd = document.getElementById('oldPwd').value;
     const newPwd = document.getElementById('newPwd').value;
     if (!oldPwd || !newPwd) { showMsg('pwdMsg', '请填写新旧密码', false); return; }
@@ -163,8 +167,9 @@ function changePwd() {
         .then(d => {
             showMsg('pwdMsg', d.message, d.success);
             if (d.success) { document.getElementById('oldPwd').value = ''; document.getElementById('newPwd').value = ''; }
+            restore();
         })
-        .catch(() => showMsg('pwdMsg', '修改失败', false));
+        .catch(() => { showMsg('pwdMsg', '修改失败', false); restore(); });
 }
 
 // 注销账号
@@ -176,6 +181,14 @@ function deleteAccount() {
         .catch(() => alert('注销失败'));
 }
 
+/* 按钮忙碌态：点击即禁用并显示转圈，完成后恢复（防止连点重复提交） */
+function btnBusy(btn, busyText) {
+    if (!btn) return () => {};
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ' + (busyText || '处理中...');
+    return () => { btn.disabled = false; btn.innerHTML = original; };
+}
 // 提示消息
 function showMsg(id, text, ok) {
     const el = document.getElementById(id);
