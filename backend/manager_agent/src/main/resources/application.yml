@@ -1,5 +1,7 @@
 server:
   port: 8081
+  tomcat:
+    uri-encoding: UTF-8  # ★中文参数根治：显式声明 query/form 按 UTF-8 解码（配合前端 encodeURIComponent，直连传码后中文也不 400）
 
 spring:
   # ★新功能：MySQL 数据源（连接阿里云RDS）

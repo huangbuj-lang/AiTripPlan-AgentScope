@@ -3,82 +3,333 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>管理端 - AI旅行规划助手</title>
-    <link rel="stylesheet" href="css/admin.css">
+    <title>管理控制台 · AI旅行规划</title>
+    <link rel="stylesheet" href="css/admin.css?v=20260826b">
 </head>
 <body>
-<div class="admin-shell">
-    <header class="topbar">
+<div class="shell">
+
+    <!-- ============ 左侧边栏：观测区 / 操作区 / 配置区 ============ -->
+    <aside class="sidebar">
         <div class="brand">
-            <span class="icon">🛠️</span>
+            <div class="brand-mark">AT</div>
             <div>
                 <h1>管理控制台</h1>
-                <p>AiTripPlan-AgentScope · 可观测与运营</p>
+                <p>AiTripPlan-AgentScope</p>
             </div>
         </div>
-        <div class="user-area">
-            <span id="currentUser" class="username">加载中...</span>
-            <a href="index.html" class="btn-ghost">返回前台</a>
-            <button class="btn-ghost" onclick="logout()">退出登录</button>
+
+        <nav class="nav-group" aria-label="观测">
+            <div class="nav-label">观 测</div>
+            <button class="nav-item active" data-tab="status" onclick="switchTab('status')">系统状态<span class="nav-dot" id="dot-status"></span></button>
+            <button class="nav-item" data-tab="tasks" onclick="switchTab('tasks')">任务监控<span class="nav-dot" id="dot-tasks"></span></button>
+            <button class="nav-item" data-tab="agents" onclick="switchTab('agents')">Agent健康<span class="nav-dot" id="dot-agents"></span></button>
+            <button class="nav-item" data-tab="breaker" onclick="switchTab('breaker')">模型监控<span class="nav-dot" id="dot-breaker"></span></button>
+            <button class="nav-item" data-tab="business" onclick="switchTab('business')">业务看板<span class="nav-dot" id="dot-business"></span></button>
+        </nav>
+
+        <nav class="nav-group" aria-label="运营">
+            <div class="nav-label">运 营</div>
+            <button class="nav-item" data-tab="data" onclick="switchTab('data')">数据管理<span class="nav-dot" id="dot-data"></span></button>
+            <button class="nav-item" data-tab="moderation" onclick="switchTab('moderation')">内容审核<span class="nav-dot" id="dot-moderation"></span></button>
+            <button class="nav-item" data-tab="announce" onclick="switchTab('announce')">公告发布<span class="nav-dot" id="dot-announce"></span></button>
+            <button class="nav-item" data-tab="center" onclick="switchTab('center')">数据中心<span class="nav-dot" id="dot-center"></span></button>
+        </nav>
+
+        <div class="sidebar-foot">
+            <span class="sidebar-user" id="currentUser">加载中...</span>
+            <a href="index.html" class="btn btn-ghost btn-xs">返回前台</a>
+            <button class="btn btn-ghost btn-xs" onclick="logout()">退出登录</button>
         </div>
-    </header>
+    </aside>
 
-    <nav class="tabs">
-        <button class="tab active" data-tab="status" onclick="switchTab('status')">🖥️ 系统状态</button>
-        <button class="tab" data-tab="tasks" onclick="switchTab('tasks')">📋 任务监控</button>
-        <button class="tab" data-tab="breaker" onclick="switchTab('breaker')">🔌 模型监控</button>
-        <button class="tab" data-tab="data" onclick="switchTab('data')">🗄️ 数据管理</button>
-    </nav>
-
+    <!-- ============ 右侧内容 ============ -->
     <main class="content">
-        <!-- 系统状态 -->
+
+        <!-- 顶部栏：面包屑 + 侧信息（纯展示，经典后台布局） -->
+        <header class="topbar">
+            <div class="crumb"><span>首页</span><i>/</i><span>管理控制台</span></div>
+            <div class="topbar-side">AiTripPlan-AgentScope · 后台管理</div>
+        </header>
+
+        <!-- 签名元素：系统脉搏条（四节点实时状态） -->
+        <div class="pulse-strip" id="pulseStrip" aria-label="系统实时状态">
+            <button class="pulse-node" onclick="switchTab('status')" title="查看详情">
+                <span class="pulse-light idle breathe" id="pl-manager"></span>
+                <span class="pulse-info"><div class="pulse-name">主管编排</div><div class="pulse-value" id="pv-manager">—</div></span>
+            </button>
+            <button class="pulse-node" onclick="switchTab('status')" title="查看详情">
+                <span class="pulse-light idle breathe" id="pl-nacos"></span>
+                <span class="pulse-info"><div class="pulse-name">Nacos 注册中心</div><div class="pulse-value" id="pv-nacos">—</div></span>
+            </button>
+            <button class="pulse-node" onclick="switchTab('agents')" title="查看详情">
+                <span class="pulse-light idle" id="pl-route"></span>
+                <span class="pulse-info"><div class="pulse-name">路线Agent :8082</div><div class="pulse-value" id="pv-route">—</div></span>
+            </button>
+            <button class="pulse-node" onclick="switchTab('agents')" title="查看详情">
+                <span class="pulse-light idle" id="pl-trip"></span>
+                <span class="pulse-info"><div class="pulse-name">行程Agent :8085</div><div class="pulse-value" id="pv-trip">—</div></span>
+            </button>
+        </div>
+
+        <!-- ================= 系统状态 ================= -->
         <section class="panel" id="panel-status">
             <div class="panel-head">
-                <h2>系统状态</h2>
-                <button class="btn-refresh" onclick="loadStatus()">刷新</button>
+                <div class="panel-title"><h2>系统状态</h2><p>各服务进程与注册中心的连接情况</p></div>
+                <div class="panel-actions">
+                    <span class="autofresh-tag" id="af-status"><i></i>每 5s 自动刷新</span>
+                    <button class="btn btn-teal" onclick="loadStatus(this)">刷新</button>
+                </div>
             </div>
-            <div id="statusBody" class="panel-body">加载中...</div>
+            <div id="statusBody"><div class="skeleton"><div class="sk-row w80"></div><div class="sk-row w60"></div><div class="sk-row w40"></div></div></div>
         </section>
 
-        <!-- 任务监控 -->
+        <!-- ================= 任务监控 ================= -->
         <section class="panel hidden" id="panel-tasks">
             <div class="panel-head">
-                <h2>任务监控</h2>
-                <button class="btn-refresh" onclick="loadTasks()">刷新</button>
+                <div class="panel-title"><h2>任务监控</h2><p>运行中任务的实时步骤 + 历史成败记录</p></div>
+                <div class="panel-actions">
+                    <span class="autofresh-tag" id="af-tasks"><i></i>每 3s 自动刷新</span>
+                    <button class="btn btn-teal" onclick="loadTasks(this)">刷新</button>
+                </div>
             </div>
-            <div id="taskSummary" class="summary-strip"></div>
-            <div id="taskBody" class="panel-body">加载中...</div>
+            <div id="taskSummary" class="card-grid cols-metric"></div>
+
+            <div class="section-h">正在运行 <span class="cnt" id="runningCnt"></span></div>
+            <div id="taskBody"><div class="skeleton"><div class="sk-row w80"></div><div class="sk-row w60"></div></div></div>
+
+            <div class="section-h">历史任务 <span class="cnt">最近 200 条 · 新的在前 · 点击行查看调用链</span></div>
+            <div id="taskHistoryBody" class="table-wrap" style="max-height:380px"><div class="state-box"><div class="big">⏳</div>加载中...</div></div>
+
+            <details class="adv-fold" id="traceFold" style="margin-top:14px">
+                <summary>调用链明细：<span id="traceSessionId">—</span><span class="fold-note">模型 / 子Agent / 工具 各层成败、耗时与失败原因 · 点击行展开</span></summary>
+                <div id="traceBody" style="margin-top:12px"><div class="empty" style="color:var(--faint);font-size:13px;padding:10px">在上方历史任务表中点击一行查看该任务的调用链</div></div>
+            </details>
         </section>
 
-        <!-- 模型监控 -->
+        <!-- ================= Agent健康 ================= -->
+        <section class="panel hidden" id="panel-agents">
+            <div class="panel-head">
+                <div class="panel-title"><h2>Agent健康</h2><p>主管 + 路线 + 行程 三 Agent：进程探活、A2A 成功率、模型/工具/MCP 调用综合判定</p></div>
+                <div class="panel-actions">
+                    <span style="font-size:12px;color:var(--faint)" id="agentsRefreshTime"></span>
+                    <button class="btn btn-teal" onclick="loadAgentsHealth(this)">重新检测</button>
+                </div>
+            </div>
+            <p style="font-size:12.5px;color:var(--faint);margin:-6px 0 14px;line-height:1.7">
+                🟢 正常（存活且成功率 ≥90%）&nbsp;·&nbsp; 🟡 存活但失败率高&nbsp;·&nbsp; 🔴 探活不通&nbsp;·&nbsp; ⚪ 存活但从未被调用
+            </p>
+            <div id="agentsHealthBody" class="card-grid cols-3"><div class="skeleton"><div class="sk-row w80"></div><div class="sk-row w60"></div><div class="sk-row w40"></div></div></div>
+        </section>
+
+        <!-- ================= 模型监控 ================= -->
         <section class="panel hidden" id="panel-breaker">
             <div class="panel-head">
-                <h2>模型监控</h2>
-                <button class="btn-refresh" onclick="loadBreaker()">刷新</button>
+                <div class="panel-title"><h2>模型监控</h2><p>熔断器、限流参数、成本观测与模型热配置</p></div>
+                <div class="panel-actions"><button class="btn btn-teal" onclick="loadBreaker()">刷新</button></div>
             </div>
-            <div id="breakerBody" class="panel-body">加载中...</div>
+            <div id="breakerBody"><div class="skeleton"><div class="sk-row w80"></div><div class="sk-row w60"></div></div></div>
+
+            <div class="section-h">LLM 成本观测 <span class="cnt">本次进程运行累计 · 重启清零</span></div>
+            <div id="costsSummary" class="card-grid cols-metric"></div>
+            <div id="costsDims" style="margin-top:12px"></div>
+            <div style="font-size:12.5px;color:var(--faint);margin-top:10px">近7日成本趋势（已落库，重启不丢）</div>
+            <div id="costsTrend" style="margin-top:6px"></div>
+
+            <div class="section-h">⚙️ 常用配置（Nacos 热生效）</div>
+            <div class="config-grid">
+                <fieldset class="fieldset">
+                    <legend>Java 主模型（核心链路）</legend>
+                    <div class="field"><label>URL</label><input id="mcJavaUrl"></div>
+                    <div class="field"><label>Key</label><input id="mcJavaKey" type="password" placeholder="留空 = 不修改"></div>
+                    <div class="field"><label>模型名</label><input id="mcJavaName" placeholder="如 deepseek-v4-flash"></div>
+                </fieldset>
+                <fieldset class="fieldset">
+                    <legend>Java 备用模型（熔断降级）</legend>
+                    <div class="field"><label>URL</label><input id="mcFbUrl" placeholder="如 https://dashscope.aliyuncs.com/compatible-mode/v1"></div>
+                    <div class="field"><label>Key</label><input id="mcFbKey" type="password" placeholder="留空 = 不修改"></div>
+                    <div class="field"><label>模型名</label><input id="mcFbName" placeholder="如 qwen3.7-max"></div>
+                </fieldset>
+                <fieldset class="fieldset">
+                    <legend>主管编排（9091）</legend>
+                    <div class="field"><label>最大并发任务</label><input id="ocMaxTasks" type="number" min="1" max="32" step="1"></div>
+                    <div class="field"><label>远程调用超时（秒）</label><input id="ocRemoteTimeout" type="number" min="30" max="900" step="30"></div>
+                    <div class="field"><label>在途并发上限（防连接重置）</label><input id="limMaxInflight" type="number" min="1" step="1"></div>
+                </fieldset>
+                <fieldset class="fieldset">
+                    <legend>直连模型超时（秒）</legend>
+                    <div class="field"><label>通用 LLM 超时</label><input id="toDefault" type="number" min="5" max="600" step="5"></div>
+                    <div class="field"><label>论坛内容审核</label><input id="toModeration" type="number" min="5" max="600" step="5"></div>
+                    <div class="field"><label>论坛 AI 回答</label><input id="toAiAnswer" type="number" min="5" max="600" step="5"></div>
+                    <div class="field"><label>行程单日重排</label><input id="toTripEdit" type="number" min="5" max="600" step="5"></div>
+                </fieldset>
+                <fieldset class="fieldset">
+                    <legend>Agent 工具开关</legend>
+                    <label class="check-row"><input id="acAmap" type="checkbox" onchange="saveAgentConfig()">高德 MCP</label>
+                    <label class="check-row"><input id="acLocalKnowledge" type="checkbox" onchange="saveAgentConfig()">本地知识库</label>
+                    <label class="check-row"><input id="acRemoteRoute" type="checkbox" onchange="saveAgentConfig()">路线子Agent调用</label>
+                    <label class="check-row"><input id="acRemoteTrip" type="checkbox" onchange="saveAgentConfig()">行程子Agent调用</label>
+                    <p class="hint-text">⚠️ 切换「高德 MCP」或「本地知识库」会立即保存并重启 8082/8085，路线和行程功能会短暂不可用。</p>
+                    <span class="msg-line" id="acMsg"></span>
+                </fieldset>
+                <fieldset class="fieldset">
+                    <legend>高德凭证（Nacos）</legend>
+                    <div class="field"><label>普通 Web API Key</label><input id="amapWebKey" type="password" placeholder="留空 = 不修改"></div>
+                    <div class="field"><label>MCP Key</label><input id="amapMcpKey" type="password" placeholder="留空 = 不修改"></div>
+                    <p class="hint-text">⚠️ 普通 Key 热生效；MCP Key 变化会自动重启 8082/8085。</p>
+                    <button class="btn btn-blue" onclick="saveAmapCredentials()">保存高德 Key</button>
+                    <span class="msg-line" id="amapKeyMsg"></span>
+                </fieldset>
+            </div>
+            <div style="margin-top:14px;display:flex;align-items:center;gap:10px">
+                <button class="btn btn-primary" onclick="saveModelConfig()">保存运行配置</button>
+                <span class="msg-line" style="margin-top:0" id="mcMsg"></span>
+            </div>
+
+            <details class="adv-fold" style="margin-top:18px">
+                <summary>高级：限流与熔断参数<span class="fold-note">已按默认值调优，修改前请确认影响</span></summary>
+                <div class="config-grid" style="margin-top:14px">
+                    <fieldset class="fieldset">
+                        <legend>限流</legend>
+                        <div class="field"><label>QPS（每秒放行请求数）</label><input id="limQps" type="number" min="0.1" step="0.1"></div>
+                        <div class="field"><label>最大重试次数</label><input id="limRetries" type="number" min="0" step="1"></div>
+                        <div class="field"><label>重试基数（ms，指数退避）</label><input id="limRetryBaseMs" type="number" min="0" step="100"></div>
+                    </fieldset>
+                    <fieldset class="fieldset">
+                        <legend>熔断器（连续失败切备用模型）</legend>
+                        <div class="field"><label>熔断阈值（次）</label><input id="limBreakerThreshold" type="number" min="1" step="1"></div>
+                        <div class="field"><label>熔断窗口（ms）</label><input id="limBreakerWindow" type="number" min="1000" step="1000"></div>
+                        <div class="field"><label>熔断冷却（ms）</label><input id="limBreakerCoolDown" type="number" min="1000" step="1000"></div>
+                    </fieldset>
+                </div>
+            </details>
+
+            <details class="adv-fold" style="margin-top:12px">
+                <summary>高级：Python 侧配置（客服 / 数据管线）<span class="fold-note">管线配置基本不动</span></summary>
+                <div class="config-grid" style="margin-top:14px">
+                    <fieldset class="fieldset">
+                        <legend>Python 侧模型</legend>
+                        <div class="field"><label>URL</label><input id="mcPyUrl"></div>
+                        <div class="field"><label>Key</label><input id="mcPyKey" type="password" placeholder="留空 = 不修改"></div>
+                        <div class="field"><label>模型名</label><input id="mcPyName"></div>
+                    </fieldset>
+                </div>
+            </details>
+
+            <details id="promptEditor" style="margin-top:18px;background:var(--inset);border:1px solid var(--line);border-radius:var(--radius);padding:13px">
+                <summary style="cursor:pointer;color:var(--ink);font-weight:600;font-size:13.5px">Agent 提示词与工具描述（Nacos Prompt 管理）</summary>
+                <div id="promptFields" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;margin-top:14px"></div>
+                <div style="margin-top:12px;display:flex;align-items:center;gap:10px">
+                    <span class="msg-line" style="margin-top:0" id="promptMsg"></span>
+                </div>
+            </details>
         </section>
 
-        <!-- 数据管理 -->
+        <!-- ================= 数据管理 ================= -->
         <section class="panel hidden" id="panel-data">
             <div class="panel-head">
-                <h2>数据管理</h2>
-                <button class="btn-refresh" onclick="loadData()">刷新</button>
+                <div class="panel-title"><h2>数据管理</h2><p>用户账号与行程数据的查询和删除</p></div>
+                <div class="panel-actions"><button class="btn btn-teal" onclick="loadData()">刷新</button></div>
             </div>
-            <div class="data-cols">
-                <div class="data-col">
-                    <h3>用户表</h3>
-                    <div id="usersBody" class="panel-body">加载中...</div>
+            <div class="section-h">用户表</div>
+            <div id="usersBody" class="table-wrap" style="max-height:420px"><div class="state-box">加载中...</div></div>
+            <div class="section-h">行程表</div>
+            <div id="plansBody" class="table-wrap" style="max-height:460px"><div class="state-box">加载中...</div></div>
+        </section>
+
+        <!-- ================= 内容审核 ================= -->
+        <section class="panel hidden" id="panel-moderation">
+            <div class="panel-head">
+                <div class="panel-title"><h2>内容审核</h2><p>待处理举报、AI 审核记录与已隐藏内容</p></div>
+                <div class="panel-actions"><button class="btn btn-teal" onclick="loadModeration()">刷新</button></div>
+            </div>
+            <div id="moderationBody"><div class="skeleton"><div class="sk-row w80"></div><div class="sk-row w60"></div><div class="sk-row w40"></div></div></div>
+        </section>
+
+        <!-- ================= 业务看板 ================= -->
+        <section class="panel hidden" id="panel-business">
+            <div class="panel-head">
+                <div class="panel-title"><h2>业务看板</h2><p>用户规模与行程生成的关键指标</p></div>
+                <div class="panel-actions"><button class="btn btn-teal" onclick="loadBusiness()">刷新</button></div>
+            </div>
+            <div id="businessBody"><div class="skeleton"><div class="sk-row w80"></div><div class="sk-row w60"></div><div class="sk-row w40"></div></div></div>
+        </section>
+
+        <!-- ================= 公告发布 ================= -->
+        <section class="panel hidden" id="panel-announce">
+            <div class="panel-head">
+                <div class="panel-title"><h2>公告发布</h2><p>向全体用户推送系统公告</p></div>
+            </div>
+            <div class="ann-form">
+                <input id="annTitle" placeholder="公告标题" class="ann-input">
+                <textarea id="annContent" placeholder="公告内容" class="ann-input" rows="4"></textarea>
+                <div><button class="btn btn-primary" onclick="publishAnnouncement(this)">发布公告（全员推送）</button></div>
+            </div>
+            <div class="section-h">已发布公告</div>
+            <div id="announceList"><div class="state-box">加载中...</div></div>
+        </section>
+
+        <!-- ================= 数据中心 ================= -->
+        <section class="panel hidden" id="panel-center">
+            <div class="panel-head">
+                <div class="panel-title"><h2>数据中心</h2><p>特征数据统计、动态定价与客流预测</p></div>
+                <div class="panel-actions">
+                    <span class="autofresh-tag" id="pipeAutoTag" style="display:none"><i></i>管线运行中 · 每 15s 查询</span>
+                    <button class="btn btn-primary" id="pipeBtn" onclick="runPipeline(this)">🔄 更新数据</button>
+                    <button class="btn btn-danger-o" id="pipeStopBtn" onclick="stopPipeline(this)" style="display:none">⏹ 停止更新</button>
+                    <button class="btn btn-teal" onclick="loadDataCenter()">刷新</button>
                 </div>
-                <div class="data-col">
-                    <h3>行程表</h3>
-                    <div id="plansBody" class="panel-body">加载中...</div>
+            </div>
+            <div id="pipelineBar" class="breaker-banner" style="margin-bottom:16px">
+                <span id="pipeStateDot" class="dot ok" style="margin-right:8px"></span><span id="pipeStateText">管线空闲 · 数据为上次更新结果</span>
+            </div>
+
+            <div class="section-h">📊 数据统计 <span class="cnt">点击卡片查看明细</span></div>
+            <div id="centerStats" class="card-grid cols-metric"><div class="skeleton"><div class="sk-row w80"></div><div class="sk-row w60"></div></div></div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px;flex-wrap:wrap;gap:8px">
+                <div class="section-h" style="margin:0">动态定价 <span class="cnt">基准价 × 系数 → 现价</span></div>
+                <button class="btn btn-teal btn-xs" onclick="runPricing()" id="pricingRunBtn">只更新定价表（秒级）</button>
+            </div>
+            <div id="pricingBody" class="inset-scroll">加载中...</div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px;flex-wrap:wrap;gap:8px">
+                <div class="section-h" style="margin:0">客流预测 <span class="cnt">未来 7 天客流指数</span></div>
+                <div id="fcTabs" style="display:flex;gap:6px">
+                    <button class="btn btn-xs btn-teal fc-tab active" data-dim="city" onclick="fcSwitchDim('city')">城市趋势</button>
+                    <button class="btn btn-xs btn-ghost fc-tab" data-dim="date" onclick="fcSwitchDim('date')">单日对比</button>
+                    <button class="btn btn-xs btn-ghost fc-tab" data-dim="level" onclick="fcSwitchDim('level')">城市×日期热力</button>
+                </div>
+            </div>
+            <div class="inset-scroll" style="max-height:none;padding:6px">
+                <div style="position:relative">
+                    <div id="fcDayNav" style="display:none;position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:5;align-items:center;gap:8px">
+                        <button class="btn btn-ghost btn-xs" onclick="window._fcDayShift(-1)">◀</button>
+                        <span id="fcDayLabel" style="color:var(--ink);font-size:13px;font-weight:600;min-width:74px;text-align:center">—</span>
+                        <button class="btn btn-ghost btn-xs" onclick="window._fcDayShift(1)">▶</button>
+                    </div>
+                    <div id="fcChart" style="width:100%;height:420px"></div>
                 </div>
             </div>
         </section>
     </main>
 </div>
 
-<script src="js/admin.js"></script>
+<!-- 数据统计明细弹窗 -->
+<div id="dataDetailMask" class="modal-mask">
+  <div class="modal">
+    <div class="modal-head">
+      <b id="ddTitle">明细</b>
+      <div class="modal-tools">
+        <input id="ddSearch" class="search-input" placeholder="搜索名称/城市..." oninput="renderDetailTable(this.value)" style="display:none">
+        <button class="btn btn-ghost btn-xs" onclick="closeDataDetail()">关闭</button>
+      </div>
+    </div>
+    <div id="ddBody" class="modal-body"></div>
+  </div>
+</div>
+
+<script src="js/echarts.min.js"></script>
+<script src="js/admin.js?v=20260827a"></script>
 </body>
 </html>

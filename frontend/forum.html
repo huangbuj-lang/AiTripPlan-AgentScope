@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>旅行论坛 · AI 旅行规划助手</title>
+<link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .forum-wrap { width: 100%; max-width: 1560px; margin: 30px auto; padding: 0 24px; }
+  .forum-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px; }
+  .forum-brand { font-size:20px; font-weight:700; color:#2d3436; }
+  .forum-brand i { color:#00b894; margin-right:6px; }
+  .forum-nav { display:flex; gap:10px; align-items:center; }
+  .forum-nav a, .forum-nav button { text-decoration:none; color:#636e72; font-size:13px; }
+  .bell { position:relative; background:#fff; border:1px solid #dfe6e9; border-radius:8px; padding:8px 12px; cursor:pointer; }
+  .bell .badge { position:absolute; top:-6px; right:-6px; background:#e17055; color:#fff; border-radius:10px; font-size:10px; padding:1px 5px; display:none; }
+  .board-tabs { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .board-tab { padding:8px 16px; border-radius:20px; background:#fff; border:1px solid #dfe6e9; cursor:pointer; font-size:13px; color:#636e72; }
+  .board-tab.active { background:#00b894; color:#fff; border-color:#00b894; }
+  .forum-bar { display:flex; gap:10px; margin-bottom:16px; align-items:center; flex-wrap:wrap; }
+  .forum-bar input { flex:1; min-width:180px; padding:10px 14px; border:1px solid #dfe6e9; border-radius:8px; font-size:14px; }
+  /* 排序下拉：自绘组件（原生 select 弹层是系统绘制的，方角/蓝高亮无法用 CSS 去除） */
+  .sort-dd { position:relative; flex-shrink:0; }
+  .sort-btn { display:inline-flex; align-items:center; gap:8px; padding:10px 16px; border:1px solid #dfe6e9; border-radius:999px; background:#fff; color:#2d3436; font-size:14px; cursor:pointer; font-family:inherit; transition:border-color .15s; }
+  .sort-btn:hover { border-color:#cfe0da; }
+  .sort-btn:focus-visible { outline:1.5px solid #00b894; outline-offset:2px; }
+  .sort-chev { font-size:11px; color:#74857F; transition:transform .18s; }
+  .sort-dd.open .sort-chev { transform:rotate(180deg); }
+  .sort-menu { display:none; position:absolute; top:calc(100% + 6px); right:0; min-width:100%; background:#fff; border:1px solid #e4ece8; border-radius:12px; padding:5px; box-shadow:0 10px 28px rgba(30,46,41,.10); z-index:30; }
+  .sort-dd.open .sort-menu { display:block; }
+  .sort-opt { padding:8px 14px; border-radius:8px; font-size:13.5px; color:#2d3436; cursor:pointer; white-space:nowrap; }
+  .sort-opt:hover { background:#f2f7f5; }
+  .sort-opt.active { background:#e8f8f5; color:#00856a; font-weight:600; }
+  .btn-primary { background:linear-gradient(135deg,#00b894,#00a381); color:#fff; border:none; border-radius:8px; padding:10px 20px; font-size:14px; font-weight:600; cursor:pointer; }
+  .post-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:16px; }
+  .post-card { background:#fff; border-radius:12px; padding:18px 20px; box-shadow:0 2px 8px rgba(0,0,0,.04); cursor:pointer; transition:transform .15s, box-shadow .15s; }
+  .post-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(9,132,227,.12); }
+  .post-card h3 { margin:0 0 8px; font-size:16px; color:#2d3436; }
+  .post-card .meta { font-size:12px; color:#b2bec3; display:flex; gap:14px; flex-wrap:wrap; }
+  .post-card .meta i { margin-right:3px; }
+  .post-badge { display:inline-block; background:#e8f8f5; color:#00a381; border-radius:4px; padding:2px 8px; font-size:11px; margin-right:8px; }
+  /* 删帖键：标题行右侧，平时透明，悬停卡片才浮现 */
+  .post-del { float:right; color:#c8d6d2; cursor:pointer; font-size:14px; padding:2px 4px; border-radius:6px; transition:.15s; line-height:1; }
+  .post-del:hover { color:#e17055; background:#fdeee9; }
+  .empty { text-align:center; color:#b2bec3; padding:50px 20px; }
+</style>
+<link rel="stylesheet" href="css/travel-theme.css?v=20260828a">
+</head>
+<body>
+<div class="forum-wrap">
+  <div class="forum-top">
+    <div class="forum-brand"><i class="fa-solid fa-comments"></i> 旅行论坛</div>
+    <div class="forum-nav">
+      <button class="bell" onclick="location.href='notifications.html'"><i class="fa-regular fa-bell"></i> 通知 <span class="badge" id="notifBadge">0</span></button>
+      <button class="bell" onclick="location.href='index.html'"><i class="fa-solid fa-house"></i> 首页</button>
+      <button class="bell" onclick="location.href='profile.html'"><i class="fa-solid fa-user-gear"></i> 个人中心</button>
+    </div>
+  </div>
+
+  <div class="board-tabs" id="boardTabs"></div>
+
+  <div class="forum-bar">
+    <input id="searchInput" placeholder="搜索帖子标题/内容..." onkeydown="if(event.key==='Enter') reload()">
+    <div class="sort-dd" id="sortDD">
+      <button type="button" class="sort-btn" id="sortBtn" aria-haspopup="listbox" aria-expanded="false"><span id="sortLabel">最新</span><i class="fa-solid fa-chevron-down sort-chev"></i></button>
+      <div class="sort-menu" id="sortMenu" role="listbox">
+        <div class="sort-opt active" role="option" data-v="latest">最新</div>
+        <div class="sort-opt" role="option" data-v="hot">最热</div>
+      </div>
+      <input type="hidden" id="sortSelect" value="latest">
+    </div>
+    <button class="btn-primary" onclick="goNewPost()"><i class="fa-solid fa-pen"></i> 发帖</button>
+  </div>
+
+  <div class="post-list" id="postList"><div class="empty">加载中...</div></div>
+</div>
+
+<script src="js/forum.js"></script>
+<script>
+  // 自绘排序下拉：点击开合 / 选择后刷新 / 点外部或 Esc 关闭
+  (function () {
+    const dd = document.getElementById('sortDD'), btn = document.getElementById('sortBtn'),
+          menu = document.getElementById('sortMenu'), label = document.getElementById('sortLabel'),
+          hidden = document.getElementById('sortSelect');
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      dd.classList.toggle('open');
+      btn.setAttribute('aria-expanded', dd.classList.contains('open'));
+    });
+    menu.querySelectorAll('.sort-opt').forEach(o => o.addEventListener('click', () => {
+      menu.querySelectorAll('.sort-opt').forEach(x => x.classList.remove('active'));
+      o.classList.add('active');
+      label.textContent = o.textContent;
+      hidden.value = o.dataset.v;
+      dd.classList.remove('open');
+      reload();
+    }));
+    document.addEventListener('click', () => dd.classList.remove('open'));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') dd.classList.remove('open'); });
+  })();
+</script>
+</body>
+</html>

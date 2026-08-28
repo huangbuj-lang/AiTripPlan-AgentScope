@@ -5,8 +5,8 @@ package utils;
  */
 public class RateLimiter {
 
-    private final double rate;        // 每秒补充的令牌数（=每秒最大请求数）
-    private final int capacity;       // 桶容量（允许的突发量）
+    private double rate;              // 每秒补充的令牌数（=每秒最大请求数）
+    private int capacity;             // 桶容量（允许的突发量）
     private double tokens;            // 当前令牌数
     private long lastRefillNanos;     // 上次补充时间戳
 
@@ -52,5 +52,12 @@ public class RateLimiter {
         double elapsedSec = (now - lastRefillNanos) / 1_000_000_000.0;
         tokens = Math.min(capacity, tokens + elapsedSec * rate);
         lastRefillNanos = now;
+    }
+
+    /** 动态调整速率（同步方法，与 tryAcquire 共用锁保证一致性） */
+    public synchronized void setRate(double newRate) {
+        if (newRate <= 0) return;
+        this.rate = newRate;
+        this.capacity = (int) Math.max(1, Math.ceil(newRate));
     }
 }

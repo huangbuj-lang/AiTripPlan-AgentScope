@@ -21,10 +21,74 @@ public class EventStore {
         final ConcurrentLinkedQueue<Map<String, String>> events = new ConcurrentLinkedQueue<>(); // 事件队列（线程安全）
         volatile String result = null;        // 最终结果缓存
         volatile boolean cancelRequested = false; // 中断请求标志
+        volatile Runnable interruptCallback = null; // 取消时回调（用于中断A2A远程调用）
         volatile long lastAccessMs = System.currentTimeMillis(); // 最后访问时间（TTL清理用）
     }
 
     private static final ConcurrentHashMap<String, SessionState> SESSIONS = new ConcurrentHashMap<>(); // 会话隔离容器
+
+    // ==================== 任务监控注册表 ====================
+
+    /** 单条任务的监控元数据 */
+    public static class TaskMeta {
+        public final String sessionId;
+        public volatile long userId = -1;          // 提交人（-1=匿名）
+        public final long submitMs = System.currentTimeMillis(); // 提交时间
+        public volatile long lastActiveMs = System.currentTimeMillis(); // 最后活动时间
+        public volatile String status = "RUNNING"; // RUNNING/DONE/FAILED/CANCELLED
+        public volatile String currentStep = "排队中"; // 当前步骤（取最近一条事件的类型）
+        public final long modelCallsStart = utils.SafeModel.MODEL_CALLS.get(); // 任务开始时的模型调用总数
+        public volatile long modelCallsUsed = -1;  // 本任务消耗的模型调用轮数（结束时=结束值-开始值，-1=未统计）
+
+        TaskMeta(String sessionId) { this.sessionId = sessionId; }
+    }
+
+    /** 正在运行/近期任务：sessionId → 元数据 */
+    private static final ConcurrentHashMap<String, TaskMeta> TASKS = new ConcurrentHashMap<>();
+
+    /** 历史任务环形队列（最多200条，新的在前） */
+    private static final java.util.concurrent.ConcurrentLinkedDeque<TaskMeta> HISTORY = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    private static final int MAX_HISTORY = 200;
+
+    /** 任务结果计数器（进程内存值，重启清零） */
+    public static final java.util.concurrent.atomic.AtomicLong COUNT_DONE = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong COUNT_FAILED = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong COUNT_CANCELLED = new java.util.concurrent.atomic.AtomicLong();
+
+    /** 任务开始：登记元数据（AppController 拿到并发槽后调用） */
+    public static void startTask(String sessionId, long userId) {
+        TaskMeta meta = new TaskMeta(key(sessionId));
+        meta.userId = userId;
+        TASKS.put(meta.sessionId, meta);
+    }
+
+    /** 任务结束：更新状态、计数并移入历史（AppController finally 调用；返回 meta 供观测落库） */
+    public static TaskMeta finishTask(String sessionId, String status) {
+        String k = key(sessionId);
+        TaskMeta meta = TASKS.remove(k);
+        if (meta == null) {
+            meta = new TaskMeta(k); // 兜底：未登记过也计入历史
+        }
+        meta.status = status;
+        meta.lastActiveMs = System.currentTimeMillis();
+        meta.modelCallsUsed = utils.SafeModel.MODEL_CALLS.get() - meta.modelCallsStart; // 本任务LLM轮数
+        switch (status) {
+            case "DONE" -> COUNT_DONE.incrementAndGet();
+            case "FAILED" -> COUNT_FAILED.incrementAndGet();
+            case "CANCELLED" -> COUNT_CANCELLED.incrementAndGet();
+            default -> { }
+        }
+        HISTORY.addFirst(meta);
+        while (HISTORY.size() > MAX_HISTORY) {
+            HISTORY.pollLast();
+        }
+        return meta;
+    }
+
+    /** 历史任务列表（新的在前） */
+    public static java.util.List<TaskMeta> listHistory() {
+        return new java.util.ArrayList<>(HISTORY);
+    }
 
     /** sessionId → 归属用户ID（/app 提交时绑定，防止跨用户越权读取/取消） */
     private static final ConcurrentHashMap<String, Long> OWNERS = new ConcurrentHashMap<>();
@@ -96,6 +160,17 @@ public class EventStore {
     }
 
     /** 校验 sessionId 是否属于该用户（无归属视为允许——此时无数据） */
+    /** 任务提交时间（供调用链过滤子Agent残留 span）；无记录返回 0 */
+    /** 取任务元数据（观测落库用）；无记录返回 null */
+    public static TaskMeta metaOf(String sessionId) {
+        return sessionId == null ? null : TASKS.get(sessionId);
+    }
+
+    public static long taskStartMs(String sessionId) {
+        TaskMeta meta = TASKS.get(sessionId);
+        return meta == null ? 0L : meta.submitMs;
+    }
+
     public static boolean isOwner(String sessionId, long userId) {
         Long owner = OWNERS.get(key(sessionId));
         return owner == null || owner == userId;
@@ -129,6 +204,12 @@ public class EventStore {
         while (s.events.size() > MAX_EVENTS) { // 超出上限丢弃最旧事件
             s.events.poll();
         }
+        // 同步任务监控：更新当前步骤与最后活动时间
+        TaskMeta meta = TASKS.get(key(sessionId));
+        if (meta != null) {
+            meta.currentStep = type;
+            meta.lastActiveMs = System.currentTimeMillis();
+        }
         notify(sessionId, event); // 实时推送给 SSE 订阅者
     }
 
@@ -153,7 +234,22 @@ public class EventStore {
      * 请求中断当前任务
      */
     public static void requestCancel(String sessionId) {
-        state(sessionId).cancelRequested = true;
+        SessionState s = state(sessionId);
+        s.cancelRequested = true;
+        Runnable cb = s.interruptCallback;
+        if (cb != null) {
+            try { cb.run(); } catch (Exception ignored) {}
+        }
+    }
+
+    /** 注册取消回调（A2A调用开始时设置，结束时清除） */
+    public static void setInterruptCallback(String sessionId, Runnable callback) {
+        state(sessionId).interruptCallback = callback;
+    }
+
+    /** 清除取消回调 */
+    public static void clearInterruptCallback(String sessionId) {
+        state(sessionId).interruptCallback = null;
     }
 
     /**
@@ -178,6 +274,11 @@ public class EventStore {
             m.put("ownerId", OWNERS.get(e.getKey()));
             m.put("lastAccessMs", s.lastAccessMs);
             m.put("running", s.result == null && !s.events.isEmpty()); // 有事件但无结果 = 进行中
+            TaskMeta meta = TASKS.get(e.getKey()); // 任务监控：附带当前步骤与提交时间
+            if (meta != null) {
+                m.put("currentStep", meta.currentStep);
+                m.put("submitMs", meta.submitMs);
+            }
             out.add(m);
         }
         return out;

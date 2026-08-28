@@ -19,7 +19,16 @@ public class NacosUtil {
             synchronized (NacosUtil.class) { // 双重检查锁：只初始化一次
                 if (aiService == null) {
                     Properties properties = new Properties(); // 设置 Nacos 地址
-                    properties.put(PropertyKeyConst.SERVER_ADDR, "localhost:8848");
+                    properties.put(PropertyKeyConst.SERVER_ADDR,
+                            utils.Config.get("NACOS_SERVER_ADDR", "localhost:8848"));
+                    String namespace = utils.Config.get("NACOS_NAMESPACE", "");
+                    if (!namespace.isBlank()) {
+                        properties.put(PropertyKeyConst.NAMESPACE, namespace);
+                    }
+                    String username = utils.Config.get("NACOS_USERNAME", "");
+                    if (!username.isBlank()) properties.put(PropertyKeyConst.USERNAME, username);
+                    String password = utils.Config.get("NACOS_PASSWORD", "");
+                    if (!password.isBlank()) properties.put(PropertyKeyConst.PASSWORD, password);
                     aiService = AiFactory.createAiService(properties); // 创建 Nacos Client
                 }
             }
