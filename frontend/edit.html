@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>行程编辑 · AI 旅行规划助手</title>
+<link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .ed-wrap { max-width: 880px; margin: 30px auto; padding: 0 16px; }
+  .back-link { display:inline-block; margin-bottom:16px; color:#0984e3; font-size:14px; text-decoration:none; }
+  .ed-toolbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:12px; }
+  .ed-toolbar h1 { margin:0; font-size:20px; }
+  .btn-primary { background:linear-gradient(135deg,#00b894,#00a381); color:#fff; border:none; border-radius:8px; padding:10px 22px; font-size:14px; font-weight:600; cursor:pointer; }
+  .save-msg { font-size:13px; }
+  .day-card { background:#fff; border-radius:14px; padding:18px; box-shadow:0 6px 24px rgba(9,132,227,.08); margin-bottom:16px; }
+  .day-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px; }
+  .day-head b { font-size:16px; color:#2d3436; }
+  .day-ops { display:flex; gap:8px; }
+  /* 操作按钮（页面原缺 .mini-btn 定义）· 极简：白底细线框 */
+  .mini-btn { border:1px solid #e4ece8; background:#fff; color:#74857F; padding:7px 13px; border-radius:8px; font-size:13px; cursor:pointer; font-family:inherit; transition:color .15s, border-color .15s; }
+  .mini-btn:hover:not(:disabled) { color:#1FAE8F; border-color:#cbe5dc; }
+  .mini-btn:focus-visible { outline:1.5px solid #1FAE8F; outline-offset:2px; }
+  .mini-btn:disabled { opacity:.55; cursor:not-allowed; }
+  .mini-btn.regen { color:#2570B8; }
+  .mini-btn.regen:hover:not(:disabled) { border-color:#c7ddf0; }
+  .ed-items { display:flex; flex-direction:column; gap:8px; }
+  .ed-item { display:flex; gap:6px; align-items:center; }
+  .ed-item input { flex:1; padding:8px 10px; border:1px solid #dfe6e9; border-radius:6px; font-size:13px; }
+  .ed-item .ed-time { flex:0 0 70px; }
+  .ed-item .ed-cost { flex:0 0 90px; }
+  .ed-del { background:none; border:none; color:#e17055; cursor:pointer; font-size:15px; padding:4px 8px; }
+  .other-card { background:#f8f9fa; border-radius:12px; padding:14px 18px; margin-bottom:12px; }
+  .other-card b { color:#636e72; font-size:14px; }
+  .other-card ul { margin:8px 0 0 18px; font-size:13px; color:#636e72; }
+  .empty { text-align:center; color:#b2bec3; padding:40px; }
+</style>
+<link rel="stylesheet" href="css/travel-theme.css?v=20260828a">
+</head>
+<body>
+<div class="ed-wrap">
+  <a class="back-link" href="index.html"><i class="fa-solid fa-arrow-left"></i> 返回</a>
+  <div class="ed-toolbar">
+    <h1><i class="fa-solid fa-pen-to-square"></i> <span id="planTitle">行程编辑</span></h1>
+    <div>
+      <button class="btn-primary" onclick="save(this)"><i class="fa-solid fa-floppy-disk"></i> 保存修改</button>
+      <span class="save-msg" id="saveMsg"></span>
+    </div>
+  </div>
+  <div id="editBody"><div class="empty">加载中...</div></div>
+</div>
+<script src="js/edit.js"></script>
+</body>
+</html>
