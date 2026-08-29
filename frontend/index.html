@@ -55,6 +55,49 @@
       <button id="sendBtn" class="btn-explore" onclick="send()"><i class="fa-solid fa-magnifying-glass"></i> 探索</button>
       <button id="cancelBtn" class="btn-cancel-hero" onclick="cancelTask()" title="停止"><i class="fa-solid fa-stop"></i></button>
     </div>
+
+    <!-- ★方案选择弹窗：单方案 / 多方案（多方案=后端并行聚合3套差异化行程） -->
+    <div id="schemeModal" class="scheme-modal" style="display:none" onclick="if(event.target===this)closeSchemeModal()">
+      <div class="scheme-card">
+        <h3 class="scheme-title">选择生成方式</h3>
+        <p class="scheme-sub">多方案将并行生成 美食向 / 出片向 / 省钱向 三套行程，可对比后一键采用</p>
+        <div class="scheme-opts">
+          <div class="scheme-opt" id="optSingle" onclick="pickScheme('single')">
+            <div class="opt-icon"><i class="fa-solid fa-file-lines"></i></div>
+            <div class="opt-name">单方案</div>
+            <div class="opt-desc">快速生成一套完整行程，省时优先</div>
+          </div>
+          <div class="scheme-opt" id="optMulti" onclick="pickScheme('multi')">
+            <div class="opt-icon"><i class="fa-solid fa-layer-group"></i></div>
+            <div class="opt-name">多方案</div>
+            <div class="opt-desc">三套差异化方案并行生成，选择更自由</div>
+          </div>
+        </div>
+        <div class="scheme-actions">
+          <button class="scheme-btn scheme-cancel" onclick="closeSchemeModal()">取消</button>
+          <button class="scheme-btn scheme-ok" onclick="confirmScheme()">开始生成</button>
+        </div>
+      </div>
+    </div>
+    <style>
+      .scheme-modal{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(8,20,14,.55);backdrop-filter:blur(3px)}
+      .scheme-card{width:min(480px,92vw);background:#fff;border-radius:18px;padding:30px 28px 24px;box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center}
+      .scheme-title{margin:0 0 6px;font-size:21px;font-weight:800;color:#0B3D2E;letter-spacing:1px}
+      .scheme-sub{margin:0 0 20px;font-size:13px;color:#7A8A80;line-height:1.6}
+      .scheme-opts{display:flex;gap:14px;margin-bottom:22px}
+      .scheme-opt{flex:1;border:2px solid #E3E9E5;border-radius:14px;padding:18px 10px 14px;cursor:pointer;transition:all .18s}
+      .scheme-opt:hover{border-color:#10B981;transform:translateY(-2px)}
+      .scheme-opt.active{border-color:#10B981;background:#F0FDF7;box-shadow:0 4px 14px rgba(16,185,129,.18)}
+      .opt-icon{font-size:26px;color:#F97316;margin-bottom:8px}
+      .opt-name{font-size:16px;font-weight:700;color:#0B3D2E;margin-bottom:4px}
+      .opt-desc{font-size:12px;color:#8A948C;line-height:1.5}
+      .scheme-actions{display:flex;gap:12px;justify-content:center}
+      .scheme-btn{border:none;border-radius:10px;padding:10px 26px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
+      .scheme-cancel{background:#F1F4F2;color:#5B6B62}
+      .scheme-cancel:hover{background:#E6EBE8}
+      .scheme-ok{background:linear-gradient(135deg,#10B981,#059669);color:#fff}
+      .scheme-ok:hover{opacity:.9}
+    </style>
     <div class="hero-stats">
       <div><div class="hs-num">180+</div><div class="hs-label">目的地</div></div>
       <div><div class="hs-num">5万+</div><div class="hs-label">满意旅人</div></div>

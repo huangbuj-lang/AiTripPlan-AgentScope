@@ -355,8 +355,31 @@ checkLogin();
 function send() {
     const prompt = document.getElementById('prompt').value.trim();
     if (!prompt) { alert('请输入旅行需求！'); return; }
-    // ★偏好选项卡已按需求移除：直接无偏好提交（历史偏好仍由后端个人中心沉淀生效）
-    doSubmit(prompt, '', '', '', 'false');
+    // ★方案选择弹窗：单方案 / 多方案（多方案=后端并行聚合3套差异化行程）
+    showSchemeModal();
+}
+
+// ==================== ★方案选择弹窗（单/多方案） ====================
+let pendingScheme = 'single';
+function showSchemeModal() {
+    pendingScheme = 'single';
+    const s = document.getElementById('optSingle'), m = document.getElementById('optMulti');
+    s.classList.add('active'); m.classList.remove('active');
+    document.getElementById('schemeModal').style.display = 'flex';
+}
+function pickScheme(v) {
+    pendingScheme = v;
+    document.getElementById('optSingle').classList.toggle('active', v === 'single');
+    document.getElementById('optMulti').classList.toggle('active', v === 'multi');
+}
+function closeSchemeModal() {
+    document.getElementById('schemeModal').style.display = 'none';
+}
+function confirmScheme() {
+    document.getElementById('schemeModal').style.display = 'none';
+    const prompt = document.getElementById('prompt').value.trim();
+    if (!prompt) { alert('请输入旅行需求！'); return; }
+    doSubmit(prompt, '', '', '', pendingScheme === 'multi' ? 'true' : 'false');
 }
 
 /**
