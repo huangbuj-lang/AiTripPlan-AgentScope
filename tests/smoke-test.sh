@@ -8,7 +8,7 @@
 set -u
 
 BASE="http://localhost:8081"
-COOKIE="$(mktemp)"
+COOKIE="$(cygpath -m "$(mktemp)" 2>/dev/null || echo "$(mktemp -d)/cookie.txt")"
 PASS=0; FAIL=0
 TEST_USER="smoketest_$(date +%s)"   # 每次测试用唯一用户名，避免重复冲突
 TEST_PASS="123456"

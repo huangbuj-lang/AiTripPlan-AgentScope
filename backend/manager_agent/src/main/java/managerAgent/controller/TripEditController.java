@@ -45,7 +45,7 @@ public class TripEditController {
         long userId = uid(session);
         Map<String, Object> result = new HashMap<>();
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT city, days, plan_json FROM trip_plans WHERE id = ? AND user_id = ?", id, userId);
+                "SELECT city, days, plan_json, plan_content FROM trip_plans WHERE id = ? AND user_id = ?", id, userId);
         if (rows.isEmpty()) {
             result.put("success", false);
             result.put("message", "行程不存在或无权访问");
@@ -55,6 +55,27 @@ public class TripEditController {
         TripPlanData plan = null;
         if (row.get("plan_json") != null) {
             plan = JsonUtils.parse(String.valueOf(row.get("plan_json")), TripPlanData.class);
+        }
+        // ★plan_json 列可能为空（旧数据/前端早期版本只把 JSON 追加在 plan_content 尾部）——从 plan_content 兜底解析
+        if (plan == null && row.get("plan_content") != null) {
+            String content = String.valueOf(row.get("plan_content"));
+            final String mark = "<!--ATPLAN_JSON_START-->";
+            final String end = "<!--ATPLAN_JSON_END-->";
+            int i = content.indexOf(mark);
+            if (i >= 0) {
+                int j = content.indexOf(end, i);
+                if (j > i) {
+                    String raw = content.substring(i + mark.length(), j).trim();
+                    Object parsed = JsonUtils.parse(raw, Map.class);
+                    if (parsed instanceof Map<?, ?> m && m.containsKey("__planSet") && m.get("set") instanceof Map<?, ?> setMap
+                            && setMap.get("plans") instanceof List<?> plans && !plans.isEmpty()) {
+                        // PlanSet（多方案）：编辑页用第一个方案
+                        plan = JsonUtils.parse(JsonUtils.toJson(plans.get(0)), TripPlanData.class);
+                    } else {
+                        plan = JsonUtils.parse(raw, TripPlanData.class);
+                    }
+                }
+            }
         }
         if (plan == null) {
             plan = new TripPlanData();

@@ -90,6 +90,14 @@ function tryRestoreRunning() {
             }
             if (!text.includes('还在执行中')) {
                 // ★任务已完成：直接渲染最终结果（不丢进度条/结果）
+                // ★页面刷新恢复时跳过「中断」结果：中断提示只在当前页面会话显示，刷新后恢复干净首页（生成中仍会实时显示中断提示）
+                if (text.includes('中断') || text.includes('已由用户')) {
+                    localStorage.removeItem('atp_gen_running');
+                    document.getElementById('resultBody').innerHTML = '';
+                    document.getElementById('sendBtn').disabled = false;
+                    document.getElementById('cancelBtn').style.display = 'none';
+                    return;
+                }
                 if (text && text.trim()) { fetchResult(); return; }
                 return;
             }
@@ -174,14 +182,16 @@ function savePlan() {
     // ★F-8：若当前有结构化行程数据，把 JSON 追加进 planContent，历史行程可还原轨迹/卡片
     // 多方案时保存整个方案集(PlanSet)，历史行程可切换其他方案并再保存
     let payload = text;
+    let structuredJson = null;  // ★同步写入 plan_json 列（编辑页数据源），与 planContent 标记双写
     if (planSetData && planSetData.plans && planSetData.plans.length > 1) {
         try {
-            payload = text + '\n\n' + PLAN_JSON_MARK + '\n'
-                + JSON.stringify({ __planSet: true, set: planSetData }) + '\n' + PLAN_JSON_END;
+            structuredJson = JSON.stringify({ __planSet: true, set: planSetData });
+            payload = text + '\n\n' + PLAN_JSON_MARK + '\n' + structuredJson + '\n' + PLAN_JSON_END;
         } catch (e) { /* JSON 序列化失败则只存 markdown */ }
     } else if (currentPlanData) {
         try {
-            payload = text + '\n\n' + PLAN_JSON_MARK + '\n' + JSON.stringify(currentPlanData) + '\n' + PLAN_JSON_END;
+            structuredJson = JSON.stringify(currentPlanData);
+            payload = text + '\n\n' + PLAN_JSON_MARK + '\n' + structuredJson + '\n' + PLAN_JSON_END;
         } catch (e) { /* JSON 序列化失败则只存 markdown */ }
     }
     // 从结果里提取城市和天数（简单取第一个关键词前的文本，容错处理）
@@ -203,7 +213,7 @@ function savePlan() {
     fetch('/api/save-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ city: city, days: days, planContent: payload })
+        body: new URLSearchParams({ city: city, days: days, planContent: payload, planJson: structuredJson || '' })
     })
         .then(r => r.json())
         .then(data => {

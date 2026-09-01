@@ -128,6 +128,12 @@ public class RemoteAgentTool {
                     }
                 }
             } catch (Exception e) {
+                // ★用户中断：InterruptedException 或取消标志已置位 → 不重试，直接终止（否则中断会被当成失败重发第2次，永远停不下来）
+                if (e instanceof InterruptedException || EventStore.isCancelRequested(sessionId)) {
+                    Thread.currentThread().interrupt();
+                    a2aSpan.addAttempt(attempt, false, System.currentTimeMillis() - callStartMs, "用户中断");
+                    throw new managerAgent.hook.CancelledException();
+                }
                 log.warn("{} A2A调用异常(attempt={}): {}", label, attempt, e.getMessage());
                 String em = e.getMessage() == null ? "" : e.getMessage();
                 a2aSpan.addAttempt(attempt, false, System.currentTimeMillis() - callStartMs,

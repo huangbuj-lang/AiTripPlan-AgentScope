@@ -63,9 +63,20 @@ function renderDay(sec, si, dayIdx) {
 // 渲染非 timeline 区块（只读展示）
 function renderOther(sec) {
     const items = (sec.items || []).map(it => {
-        const txt = it.time ? (it.time + ' ' + (it.place || it.activity || it.name || it.text || ''))
-            : (it.place || it.activity || it.name || it.from + '→' + it.to || it.text || '');
-        return '<li>' + esc(txt) + '</li>';
+        let txt = '';
+        if (it.time) {
+            txt = it.time + ' ' + (it.place || it.activity || it.name || it.text || '');
+        } else if (it.from || it.to) {
+            txt = (it.from || '') + ' → ' + (it.to || '');
+        } else if (it.kind && (it.name || it.price)) {
+            // stay（住宿/餐饮推荐）：kind + name + price + note
+            txt = (it.kind ? it.kind + '：' : '') + (it.name || '') + (it.price ? '（' + it.price + '）' : '') + (it.note ? ' ' + it.note : '');
+        } else if (it.kind || it.text) {
+            txt = (it.kind ? it.kind + '：' : '') + (it.text || '');
+        } else {
+            txt = it.place || it.activity || it.name || '';
+        }
+        return '<li>' + esc(txt.trim()) + '</li>';
     }).join('');
     return '<div class="other-card"><b>' + esc(sec.title || '') + '</b><ul>' + items + '</ul></div>';
 }

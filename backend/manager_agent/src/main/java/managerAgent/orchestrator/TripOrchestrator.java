@@ -24,6 +24,7 @@ import utils.JsonUtils;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -389,21 +390,39 @@ public class TripOrchestrator {
         }
     }
 
-    /** 等待 Future 结果，超时/异常返回空串并记录事件 */
+    /** 等待 Future 结果，超时/异常返回空串并记录事件；★中断感知：每 500ms 轮询取消标志，点中断立即生效（原步骤边界检查太慢） */
     private String await(Future<String> future, String label) {
         RemoteTimeout.configure(utils.NacosModelConfig.orchestrationConfig());
         Duration timeout = RemoteTimeout.timeout();
+        long deadline = System.nanoTime() + timeout.toNanos();
         try {
-            String r = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-            return r == null ? "" : r;
+            while (true) {
+                checkCancel(); // ★中断检查：阻塞等待期间持续轮询，不再等步骤边界
+                long remainMs = (deadline - System.nanoTime()) / 1_000_000L;
+                if (remainMs <= 0) {
+                    future.cancel(true);
+                    log.warn("{} 调用超时({}s)，已取消后台任务", label, RemoteTimeout.currentSeconds());
+                    EventStore.add(sessionId, "Agent结果",
+                            label + " ❌ 调用超时(" + RemoteTimeout.currentSeconds() + "s)");
+                    return "";
+                }
+                try {
+                    String r = future.get(Math.min(remainMs, 500L), TimeUnit.MILLISECONDS);
+                    return r == null ? "" : r;
+                } catch (ExecutionException ex) {
+                    // ★解包：后台任务抛出的 CancelledException（用户中断）要从 Future 里取出来向上传播
+                    if (ex.getCause() instanceof CancelledException) {
+                        throw (CancelledException) ex.getCause();
+                    }
+                    throw ex;
+                } catch (TimeoutException e) {
+                    // 本轮 500ms 内未完成，回到循环头重新检查中断
+                }
+            }
         } catch (CancelledException e) {
+            future.cancel(true); // ★用户中断：取消后台任务后向上传播
+            EventStore.add(sessionId, "Agent结果", label + " ⏹ 已中断");
             throw e;
-        } catch (TimeoutException e) {
-            future.cancel(true);
-            log.warn("{} 调用超时({}s)，已取消后台任务", label, RemoteTimeout.currentSeconds());
-            EventStore.add(sessionId, "Agent结果",
-                    label + " ❌ 调用超时(" + RemoteTimeout.currentSeconds() + "s)");
-            return "";
         } catch (Exception e) {
             log.error("{} 调用失败: {}", label, e.getMessage());
             EventStore.add(sessionId, "Agent结果", label + " ❌ 调用失败(" + e.getMessage() + ")");
@@ -615,7 +634,22 @@ public class TripOrchestrator {
         for (int i = 0; i < 3; i++) {
             TripPlanData plan = null;
             try {
-                plan = futures[i].get(300, TimeUnit.SECONDS);
+                // ★中断感知：轮询等待，点中断立即生效（原 300s 一次性阻塞，中断要等聚合跑完）
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(300);
+                while (true) {
+                    checkCancel();
+                    long remainMs = (deadline - System.nanoTime()) / 1_000_000L;
+                    if (remainMs <= 0) { plan = null; break; }
+                    try {
+                        plan = futures[i].get(Math.min(remainMs, 500L), TimeUnit.MILLISECONDS);
+                        break;
+                    } catch (TimeoutException te) {
+                        // 回到循环头重新检查中断
+                    }
+                }
+            } catch (CancelledException ce) {
+                for (Future<TripPlanData> f : futures) f.cancel(true); // ★用户中断：取消全部并行聚合
+                throw ce;
             } catch (Exception e) {
                 log.error("方案「{}」聚合失败: {}", styles[i][1], e.getMessage());
             }
