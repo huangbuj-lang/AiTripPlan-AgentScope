@@ -2,6 +2,7 @@ package dto;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -47,6 +48,45 @@ public class TripRequest {
 
     /** 偏好分流：只用于聚合编排的偏好（如周末/悠闲/性价比） */
     private String aggPref = "";
+
+    /** 预算总额（人民币元；0=未识别出数值预算） */
+    private double budgetTotal = 0;
+
+    /** 约束清单（P0~P3 优先级；空=用户未表达明确约束） */
+    private List<Constraint> constraints = new ArrayList<>();
+
+    /** 单条约束：内容 + 优先级（P0必须满足 / P1强烈希望 / P2一般偏好 / P3可牺牲） */
+    @Data
+    @NoArgsConstructor
+    public static class Constraint {
+        /** 约束描述（如 预算不超过8000元 / 必去西湖 / 不要太多博物馆） */
+        private String text = "";
+        /** 优先级：P0/P1/P2/P3 */
+        private String level = "P2";
+
+        public Constraint(String text, String level) {
+            this.text = text == null ? "" : text;
+            this.level = level == null || level.isBlank() ? "P2" : level;
+        }
+    }
+
+    /** 是否存在 P0 硬约束（校验器据此决定预算/天数违规是否判 FAIL） */
+    public boolean hasHardConstraints() {
+        return constraints != null && constraints.stream().anyMatch(c -> "P0".equalsIgnoreCase(c.getLevel()));
+    }
+
+    /** 取指定优先级的约束文本列表（无则空列表） */
+    public List<String> constraintTexts(String level) {
+        List<String> out = new ArrayList<>();
+        if (constraints != null) {
+            for (Constraint c : constraints) {
+                if (c.getLevel() != null && c.getLevel().equalsIgnoreCase(level) && !c.getText().isBlank()) {
+                    out.add(c.getText());
+                }
+            }
+        }
+        return out;
+    }
 
     /** 个人中心沉淀偏好（travelStyle/预算/节奏/回避；为空=未设置） */
     private Preferences preferences;

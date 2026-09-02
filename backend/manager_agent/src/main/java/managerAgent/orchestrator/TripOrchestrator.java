@@ -3,6 +3,7 @@ package managerAgent.orchestrator;
 import dto.PlanSet;
 import dto.Section;
 import dto.SectionItem;
+import dto.TravelState;
 import dto.TripPlanData;
 import dto.TripRequest;
 import io.agentscope.core.message.ContentBlock;
@@ -67,19 +68,19 @@ public class TripOrchestrator {
         return runCore(userPrompt, prefs);
     }
 
-    /** 执行编排核心（个人中心沉淀偏好可 null）：解析需求 → 偏好分类 → 并行调用专家 → 聚合。 */
+    /** 执行编排核心（个人中心沉淀偏好可 null）：解析需求 → 偏好分类 → 并行调用专家 → 聚合。全程以 TravelState 为唯一事实源。 */
     private TripPlanData runCore(String userPrompt, TripRequest.Preferences prefs) {
-        ReqAndData rd = resolveAndFetch(userPrompt, prefs);
+        TravelState state = resolveAndFetch(userPrompt, prefs);
         // ★输入侧缺失亮红灯：哪路专家数据为空，聚合前明确告知（避免静默产出半成品还显示成功）
-        String missingInput = missingInputs(rd.routeResult, rd.planResult);
+        String missingInput = missingInputs(state.getRouteResult(), state.getPlanResult());
         if (!missingInput.isBlank()) {
             EventStore.add(sessionId, "整合", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
         }
         // ③ 聚合：结构化 JSON（失败退回 markdown 原文兜底）
         EventStore.add(sessionId, "整合", "正在整合路线与行程数据...");
-        TripPlanData plan = aggregate(rd.req, rd.routeResult, rd.planResult);
+        TripPlanData plan = aggregate(state.getRequest(), state.getRouteResult(), state.getPlanResult());
         if (plan == null) {
-            plan = fallbackPlan(rd.req, rd.routeResult, rd.planResult); // 兜底已含完整 markdown 原文
+            plan = fallbackPlan(state.getRequest(), state.getRouteResult(), state.getPlanResult()); // 兜底已含完整 markdown 原文
         } else {
             plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
         }
@@ -89,13 +90,13 @@ public class TripOrchestrator {
 
     /** 多方案编排：并行聚合出美食向/出片向/省钱向 3 套方案供前端对比。 */
     public PlanSet runMultiScheme(String userPrompt) {
-        ReqAndData rd = resolveAndFetch(userPrompt, null);
-        String missingInput = missingInputs(rd.routeResult, rd.planResult); // 多方案路径同样亮红灯
+        TravelState state = resolveAndFetch(userPrompt, null);
+        String missingInput = missingInputs(state.getRouteResult(), state.getPlanResult()); // 多方案路径同样亮红灯
         if (!missingInput.isBlank()) {
             EventStore.add(sessionId, "整合", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
         }
         EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
-        PlanSet set = aggregateMulti(rd.req, rd.routeResult, rd.planResult);
+        PlanSet set = aggregateMulti(state.getRequest(), state.getRouteResult(), state.getPlanResult());
         // 每套方案补降级 markdown（前端打印/导出用）
         if (set != null) {
             for (TripPlanData p : set.getPlans()) {
@@ -108,17 +109,28 @@ public class TripOrchestrator {
         return set;
     }
 
-    /** 解析需求 + 并行 DAG（单方案/多方案共享的前置步骤；prefs=个人中心沉淀偏好，可 null） */
-    private ReqAndData resolveAndFetch(String userPrompt, TripRequest.Preferences prefs) {
-        // ① 需求解析（单次结构化 LLM 调用）
+    /** 解析需求 + 并行 DAG（单方案/多方案共享的前置步骤；prefs=个人中心沉淀偏好，可 null）。
+     *  全部产物（解析结果/专家原文/跨Agent提取的途经点与景点）沉淀进 TravelState 统一状态中心。 */
+    private TravelState resolveAndFetch(String userPrompt, TripRequest.Preferences prefs) {
+        TravelState state = new TravelState();
+        // ① 需求解析（单次结构化 LLM 调用）+ 纯代码规整（预算数值化/约束兜底）
         EventStore.add(sessionId, "解析", "正在解析旅行需求...");
         TripRequest req = parseRequest(userPrompt);
         if (prefs != null && !prefs.isEmpty()) {
             req.setPreferences(prefs);
         }
+        RequirementNormalizer.normalize(req); // ★LLM 漏解析预算/约束时正则兜底，保证状态完整
+        state.setRequest(req);
+        String constraintSummary = req.getConstraints().isEmpty() ? ""
+                : "，约束 " + req.getConstraints().size() + " 条" + (req.hasHardConstraints() ? "（含P0硬约束）" : "");
         EventStore.add(sessionId, "解析", "需求：" + req.getOrigin() + " → " + req.getDestination()
-                + "，" + req.getDays() + " 天" + (req.getPreference().isBlank() ? "" : "（" + req.getPreference() + "）")
+                + "，" + req.getDays() + " 天"
+                + (req.getBudgetTotal() > 0 ? "，预算 " + (long) req.getBudgetTotal() + " 元" : "")
+                + constraintSummary
+                + (req.getPreference().isBlank() ? "" : "（" + req.getPreference() + "）")
                 + buildPreferenceLabel(req));
+        state.addTrace("解析", req.getOrigin() + "→" + req.getDestination() + " " + req.getDays() + "天"
+                + (req.getBudgetTotal() > 0 ? " 预算" + (long) req.getBudgetTotal() : ""));
         checkCancel();
 
         /* ★ 结果缓存（进程内）：key=SHA1(目的+|天数|出发|+个人中心沉淀偏好)。
@@ -129,7 +141,10 @@ public class TripOrchestrator {
                 req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs, req.getPreference());
         if (hit != null) {
             EventStore.add(sessionId, "解析", "· 命中结果缓存，跳过专家调用 ·");
-            return new ReqAndData(req, hit.routeResult, hit.planResult);
+            state.setFromCache(true);
+            state.setRouteResult(hit.routeResult);
+            state.setPlanResult(hit.planResult);
+            return state;
         }
 
         // ② 偏好分流：LLM 把文本+个人中心偏好分为行程/路线/聚合三类
@@ -139,6 +154,7 @@ public class TripOrchestrator {
             classifyPreference(req);
         }
         // ③ 编排分支：跨城=先路线(途经点)再行程；市内=先行程(景点)再路线
+        //    跨 Agent 提取结果（途经点/景点清单）统一写入 state，禁止散装传参
         boolean crossCity = req.getOrigin() != null && !req.getOrigin().isBlank()
                 && req.getDestination() != null && !req.getDestination().isBlank()
                 && !req.getOrigin().trim().equals(req.getDestination().trim());
@@ -147,36 +163,34 @@ public class TripOrchestrator {
             EventStore.add(sessionId, "路线", "跨城自驾，先规划路线提取途经城市...");
             String routeResult = await(PARALLEL_POOL.submit(() ->
                     remoteTool.callRouteMakingAgent(routeTask(req, ""))), "路线Agent");
+            state.setRouteResult(routeResult);
             checkCancel();
             String waypoints = extractWaypoints(routeResult);
+            state.setWaypoints(waypoints);
+            state.addTrace("路线", "途经城市: " + (waypoints.isBlank() ? "未提取到" : waypoints));
             String planResult = await(PARALLEL_POOL.submit(() ->
                     remoteTool.callTripPlannerAgent(planTask(req, waypoints))), "行程Agent");
+            state.setPlanResult(planResult);
             checkCancel();
             utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
                     req.getPreference(), routeResult, planResult);
-            return new ReqAndData(req, routeResult, planResult);
+            return state;
         }
         EventStore.add(sessionId, "行程", "市内游，先规划行程提取景点清单...");
         String planFirst = await(PARALLEL_POOL.submit(() ->
                 remoteTool.callTripPlannerAgent(planTask(req, ""))), "行程Agent");
+        state.setPlanResult(planFirst);
         checkCancel();
         String sights = extractSights(planFirst, req.getDestination());
+        state.setSights(sights);
+        state.addTrace("行程", "景点清单: " + (sights.isBlank() ? "未提取到" : sights));
         String routeResult2 = await(PARALLEL_POOL.submit(() ->
                 remoteTool.callRouteMakingAgent(routeTask(req, sights))), "路线Agent");
+        state.setRouteResult(routeResult2);
         checkCancel();
         utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
                 req.getPreference(), routeResult2, planFirst);
-        return new ReqAndData(req, routeResult2, planFirst);
-    }
-
-    /** 解析+DAG 结果载体 */
-    private static class ReqAndData {
-        final TripRequest req;
-        final String routeResult;
-        final String planResult;
-        ReqAndData(TripRequest req, String routeResult, String planResult) {
-            this.req = req; this.routeResult = routeResult; this.planResult = planResult;
-        }
+        return state;
     }
 
     // ==================== ① 需求解析 ====================
@@ -198,6 +212,12 @@ public class TripOrchestrator {
             StringBuilder sum = new StringBuilder("目的地:")
                     .append(req.getDestination() == null || req.getDestination().isBlank() ? "?" : req.getDestination())
                     .append(" 天数:").append(req.getDays());
+            if (req.getBudgetTotal() > 0) {
+                sum.append(" 预算:").append((long) req.getBudgetTotal());
+            }
+            if (!req.getConstraints().isEmpty()) {
+                sum.append(" 约束:").append(req.getConstraints().size()).append("条");
+            }
             if (req.getOrigin() != null && !req.getOrigin().isBlank()) {
                 sum.append(" 起点:").append(req.getOrigin());
             }

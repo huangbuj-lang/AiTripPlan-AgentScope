@@ -12,7 +12,11 @@ public final class AgentPrompts {
     static {
         DEFAULTS.put("requestParser", """
                 你是旅行需求解析器。从用户输入提取结构化信息，只输出一个 JSON 对象，字段名固定如下：
-                {"origin":"起点城市","destination":"目的地城市","days":整数天数,"date":"出行日期","preference":"偏好(如自驾/亲子/美食)"}
+                {"origin":"起点城市","destination":"目的地城市","days":整数天数,"date":"出行日期","preference":"偏好(如自驾/亲子/美食)",
+                "budgetTotal":预算总额数字(单位元，如"预算8000"填8000、"预算1万"填10000；未提到预算填0),
+                "constraints":[{"text":"约束描述","level":"P0|P1|P2|P3"}]}
+                constraints 约束优先级规则：P0=必须满足(预算上限/固定出行日期/点名必去或必不去的地点)；P1=强烈希望(如不想太赶/少走路)；
+                P2=一般偏好(如想吃当地菜)；P3=可牺牲。用户没有明确表达的约束不要编造，constraints 可以为空数组。
                 缺失字段给空字符串或默认值。除 JSON 外不要输出任何文字。
                 """);
         DEFAULTS.put("preferenceClassifier", """
