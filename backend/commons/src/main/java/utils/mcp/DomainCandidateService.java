@@ -39,11 +39,16 @@ public class DomainCandidateService {
     /** 三域并行线程池（域数固定为 3，服务长期运行不关闭） */
     private static final ExecutorService DOMAIN_POOL = Executors.newFixedThreadPool(3);
 
-    /** 常驻域专家池：domain → Agent（懒构建，进程生命周期内复用；同域并发由 DOMAIN_POOL 3 线程天然串行保证） */
+    /** 常驻域专家池：domain → Agent+记忆（懒构建，进程生命周期内复用）。
+     *  并发安全：同域由 DOMAIN_LOCKS 互斥串行（防两请求并发调用同一实例造成上下文串），
+     *  跨请求隔离：每次任务前 memory.clear()（任务文本自带完整 TravelState 简报，Agent 本身无状态）。 */
     private static final Map<String, ReActAgent> AGENT_POOL = new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** 常驻 Agent 记忆轮转窗口：保留最近 2 条消息，防止上一请求的任务/输出污染本次上下文 */
-    private static final int POOL_MEMORY_SIZE = 2;
+    /** 每域互斥锁：保证同一域任一时刻只有一个任务在跑（跨请求并发时同域排队） */
+    private static final Map<String, Object> DOMAIN_LOCKS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 每域 Agent 的记忆实例（与 AGENT_POOL 同生命周期，任务前 clear 用） */
+    private static final Map<String, LimitedMemory> DOMAIN_MEMORY = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** 单域 Agent 超时（秒）：域专家只需 1~2 轮工具调用，超时即降级该域 */
     private static final int DOMAIN_TIMEOUT_SEC = 120;
@@ -150,9 +155,11 @@ public class DomainCandidateService {
                 case "hotel" -> AmapEnhancedToolFactory.AgentType.HOTEL;
                 default -> AmapEnhancedToolFactory.AgentType.DINING;
             });
+            LimitedMemory memory = new LimitedMemory(8); // 任务内对话轮转窗口（每次任务前 clear，轮转仅兜底防工具循环撑爆）
+            DOMAIN_MEMORY.put(d, memory);
             ReActAgent agent = AgentUtils.getReActAgentBuilder(name, d + " 域候选专家")
                     .sysPrompt(prompt)
-                    .memory(new LimitedMemory(POOL_MEMORY_SIZE)) // 轮转记忆：防跨请求上下文污染（同 TripPlannerAgent 模式）
+                    .memory(memory)
                     .toolkit(toolkit)
                     .maxIters(6) // 域专家任务单一：查数→选Top3，不需要长链路
                     .build();
@@ -161,64 +168,74 @@ public class DomainCandidateService {
         });
     }
 
-    /** 单域专家 Agent 执行（常驻池复用；阻塞至最终回复） */
+    /** 单域专家 Agent 执行（常驻池复用 + 同域互斥 + 任务前清记忆；阻塞至最终回复） */
     private static String runDomainAgent(String domain, String task) {
-        try {
-            String name = switch (domain) {
-                case "attraction" -> "AttractionAgent";
-                case "hotel" -> "HotelAgent";
-                case "dining" -> "DiningAgent";
-                default -> domain + "Agent";
-            };
-            String prompt = switch (domain) {
-                case "attraction" -> AgentPrompts.domainAttractionAgent();
-                case "hotel" -> AgentPrompts.domainHotelAgent();
-                case "dining" -> AgentPrompts.domainDiningAgent();
-                default -> AgentPrompts.domainAttractionAgent();
-            };
-            ReActAgent agent = pooledAgent(domain, name, prompt);
-            long agentStart = System.currentTimeMillis();
-            Msg resp = agent.call(
-                    Msg.builder().role(MsgRole.USER)
-                            .content(TextBlock.builder().text(task).build())
-                            .build()
-            ).block(Duration.ofSeconds(DOMAIN_TIMEOUT_SEC));
-            String text = resp == null ? "" : resp.getTextContent();
-            log.info("[域专家] {} 完成: 耗时{}ms 输出{}字符",
-                    domain, System.currentTimeMillis() - agentStart, text == null ? -1 : text.length());
-            if (text == null || text.isBlank()) {
-                log.warn("[域专家] {} 空回复（模型未产出文本内容）", domain);
-            }
-            return text;
-        } catch (Exception e) {
-            log.warn("[域专家] {} Agent 异常（重建常驻实例后重试一次）: {}", domain, e.getMessage());
-            // 常驻实例异常（如上下文状态卡死）→ 丢弃重建一次，仍失败则降级该域
+        Object lock = DOMAIN_LOCKS.computeIfAbsent(domain, k -> new Object());
+        synchronized (lock) { // 同域互斥：跨请求并发时同域排队，绝不并发驱动同一实例
             try {
-                AGENT_POOL.remove(domain);
-                String name2 = switch (domain) {
+                String name = switch (domain) {
                     case "attraction" -> "AttractionAgent";
                     case "hotel" -> "HotelAgent";
                     case "dining" -> "DiningAgent";
                     default -> domain + "Agent";
                 };
-                String prompt2 = switch (domain) {
+                String prompt = switch (domain) {
                     case "attraction" -> AgentPrompts.domainAttractionAgent();
                     case "hotel" -> AgentPrompts.domainHotelAgent();
                     case "dining" -> AgentPrompts.domainDiningAgent();
                     default -> AgentPrompts.domainAttractionAgent();
                 };
-                ReActAgent fresh = pooledAgent(domain, name2, prompt2);
-                Msg resp = fresh.call(
+                ReActAgent agent = pooledAgent(domain, name, prompt);
+                LimitedMemory memory = DOMAIN_MEMORY.get(domain);
+                if (memory != null) {
+                    memory.clear(); // ★跨请求隔离：上一请求的对话/输出不进本次上下文
+                }
+                long agentStart = System.currentTimeMillis();
+                Msg resp = agent.call(
                         Msg.builder().role(MsgRole.USER)
                                 .content(TextBlock.builder().text(task).build())
                                 .build()
                 ).block(Duration.ofSeconds(DOMAIN_TIMEOUT_SEC));
-                String text2 = resp == null ? "" : resp.getTextContent();
-                log.info("[域专家] {} 重建后完成: 输出{}字符", domain, text2 == null ? -1 : text2.length());
-                return text2;
-            } catch (Exception e2) {
-                log.warn("[域专家] {} 重建后仍异常: {}", domain, e2.getMessage());
-                return "";
+                String text = resp == null ? "" : resp.getTextContent();
+                log.info("[域专家] {} 完成: 耗时{}ms 输出{}字符",
+                        domain, System.currentTimeMillis() - agentStart, text == null ? -1 : text.length());
+                if (text == null || text.isBlank()) {
+                    log.warn("[域专家] {} 空回复（模型未产出文本内容）", domain);
+                }
+                return text;
+            } catch (Exception e) {
+                log.warn("[域专家] {} Agent 异常（锁内丢弃重建，重试一次）: {}", domain, e.getMessage());
+                // 常驻实例异常（如上下文状态卡死）→ 在锁内丢弃重建一次，仍失败则降级该域
+                try {
+                    AGENT_POOL.remove(domain);
+                    DOMAIN_MEMORY.remove(domain);
+                    ReActAgent fresh = pooledAgent(domain,
+                            switch (domain) {
+                                case "attraction" -> "AttractionAgent";
+                                case "hotel" -> "HotelAgent";
+                                case "dining" -> "DiningAgent";
+                                default -> domain + "Agent";
+                            },
+                            switch (domain) {
+                                case "attraction" -> AgentPrompts.domainAttractionAgent();
+                                case "hotel" -> AgentPrompts.domainHotelAgent();
+                                case "dining" -> AgentPrompts.domainDiningAgent();
+                                default -> AgentPrompts.domainAttractionAgent();
+                            });
+                    LimitedMemory memory2 = DOMAIN_MEMORY.get(domain);
+                    if (memory2 != null) memory2.clear();
+                    Msg resp = fresh.call(
+                            Msg.builder().role(MsgRole.USER)
+                                    .content(TextBlock.builder().text(task).build())
+                                    .build()
+                    ).block(Duration.ofSeconds(DOMAIN_TIMEOUT_SEC));
+                    String text2 = resp == null ? "" : resp.getTextContent();
+                    log.info("[域专家] {} 重建后完成: 输出{}字符", domain, text2 == null ? -1 : text2.length());
+                    return text2;
+                } catch (Exception e2) {
+                    log.warn("[域专家] {} 重建后仍异常: {}", domain, e2.getMessage());
+                    return "";
+                }
             }
         }
     }
