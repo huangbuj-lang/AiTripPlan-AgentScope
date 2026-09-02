@@ -84,22 +84,31 @@ public class TripOrchestrator {
         } else {
             plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
         }
-        // ④ 确定性校验（纯代码）：天数/预算/必去回避/重复/时间顺序/交通时长
-        validateAndReport(state.getRequest(), plan, "方案");
+        // ④ 确定性校验（纯代码）：天数/预算/必去回避/重复/时间顺序/交通时长 + 六维评分
+        dto.ValidationReport vr = validateAndReport(state.getRequest(), plan, "方案",
+                state.getRouteResult() != null && !state.getRouteResult().isBlank(),
+                state.getPlanResult() != null && !state.getPlanResult().isBlank(), true);
         EventStore.add(sessionId, "完成", "结构化行程生成完成");
         return plan;
     }
 
-    /** 确定性校验并把结果写入事件流（校验失败不阻断交付，Reviewer 闭环阶段再决定重跑）。 */
-    private void validateAndReport(TripRequest req, TripPlanData plan, String label) {
+    /** 确定性校验并把结果写入事件流；withScore=true 时同步输出六维评分。返回校验报告供调用方复用。 */
+    private dto.ValidationReport validateAndReport(TripRequest req, TripPlanData plan, String label,
+                                                   boolean routeOk, boolean planOk, boolean withScore) {
         try {
             dto.ValidationReport vr = utils.ConstraintEngine.validate(req, plan);
             if (!vr.getSkippedChecks().isEmpty()) {
                 EventStore.add(sessionId, "校验", label + " 跳过检查: " + String.join("、", vr.getSkippedChecks()));
             }
             EventStore.add(sessionId, "校验", label + " 校验结果 " + vr.summary());
+            if (withScore) {
+                dto.ScoreResult sr = utils.PlanScorer.score(req, plan, vr, routeOk, planOk);
+                EventStore.add(sessionId, "评分", label + " " + sr.getSummary());
+            }
+            return vr;
         } catch (Exception e) {
-            log.warn("确定性校验异常(不阻断交付): {}", e.getMessage());
+            log.warn("确定性校验/评分异常(不阻断交付): {}", e.getMessage());
+            return new dto.ValidationReport();
         }
     }
 
@@ -112,7 +121,9 @@ public class TripOrchestrator {
         }
         EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
         PlanSet set = aggregateMulti(state.getRequest(), state.getRouteResult(), state.getPlanResult());
-        // 每套方案补降级 markdown（前端打印/导出用）+ 逐套确定性校验
+        // 每套方案补降级 markdown（前端打印/导出用）+ 逐套确定性校验与评分，择优 recommendedIndex
+        boolean routeOk = state.getRouteResult() != null && !state.getRouteResult().isBlank();
+        boolean planOk = state.getPlanResult() != null && !state.getPlanResult().isBlank();
         if (set != null) {
             for (int i = 0; i < set.getPlans().size(); i++) {
                 TripPlanData p = set.getPlans().get(i);
@@ -120,7 +131,22 @@ public class TripOrchestrator {
                     p.setMarkdown(renderMarkdown(p));
                 }
                 String slogan = i < set.getSlogans().size() ? set.getSlogans().get(i) : ("方案" + (i + 1));
-                validateAndReport(state.getRequest(), p, "「" + slogan + "」");
+                dto.ValidationReport vr = validateAndReport(state.getRequest(), p, "「" + slogan + "」",
+                        routeOk, planOk, false);
+                try {
+                    dto.ScoreResult sr = utils.PlanScorer.score(state.getRequest(), p, vr, routeOk, planOk);
+                    set.getScores().add(sr.getTotal());
+                    EventStore.add(sessionId, "评分", "「" + slogan + "」 " + sr.getSummary());
+                } catch (Exception e) {
+                    set.getScores().add(null); // 评分异常不阻断，占位保持下标对齐
+                    log.warn("方案「{}」评分异常: {}", slogan, e.getMessage());
+                }
+            }
+            int best = utils.PlanScorer.best(set.getScores());
+            if (best >= 0) {
+                set.setRecommendedIndex(best);
+                String bestSlogan = best < set.getSlogans().size() ? set.getSlogans().get(best) : ("方案" + (best + 1));
+                EventStore.add(sessionId, "评分", "★ 推荐方案：" + bestSlogan);
             }
         }
         EventStore.add(sessionId, "完成", "多方案生成完成（" + (set == null ? 0 : set.getPlans().size()) + " 套）");
