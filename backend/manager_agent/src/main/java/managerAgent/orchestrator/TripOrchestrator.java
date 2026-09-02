@@ -84,8 +84,23 @@ public class TripOrchestrator {
         } else {
             plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
         }
+        // ④ 确定性校验（纯代码）：天数/预算/必去回避/重复/时间顺序/交通时长
+        validateAndReport(state.getRequest(), plan, "方案");
         EventStore.add(sessionId, "完成", "结构化行程生成完成");
         return plan;
+    }
+
+    /** 确定性校验并把结果写入事件流（校验失败不阻断交付，Reviewer 闭环阶段再决定重跑）。 */
+    private void validateAndReport(TripRequest req, TripPlanData plan, String label) {
+        try {
+            dto.ValidationReport vr = utils.ConstraintEngine.validate(req, plan);
+            if (!vr.getSkippedChecks().isEmpty()) {
+                EventStore.add(sessionId, "校验", label + " 跳过检查: " + String.join("、", vr.getSkippedChecks()));
+            }
+            EventStore.add(sessionId, "校验", label + " 校验结果 " + vr.summary());
+        } catch (Exception e) {
+            log.warn("确定性校验异常(不阻断交付): {}", e.getMessage());
+        }
     }
 
     /** 多方案编排：并行聚合出美食向/出片向/省钱向 3 套方案供前端对比。 */
@@ -97,12 +112,15 @@ public class TripOrchestrator {
         }
         EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
         PlanSet set = aggregateMulti(state.getRequest(), state.getRouteResult(), state.getPlanResult());
-        // 每套方案补降级 markdown（前端打印/导出用）
+        // 每套方案补降级 markdown（前端打印/导出用）+ 逐套确定性校验
         if (set != null) {
-            for (TripPlanData p : set.getPlans()) {
+            for (int i = 0; i < set.getPlans().size(); i++) {
+                TripPlanData p = set.getPlans().get(i);
                 if (p != null && p.getMarkdown().isBlank()) {
                     p.setMarkdown(renderMarkdown(p));
                 }
+                String slogan = i < set.getSlogans().size() ? set.getSlogans().get(i) : ("方案" + (i + 1));
+                validateAndReport(state.getRequest(), p, "「" + slogan + "」");
             }
         }
         EventStore.add(sessionId, "完成", "多方案生成完成（" + (set == null ? 0 : set.getPlans().size()) + " 套）");
