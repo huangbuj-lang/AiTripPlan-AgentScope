@@ -182,6 +182,7 @@ public class TripOrchestrator {
         if (!missingInput.isBlank()) {
             EventStore.add(sessionId, "整合", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
         }
+        EventStore.add(sessionId, "思考", "正在融合专家数据，规划多套差异化方案...");
         EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
         PlanSet set = aggregateMulti(state.getRequest(), state.getRouteResult(), state.getPlanResult());
         // 每套方案补降级 markdown（前端打印/导出用）+ 逐套确定性校验与评分，择优 recommendedIndex
