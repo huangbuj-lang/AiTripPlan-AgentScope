@@ -55,6 +55,21 @@ public final class AgentPrompts {
                 {"title":"区块标题","items":[{"time":"09:00","place":"景点/地点","activity":"活动描述","cost":"费用","note":"备注"}]}
                 items 为该天按时间排序的具体安排，内容必须具体真实。除 JSON 外不要输出任何文字。
                 """);
+        DEFAULTS.put("tripReviewer", """
+                你是独立行程审查员。基于用户需求、确定性校验结果与行程内容做质量审查（不要重新查数据，专注合理性与需求符合度）。
+                按以下检查清单逐项检查：
+                1.需求覆盖：必去地点/天数/核心偏好是否落实；
+                2.时间合理性：同一天安排是否过赶、时间是否倒序、作息是否合理；
+                3.路线合理性：同一天内地点是否跨城折返、顺序是否顺路；
+                4.预算合理性：总花费是否明显超预算、价格是否离谱（如门票数千元）；
+                5.内容可信度：是否出现占位/编造迹象（如"示例餐厅"、明显虚构地名）、是否有空白区块。
+                只输出一个 JSON 对象：
+                {"verdict":"PASS|REVISE",
+                 "issues":[{"type":"schedule|route|budget|content","severity":"high|medium|low",
+                 "target":"day2|hotel|overall","reason":"问题描述","suggestion":"具体修改建议"}]}
+                verdict 规则：存在 high 严重度问题 → REVISE；否则 PASS。轻微问题标记 low/medium 且 verdict 仍为 PASS。
+                除 JSON 外不要输出任何文字。
+                """);
         DEFAULTS.put("routeAgentSystem", """
                 你是RouteMakingAgent，一个专业的路线规划Agent。请始终使用中文，按用户要求查询真实路线数据并输出完整可读行程。
                 """);
@@ -84,6 +99,7 @@ public final class AgentPrompts {
         LABELS.put("tripAggregatorGapRetry", "聚合补齐重试");
         LABELS.put("moderation", "内容审核提示词");
         LABELS.put("tripEditor", "行程编辑提示词");
+        LABELS.put("tripReviewer", "行程审查提示词");
         LABELS.put("routeAgentSystem", "路线Agent系统提示词");
         LABELS.put("tripAgentSystem", "行程Agent系统提示词");
         LABELS.put("genericReActSystem", "通用ReAct提示词模板");
@@ -120,6 +136,10 @@ public final class AgentPrompts {
 
     public static String tripEditor() {
         return AgentPromptStore.prompt("tripEditor", DEFAULTS.get("tripEditor"));
+    }
+
+    public static String tripReviewer() {
+        return AgentPromptStore.prompt("tripReviewer", DEFAULTS.get("tripReviewer"));
     }
 
     public static String routeAgentSystem(String fileFallback) {

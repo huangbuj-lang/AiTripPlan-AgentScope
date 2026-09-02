@@ -83,9 +83,12 @@ public class TripOrchestrator {
             plan = fallbackPlan(state.getRequest(), state.getRouteResult(), state.getPlanResult()); // 兜底已含完整 markdown 原文
         } else {
             plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
+            // ④ Reviewer 闭环：独立审查 → REVISE 带反馈定向重跑聚合（≤2轮）
+            EventStore.add(sessionId, "审查", "独立审查员正在检查行程质量...");
+            plan = reviewerLoop(state.getRequest(), state.getRouteResult(), state.getPlanResult(), plan, null);
         }
-        // ④ 确定性校验（纯代码）：天数/预算/必去回避/重复/时间顺序/交通时长 + 六维评分
-        dto.ValidationReport vr = validateAndReport(state.getRequest(), plan, "方案",
+        // ⑤ 终版确定性校验 + 六维评分
+        validateAndReport(state.getRequest(), plan, "方案",
                 state.getRouteResult() != null && !state.getRouteResult().isBlank(),
                 state.getPlanResult() != null && !state.getPlanResult().isBlank(), true);
         EventStore.add(sessionId, "完成", "结构化行程生成完成");
@@ -110,6 +113,65 @@ public class TripOrchestrator {
             log.warn("确定性校验/评分异常(不阻断交付): {}", e.getMessage());
             return new dto.ValidationReport();
         }
+    }
+
+    // ==================== Reviewer 闭环 ====================
+
+    /** Reviewer 单次审查：独立 LLM 审查员按检查清单输出结构化裁定；输入含确定性校验摘要作证据。 */
+    private ReviewVerdict reviewPlan(TripRequest req, TripPlanData plan, dto.ValidationReport vr) {
+        utils.SafeModel.setStage("行程审查");
+        String user = "【用户需求】" + (req == null || req.getRaw() == null ? "" : req.getRaw())
+                + "\n\n【确定性校验结果】" + (vr == null ? "未执行" : vr.summary())
+                + "\n\n【行程JSON】\n" + clip(utils.JsonUtils.toJson(plan), 6000);
+        String out = callModelJson(AgentPrompts.tripReviewer(), user);
+        return ReviewVerdict.parse(out); // null=解析失败，调用方按 PASS 兜底
+    }
+
+    /** Reviewer 闭环：审查 → REVISE 带反馈定向重跑聚合 → 再审，上限 MAX_REVIEW_ROUNDS 轮。
+     *  style 为多方案风格文案（保持重跑不丢风格），单方案传 null。
+     *  审查器/重跑故障均不阻断交付（保留当前版本）。 */
+    private TripPlanData reviewerLoop(TripRequest req, String routeResult, String planResult,
+                                      TripPlanData plan, String style) {
+        TripPlanData current = plan;
+        for (int round = 1; round <= MAX_REVIEW_ROUNDS; round++) {
+            checkCancel();
+            dto.ValidationReport vr = null;
+            try {
+                vr = utils.ConstraintEngine.validate(req, current);
+            } catch (Exception ignored) {
+            }
+            ReviewVerdict v = reviewPlan(req, current, vr);
+            if (v == null) {
+                EventStore.add(sessionId, "审查", "第" + round + "轮审查输出异常，按通过处理");
+                break;
+            }
+            if (!v.needsRevise()) {
+                EventStore.add(sessionId, "审查", "第" + round + "轮审查通过"
+                        + (v.getIssues().isEmpty() ? "" : "（" + v.getIssues().size() + " 条轻微建议已记录）"));
+                break;
+            }
+            EventStore.add(sessionId, "审查", "第" + round + "轮审查 REVISE：" + v.feedbackText());
+            if (round == MAX_REVIEW_ROUNDS) {
+                EventStore.add(sessionId, "审查", "已达修正上限(" + MAX_REVIEW_ROUNDS + " 轮)，交付当前版本");
+                break;
+            }
+            EventStore.add(sessionId, "审查", "带审查反馈重跑聚合（第 " + round + " 次修正）...");
+            TripPlanData fixed;
+            try {
+                fixed = aggregateCore(req, routeResult, planResult, style, v.feedbackText());
+            } catch (Exception e) {
+                log.warn("Reviewer 修正重跑异常: {}", e.getMessage());
+                EventStore.add(sessionId, "审查", "修正重跑异常，交付当前版本");
+                break;
+            }
+            if (fixed == null || fixed.getSections() == null || fixed.getSections().isEmpty()) {
+                EventStore.add(sessionId, "审查", "修正重跑未产出更优结果，保留上一版");
+                break;
+            }
+            fixed.setMarkdown(renderMarkdown(fixed));
+            current = fixed;
+        }
+        return current;
     }
 
     /** 多方案编排：并行聚合出美食向/出片向/省钱向 3 套方案供前端对比。 */
@@ -147,6 +209,23 @@ public class TripOrchestrator {
                 set.setRecommendedIndex(best);
                 String bestSlogan = best < set.getSlogans().size() ? set.getSlogans().get(best) : ("方案" + (best + 1));
                 EventStore.add(sessionId, "评分", "★ 推荐方案：" + bestSlogan);
+                // ★Reviewer 闭环只审推荐方案（省 2/3 审查开销）：REVISE 带反馈重跑该套聚合（保持风格），修正后重算评分
+                TripPlanData rec = set.getPlans().get(best);
+                if (rec != null && rec.getSections() != null && !rec.getSections().isEmpty()) {
+                    EventStore.add(sessionId, "审查", "对推荐方案「" + bestSlogan + "」执行独立审查...");
+                    TripPlanData reviewed = reviewerLoop(state.getRequest(), state.getRouteResult(),
+                            state.getPlanResult(), rec, PLAN_STYLES[best][2]);
+                    if (reviewed != rec) {
+                        set.getPlans().set(best, reviewed);
+                        try {
+                            dto.ValidationReport vrf = utils.ConstraintEngine.validate(state.getRequest(), reviewed);
+                            dto.ScoreResult sr = utils.PlanScorer.score(state.getRequest(), reviewed, vrf, routeOk, planOk);
+                            set.getScores().set(best, sr.getTotal());
+                            EventStore.add(sessionId, "评分", "「" + bestSlogan + "」审查修正后 " + sr.getSummary());
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
             }
         }
         EventStore.add(sessionId, "完成", "多方案生成完成（" + (set == null ? 0 : set.getPlans().size()) + " 套）");
@@ -525,10 +604,17 @@ public class TripOrchestrator {
 
     /** 单套方案聚合（style=null 表示默认无风格；否则注入风格约束） */
     private TripPlanData aggregateWithStyle(TripRequest req, String routeResult, String planResult, String style) {
+        return aggregateCore(req, routeResult, planResult, style, "");
+    }
+
+    /** 聚合核心：feedback 非空时为 Reviewer 修正重跑（注入审查反馈要求定向修改）。 */
+    private TripPlanData aggregateCore(TripRequest req, String routeResult, String planResult, String style, String feedback) {
         utils.SafeModel.setStage("聚合生成"); // ★调用链：聚合 LLM span 标注阶段
         String sysPrompt = AgentPrompts.tripAggregator()
                 + buildStyleHint(style)
-                + missingInputRule(routeResult, planResult); // ★缺失侧如实标注铁律（数据齐全时为空串不加约束）
+                + missingInputRule(routeResult, planResult) // ★缺失侧如实标注铁律（数据齐全时为空串不加约束）
+                + (feedback == null || feedback.isBlank() ? "" :
+                        "\n★审查修正铁律：上一版方案经审查发现问题：" + feedback + "\n本次输出必须逐条修复上述问题，其余符合要求的内容保持不变。");
         String userPrompt = "用户需求：" + req.getRaw()
                 + buildPreferencePrompt(req)  // 偏好约束
                 + "\n\n【路线数据】\n" + clip(routeResult) + "\n\n【行程数据】\n" + clip(planResult);
@@ -678,13 +764,19 @@ public class TripOrchestrator {
         return String.join("、", gaps);
     }
 
+    /** 多方案风格定义（style key / 展示名 / 聚合风格约束文案）：aggregateMulti 与 Reviewer 重跑共用，保证重跑不丢风格 */
+    private static final String[][] PLAN_STYLES = {
+            {"food", "美食向", "本次方案为「美食向」：以地道美食为主线，突出必吃餐厅、夜市、小吃街，行程围绕用餐地点安排，每个时段尽量给出具体餐厅/小吃推荐。"},
+            {"photo", "出片向", "本次方案为「出片向」：以拍照出片为主线，突出网红打卡点、绝美风景、日出日落最佳机位，每个景点标注拍摄建议。"},
+            {"budget", "省钱向", "本次方案为「省钱向」：以性价比为主线，突出免费景点、经济住宿、公共交通、平价美食，控制总预算。"},
+    };
+
+    /** Reviewer 修正重跑上限（轮） */
+    private static final int MAX_REVIEW_ROUNDS = 2;
+
     /** 3 套差异化方案并行聚合（美食向/出片向/省钱向） */
     private PlanSet aggregateMulti(TripRequest req, String routeResult, String planResult) {
-        String[][] styles = {
-                {"food", "美食向", "本次方案为「美食向」：以地道美食为主线，突出必吃餐厅、夜市、小吃街，行程围绕用餐地点安排，每个时段尽量给出具体餐厅/小吃推荐。"},
-                {"photo", "出片向", "本次方案为「出片向」：以拍照出片为主线，突出网红打卡点、绝美风景、日出日落最佳机位，每个景点标注拍摄建议。"},
-                {"budget", "省钱向", "本次方案为「省钱向」：以性价比为主线，突出免费景点、经济住宿、公共交通、平价美食，控制总预算。"},
-        };
+        String[][] styles = PLAN_STYLES;
         // 并行提交 3 套聚合（PARALLEL_POOL 已 4 线程）
         @SuppressWarnings("unchecked")
         Future<TripPlanData>[] futures = new Future[3];
