@@ -36,6 +36,8 @@ public final class AgentPrompts {
                 每天的行程放在一个 type=timeline 的 section 里，title 用「第N天」。
                 内容必须具体（真实景点名/价格/餐厅酒店名）。除 JSON 外不要输出任何文字。
                 ★place硬规则：timeline 的 items 中 place 字段只填地点名称（如「星海广场」），括号内门牌号/地铁口/道路名等地址信息一律放 note 字段，禁止把地址当地名。
+                ★place具体化铁律：place 必须具体到可直接导航的子地点——在古镇/大景区/商圈内的一天的多项活动，每项 place 填该活动的具体位置（如「束河古镇·青龙桥」「束河古镇·茶马古道博物馆」「束河古镇·四方街咖啡馆」），禁止多项活动共用同一个大地名。
+                ★同天不重复铁律：同一天的 items 中 cat=景点的同一 place 只允许出现一次；傍晚/夜间重游已去过的景点时，用具体体验替代（如「古城夜游·酒吧街」），禁止景点 place 原样重复（交通/餐饮条目的到达地不受此限）。
                 ★sections 必须包含住宿餐饮(stay)区块（含酒店/餐厅推荐），不得省略。
                 """);
         DEFAULTS.put("tripAggregatorParseRetry", """

@@ -18,6 +18,8 @@ import java.util.*;
 @RequestMapping("/api/amap")
 public class PersonalMapController {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PersonalMapController.class);
+
     private final ObjectMapper om = new ObjectMapper();
 
     @PostMapping("/personal-map")
@@ -73,31 +75,8 @@ public class PersonalMapController {
                     }
                 }
                 if (!allPts.isEmpty()) {
-                    String[] first = allPts.get(0).split(",", -1);
-                    String[] last = allPts.get(allPts.size() - 1).split(",", -1);
-                    StringBuilder nav = new StringBuilder(ExternalServices.amapNavigationUrl());
-                    nav.append("&fname=").append(URLEncoder.encode(first.length >= 3 ? first[2] : "", "UTF-8"));
-                    nav.append("&flat=").append(first[1]).append("&flon=").append(first[0]);
-                    nav.append("&dname=").append(URLEncoder.encode(last.length >= 3 ? last[2] : "", "UTF-8"));
-                    nav.append("&dlat=").append(last[1]).append("&dlon=").append(last[0]);
-                    // 中间全部为途经点（| 分隔）
-                    if (allPts.size() > 2) {
-                        StringBuilder vn = new StringBuilder(); // vname
-                        StringBuilder va = new StringBuilder(); // vlat
-                        StringBuilder vo = new StringBuilder(); // vlon
-                        StringBuilder vi = new StringBuilder(); // vid
-                        for (int i = 1; i < allPts.size() - 1; i++) {
-                            String[] pp = allPts.get(i).split(",", -1);
-                            if (vn.length() > 0) { vn.append("|"); va.append("|"); vo.append("|"); vi.append("|"); }
-                            vn.append(URLEncoder.encode(pp.length >= 3 ? pp[2] : "", "UTF-8"));
-                            va.append(pp[1]);
-                            vo.append(pp[0]);
-                            vi.append(URLEncoder.encode(pp.length >= 4 && !"unknown".equals(pp[3]) ? pp[3] : "", "UTF-8"));
-                        }
-                        nav.append("&vname=").append(vn).append("&vlat=").append(va)
-                           .append("&vlon=").append(vo).append("&vid=").append(vi);
-                    }
-                    resp.put("webUrl", nav.toString());
+                    // 高德官方 URI API 路线链接：市内默认公交模式（mode=bus），多途经点 via 分号分隔
+                    resp.put("webUrl", ExternalServices.buildNavigationUrl(allPts));
                     // 补充：静态地图图片兜底
                     resp.put("staticMapUrl", buildStaticMapUrl(allPts));
                 }
@@ -226,7 +205,27 @@ public class PersonalMapController {
             new java.util.concurrent.ConcurrentHashMap<>();
 
     /** 地名→坐标+POI ID：关键词带目的地限定 + 目的地围栏校验（防同名景点错配，如"五彩池"被解析到黄龙），失败返回 null；350ms 限速 */
+    /** 地名 geocode：原文查不到时对「·」子地点格式（place具体化铁律产物，如"束河古镇·青龙桥"）按 子地点→大地点 依次重试 */
     private String[] geocode(String key, String name, String city) {
+        String[] direct = geocodeOnce(key, name, city);
+        if (direct != null) return direct;
+        int sep = name.indexOf('·');
+        if (sep >= 0) {
+            String sub = name.substring(sep + 1).trim();
+            String parent = name.substring(0, sep).trim();
+            if (!sub.isBlank()) {
+                String[] r = geocodeOnce(key, sub, city);
+                if (r != null) return r;
+            }
+            if (!parent.isBlank()) {
+                String[] r = geocodeOnce(key, parent, city);
+                if (r != null) return r;
+            }
+        }
+        return null;
+    }
+
+    private String[] geocodeOnce(String key, String name, String city) {
         try {
             String cleanCity = cleanCityName(city);
             // ★关键词组合：目的地+景点名（如 "九寨沟 五彩池"），提升同城景点命中率
@@ -241,6 +240,12 @@ public class PersonalMapController {
             c.setReadTimeout(8000);
             String b = new String(c.getInputStream().readAllBytes(), "UTF-8");
             JsonNode pois = om.readTree(b).path("pois");
+            if (pois.isEmpty()) {
+                log.warn("[geocode诊断] keywords={} 无命中, status={} infocode={} info={} keyLen={}",
+                        kw, om.readTree(b).path("status").asText(""),
+                        om.readTree(b).path("infocode").asText(""), om.readTree(b).path("info").asText(""),
+                        ExternalServices.amapKey().length());
+            }
             double[] center = destCenter(key, cleanCity);
             for (JsonNode poi : pois) {
                 String loc = poi.path("location").asText("");

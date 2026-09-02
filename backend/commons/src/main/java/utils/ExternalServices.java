@@ -25,6 +25,48 @@ public final class ExternalServices {
         return url("amapNavigationUrl", AMAP_NAVIGATION_URL);
     }
 
+    /**
+     * 高德官方 URI API 路线链接（市内默认公交 mode=bus，多途经点分号分隔）。
+     * points 每项格式 lon,lat,name[,poiId]；不足 2 点返回空串。
+     */
+    public static String buildNavigationUrl(java.util.List<String> points) {
+        return buildNavigationUrl(points, "bus");
+    }
+
+    /** 指定出行方式的路线链接：mode=car|bus|walk|ride（高德 URI API）。 */
+    public static String buildNavigationUrl(java.util.List<String> points, String mode) {
+        if (points == null || points.size() < 2) {
+            return "";
+        }
+        String[] first = points.get(0).split(",", -1);
+        String[] last = points.get(points.size() - 1).split(",", -1);
+        StringBuilder nav = new StringBuilder("https://uri.amap.com/navigation?mode=")
+                .append(mode == null || mode.isBlank() ? "bus" : mode)
+                .append("&policy=0&src=aitripplan&coordinate=gaode&callnative=0");
+        nav.append("&from=").append(pointParam(first));
+        if (points.size() > 2) {
+            StringBuilder via = new StringBuilder();
+            for (int i = 1; i < points.size() - 1; i++) {
+                String[] pp = points.get(i).split(",", -1);
+                if (via.length() > 0) {
+                    via.append(";");
+                }
+                via.append(pointParam(pp));
+            }
+            nav.append("&via=").append(via);
+        }
+        nav.append("&to=").append(pointParam(last));
+        return nav.toString();
+    }
+
+    /** lon,lat,name → "lon,lat,urlencoded-name" */
+    private static String pointParam(String[] lonLatName) {
+        String lon = lonLatName.length > 0 ? lonLatName[0] : "";
+        String lat = lonLatName.length > 1 ? lonLatName[1] : "";
+        String name = lonLatName.length > 2 ? lonLatName[2] : "";
+        return lon + "," + lat + "," + URLEncoder.encode(name, StandardCharsets.UTF_8);
+    }
+
     public static String amapMcpUrl(String key) {
         if (key == null || key.isBlank()) {
             throw new IllegalStateException("缺少高德MCP key");

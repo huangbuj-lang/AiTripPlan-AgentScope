@@ -219,7 +219,10 @@ public final class ConstraintEngine {
                     prevValid = true;
                 }
                 String place = it.getPlace() == null ? "" : it.getPlace().trim();
-                if (!place.isBlank() && !isGenericPlace(place)) {
+                // 仅"景点"类条目计重复：交通(到达地)/餐饮(餐厅在古镇内)等条目的 place 是位置不是游览安排，不算重复
+                boolean attraction = it.getCategory() == null || it.getCategory().isBlank()
+                        || "景点".equals(it.getCategory()) || "attraction".equalsIgnoreCase(it.getCategory());
+                if (!place.isBlank() && attraction && !isGenericPlace(place)) {
                     if (!seenInDay.add(place)) {
                         report.add(new ValidationReport.Issue("duplicate", "medium", day,
                                 day + " 重复安排「" + place + "」"));

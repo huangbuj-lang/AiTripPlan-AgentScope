@@ -145,6 +145,18 @@ class ConstraintEngineTest {
     }
 
     @Test
+    void transportAndDiningEntriesDoNotCountAsDuplicate() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        TripPlanData p = oneDayPlan("束河古镇", "束河古镇");
+        p.getSections().get(0).getItems().get(0).setCategory("景点"); // 游览
+        p.getSections().get(0).getItems().get(1).setCategory("交通"); // 返回束河=到达地
+        ValidationReport vr = ConstraintEngine.validate(req, p);
+        assertFalse(vr.getIssues().stream().anyMatch(i -> "duplicate".equals(i.getType())),
+                "交通/到达地条目不应计为景点重复");
+    }
+
+    @Test
     void detectsTimeBackwards() {
         TripRequest req = new TripRequest();
         req.setDays(1);
