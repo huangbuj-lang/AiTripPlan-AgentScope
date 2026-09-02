@@ -1,0 +1,50 @@
+{
+  "comment": "Evals 用例库（PDF §二十二）：覆盖单城市/跨城路线/环线/自驾/亲子/情侣/穷游/高预算/雨天/素食/时间紧/预算极限等类型。metrics 由 run_evals.py 计算：destination_match/days_match/budget_compliance/structure_complete/P0_satisfaction/duration_s。must_contain 为 P0 级必须出现在行程文本中的关键词；avoid_contain 为绝不允许出现的词。",
+  "cases": [
+    {"id": "city-chengdu-3", "category": "单城市", "prompt": "帮我规划成都3日游，包含吃住行", "expect": {"destination": "成都", "days": 3}},
+    {"id": "city-hangzhou-2", "category": "单城市", "prompt": "杭州2日游，想逛西湖周边", "expect": {"destination": "杭州", "days": 2, "must_contain": ["西湖"]}},
+    {"id": "city-xian-4", "category": "单城市", "prompt": "西安4日游，第一次去，想看历史景点", "expect": {"destination": "西安", "days": 4}},
+    {"id": "city-chongqing-3", "category": "单城市", "prompt": "重庆三日游，吃地道火锅", "expect": {"destination": "重庆", "days": 3}},
+    {"id": "city-beijing-5", "category": "单城市", "prompt": "北京5日游，预算1万，第一次去", "expect": {"destination": "北京", "days": 5, "budget_max": 10000}},
+    {"id": "city-shanghai-2-weekend", "category": "单城市", "prompt": "上海周末2日游，不想太赶", "expect": {"destination": "上海", "days": 2}},
+
+    {"id": "cross-cd-cq-4", "category": "跨城路线", "prompt": "成都到重庆4日游，先玩成都再去重庆", "expect": {"destination": "重庆", "days": 4, "must_contain": ["成都"]}},
+    {"id": "cross-sz-hz-3-drive", "category": "跨城路线", "prompt": "深圳到惠州3日游自驾游计划，请包含吃住行，天气，酒店，餐饮美食", "expect": {"destination": "惠州", "days": 3}},
+    {"id": "cross-hz-nj-5", "category": "跨城路线", "prompt": "从杭州到南京玩5天，高铁出行", "expect": {"destination": "南京", "days": 5}},
+    {"id": "cross-bj-tj-2", "category": "跨城路线", "prompt": "北京到天津2日游", "expect": {"destination": "天津", "days": 2}},
+    {"id": "cross-gz-zh-3", "category": "跨城路线", "prompt": "广州到珠海3日自驾游", "expect": {"destination": "珠海", "days": 3}},
+    {"id": "cross-cd-lj-6", "category": "跨城路线", "prompt": "成都到丽江6日游，沿途玩过去", "expect": {"days": 6}},
+
+    {"id": "loop-chuanxi-7", "category": "环线", "prompt": "川西大环线7日游", "expect": {"destination": "川西", "days": 7}},
+    {"id": "loop-dianxi-6", "category": "环线", "prompt": "滇西环线6日游", "expect": {"days": 6}},
+    {"id": "loop-qinghai-5", "category": "环线", "prompt": "青海湖小环线5日游", "expect": {"days": 5}},
+
+    {"id": "drive-huangshan-5", "category": "自驾", "prompt": "自驾游黄山周边5天，开车带家人去", "expect": {"days": 5}},
+    {"id": "drive-hainan-6", "category": "自驾", "prompt": "海南环岛自驾6日游", "expect": {"days": 6}},
+    {"id": "drive-echang-4", "category": "自驾", "prompt": "自驾鄂尔多斯草原4日游", "expect": {"days": 4}},
+
+    {"id": "family-oya-5", "category": "亲子", "prompt": "带5岁孩子去三亚玩5天，亲子酒店，节奏别太赶", "expect": {"destination": "三亚", "days": 5, "must_contain": ["三亚"]}},
+    {"id": "family-shanghai-4", "category": "亲子", "prompt": "亲子上海4日游，孩子6岁，喜欢乐园", "expect": {"destination": "上海", "days": 4}},
+    {"id": "family-guangzhou-3", "category": "亲子", "prompt": "广州亲子3日游，带娃出行", "expect": {"destination": "广州", "days": 3}},
+
+    {"id": "couple-xiamen-4", "category": "情侣", "prompt": "情侣厦门4日游，想拍照出片，预算8000", "expect": {"destination": "厦门", "days": 4, "budget_max": 8000}},
+    {"id": "couple-dali-5", "category": "情侣", "prompt": "我和老婆去大理玩5天，轻松一点，不喜欢逛太多博物馆", "expect": {"destination": "大理", "days": 5}},
+    {"id": "couple-sanya-5", "category": "情侣", "prompt": "两个人去三亚5日游，蜜月旅行，预算2万", "expect": {"destination": "三亚", "days": 5, "budget_max": 20000}},
+
+    {"id": "budget-qiongyou-changsha-3", "category": "穷游", "prompt": "穷游长沙3天，学生党，预算1500，青旅也行", "expect": {"destination": "长沙", "days": 3, "budget_max": 1500}},
+    {"id": "budget-kunming-4", "category": "穷游", "prompt": "昆明4日游穷游攻略，预算2000以内", "expect": {"destination": "昆明", "days": 4, "budget_max": 2000}},
+    {"id": "budget-wuhan-2", "category": "穷游", "prompt": "武汉2日游，预算1000，经济实惠为主", "expect": {"destination": "武汉", "days": 2, "budget_max": 1000}},
+
+    {"id": "highbudget-sanya-6", "category": "高预算", "prompt": "三亚高端度假6日游，预算5万，住五星酒店", "expect": {"destination": "三亚", "days": 6}},
+    {"id": "highbudget-hangzhou-4", "category": "高预算", "prompt": "杭州4日奢华游，预算3万", "expect": {"destination": "杭州", "days": 4}},
+
+    {"id": "constraint-must-3", "category": "硬约束", "prompt": "成都3日游，必去大熊猫基地，预算6000", "expect": {"destination": "成都", "days": 3, "must_contain": ["熊猫"]}},
+    {"id": "constraint-avoid-3", "category": "硬约束", "prompt": "西安3日游，不去华山", "expect": {"destination": "西安", "days": 3, "avoid_contain": ["华山"]}},
+    {"id": "constraint-budget-4", "category": "硬约束", "prompt": "厦门4日游，预算控制在5000以内，两个人", "expect": {"destination": "厦门", "days": 4, "budget_max": 5000}},
+
+    {"id": "diet-veg-3", "category": "特殊偏好", "prompt": "杭州3日游，吃素食，寺庙清净路线", "expect": {"destination": "杭州", "days": 3}},
+    {"id": "diet-seafood-3", "category": "特殊偏好", "prompt": "青岛3日游，海鲜吃个够，但对虾过敏不要安排虾", "expect": {"destination": "青岛", "days": 3}},
+    {"id": "pace-tight-2", "category": "特殊偏好", "prompt": "时间非常紧，南京2日游，把经典的都走到", "expect": {"destination": "南京", "days": 2}},
+    {"id": "pace-slow-5", "category": "特殊偏好", "prompt": "苏州5日游，节奏慢一点，不想太累，少走路", "expect": {"destination": "苏州", "days": 5}}
+  ]
+}

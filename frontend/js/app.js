@@ -609,8 +609,60 @@ function fetchResult() {
             // ★ 结果出来了，显示"保存到我的行程"操作条
             document.getElementById('saveBar').style.display = 'flex';
             document.getElementById('saveMsg').textContent = '';
+            // ★ 会话式增量修正入口：仅结构化结果可修订（降级文本不可）
+            const canRevise = structured && ((structured.sections && structured.sections.length) || structured.title);
+            document.getElementById('reviseBar').style.display = canRevise ? 'flex' : 'none';
         })
         .catch(() => { /* 网络抖动，下轮重试 */ });
+}
+
+/**
+ * 会话式增量修正（PDF §十三）：对当前结果提一句修改，后端影响分析 → 只重跑受影响域 → 局部重聚合。
+ */
+function submitRevise() {
+    const input = document.getElementById('reviseInput');
+    const instruction = ((input && input.value) || '').trim();
+    if (!instruction) { if (input) input.focus(); return; }
+    if (polling) { clearInterval(polling); polling = null; }
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
+
+    document.getElementById('thinkBody').innerHTML = '';
+    document.getElementById('resultBody').innerHTML = genProgressHTML(8, '正在提交修订...');
+    localStorage.setItem('atp_gen_running', JSON.stringify({ sid: sessionId, t: Date.now() }));
+    document.getElementById('status').textContent = '⏳ 修订提交中...';
+    document.getElementById('status').classList.add('show');
+    document.getElementById('sendBtn').disabled = true;
+
+    fetch('/app/revise?instruction=' + encodeURIComponent(instruction)
+        + '&sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
+        .then(r => r.text())
+        .then(msg => {
+            if (msg.includes('有任务正在执行') || msg.includes('没有可修正') || msg.includes('无权')) {
+                document.getElementById('resultBody').innerHTML =
+                    '<div style="color:#e17055">⚠️ ' + msg + '</div>';
+                document.getElementById('status').textContent = '⚠️ 修订未提交';
+                document.getElementById('sendBtn').disabled = false;
+                return;
+            }
+            input.value = '';
+            document.getElementById('cancelBtn').style.display = 'inline-block';
+            lastEventCount = 0;
+            if (eventSource) eventSource.close();
+            lastEventCount = 0;
+            eventSource = new EventSource('/events/stream?sessionId=' + encodeURIComponent(sessionId));
+            eventSource.addEventListener('event', function (e) {
+                try { appendThinkItem(JSON.parse(e.data)); } catch (err) { /* 忽略非法数据 */ }
+            });
+            if (resultTimer) clearInterval(resultTimer);
+            resultTimer = setInterval(fetchResult, 2000);
+        })
+        .catch(err => {
+            document.getElementById('resultBody').innerHTML =
+                '<div style="color:#d63031">❌ 请求失败：' + err + '</div>';
+            document.getElementById('status').textContent = '❌ 出错了，请重试';
+            document.getElementById('sendBtn').disabled = false;
+        });
 }
 
 /**

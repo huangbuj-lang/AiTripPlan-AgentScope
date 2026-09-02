@@ -15,29 +15,42 @@ public class ReviewVerdict {
     /** PASS=通过交付 / REVISE=需修改重跑 */
     private String verdict = "PASS";
 
+    /** 审查质量分（0~100；-1=审查器未给出）；与确定性校验分（ValidationReport）互补 */
+    private int score = -1;
+
     private List<Issue> issues = new ArrayList<>();
 
     public static class Issue {
-        public String type;        // schedule/route/budget/content
+        public String type;        // schedule/route/budget/duplicate/content/hotel/dining/preference/freshness
         public String severity;    // high/medium/low
         public String target;      // day2/hotel/overall
         public String reason;
         public String suggestion;
+        public String domain;      // attraction/hotel/dining/transport/none（按域定向重跑用）
 
         public Issue() {
         }
 
         public Issue(String type, String severity, String target, String reason, String suggestion) {
+            this(type, severity, target, reason, suggestion, "");
+        }
+
+        public Issue(String type, String severity, String target, String reason, String suggestion, String domain) {
             this.type = type;
             this.severity = severity;
             this.target = target;
             this.reason = reason;
             this.suggestion = suggestion;
+            this.domain = domain == null ? "" : domain;
         }
     }
 
     public String getVerdict() {
         return verdict;
+    }
+
+    public int getScore() {
+        return score;
     }
 
     public List<Issue> getIssues() {
@@ -72,6 +85,10 @@ public class ReviewVerdict {
         if (vd != null && "REVISE".equalsIgnoreCase(String.valueOf(vd))) {
             v.verdict = "REVISE";
         }
+        if (node.get("score") instanceof Number n) {
+            int s = n.intValue();
+            v.score = (s >= 0 && s <= 100) ? s : -1;
+        }
         Object arr = node.get("issues");
         if (arr instanceof List<?> list) {
             for (Object o : list) {
@@ -81,7 +98,8 @@ public class ReviewVerdict {
                         str(m.get("severity")),
                         str(m.get("target")),
                         str(m.get("reason")),
-                        str(m.get("suggestion")));
+                        str(m.get("suggestion")),
+                        str(m.get("domain")));
                 if (!is.reason.isBlank()) {
                     v.issues.add(is);
                 }

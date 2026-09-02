@@ -113,6 +113,95 @@ public class AppController {
         return "✅ 任务已接收，正在后台执行中！请查看思考过程，完成后结果自动显示。";
     }
 
+    /**
+     * 会话式增量修正入口（PDF §十三）：对当前会话最近一次生成的行程提出一句修改指令
+     * （如"第三天不去稻城了，改去四姑娘山"），走影响分析 → 只重跑受影响域 → 局部重聚合 → 再校验。
+     */
+    @RequestMapping(value = "/app/revise", method = RequestMethod.POST)
+    public String revise(@RequestParam(name = "instruction", required = true) String instruction,
+                         @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
+                         HttpSession session) {
+        Object userIdObj = session.getAttribute("userId");
+        if (userIdObj == null || !EventStore.isOwner(sessionId, ((Number) userIdObj).longValue())) {
+            return "❌ 无权操作该会话任务";
+        }
+        // 读取上一版结果（必须在清空事件前）
+        String prevRaw = EventStore.getResult(sessionId);
+        dto.TripPlanData prev = parsePrevPlan(prevRaw);
+        if (prev == null) {
+            return "⚠️ 当前会话没有可修正的行程结果，请先生成一次行程。";
+        }
+        if (prev.getSections() == null || prev.getSections().isEmpty()) {
+            return "⚠️ 上一版结果为降级文本（结构化数据缺失），暂不支持增量修正，请重新生成。";
+        }
+        final dto.TripPlanData prevPlan = prev;
+        syncConcurrency();
+        if (!TASK_GATE.tryAcquire()) {
+            return "⚠️ 有任务正在执行中（最多同时 " + TASK_GATE.max() + " 个），请等当前任务完成后再试！";
+        }
+        EventStore.clear(sessionId);
+        utils.CallTrace.clear(sessionId);
+        EventStore.startTask(sessionId, userIdObj instanceof Number n ? n.longValue() : -1);
+
+        TASK_POOL.submit(() -> {
+            String taskStatus = "DONE";
+            try {
+                EventStore.add(sessionId, "用户输入", "（修订）" + instruction);
+                managerAgent.orchestrator.PlanReviser reviser = new managerAgent.orchestrator.PlanReviser(sessionId);
+                dto.TripPlanData revised = reviser.revise(instruction, prevPlan);
+                if (revised == null) {
+                    EventStore.add(sessionId, "修订", "修正未完成，已保留原方案");
+                    EventStore.setResult(sessionId, JsonUtils.toJson(prevPlan)); // 保底回填原方案
+                } else {
+                    EventStore.setResult(sessionId, JsonUtils.toJson(revised));
+                }
+            } catch (CancelledException e) {
+                taskStatus = "CANCELLED";
+                EventStore.setResult(sessionId, "⏹ 修订任务已由用户中断。");
+            } catch (Exception e) {
+                taskStatus = "FAILED";
+                EventStore.setResult(sessionId, "❌ 修订任务执行出错：" + e.getMessage());
+                log.error("修订任务执行失败: {}", e.getMessage(), e);
+            } finally {
+                TASK_GATE.release();
+                managerAgent.hook.EventStore.TaskMeta doneMeta = EventStore.finishTask(sessionId, taskStatus);
+                persistObservation(sessionId, taskStatus, userIdObj, doneMeta);
+            }
+        });
+        return "✅ 修订任务已接收，正在影响分析与局部重跑...";
+    }
+
+    /** 解析上一版结果为 TripPlanData（PlanSet 取推荐方案；旧 markdown/错误文本返回 null） */
+    private dto.TripPlanData parsePrevPlan(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            java.util.Map<?, ?> node = JsonUtils.extractAndParse(raw, java.util.Map.class);
+            if (node == null) return null;
+            if (node.get("plans") instanceof java.util.List<?> plans && !plans.isEmpty()) {
+                // 多方案：取推荐方案（缺推荐下标取第一个结构化的）
+                int rec = node.get("recommendedIndex") instanceof Number n ? n.intValue() : -1;
+                Object pick = (rec >= 0 && rec < plans.size()) ? plans.get(rec) : null;
+                if (pick == null) {
+                    for (Object o : plans) {
+                        if (o instanceof java.util.Map<?, ?> m && m.get("sections") instanceof java.util.List<?> ss && !ss.isEmpty()) {
+                            pick = o;
+                            break;
+                        }
+                    }
+                }
+                if (pick == null) return null;
+                return JsonUtils.extractAndParse(JsonUtils.toJson(pick), dto.TripPlanData.class);
+            }
+            if (node.get("sections") instanceof java.util.List<?> sections && !sections.isEmpty()) {
+                return JsonUtils.extractAndParse(raw, dto.TripPlanData.class);
+            }
+            return null;
+        } catch (Exception e) {
+            log.warn("解析上一版结果失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
     /** ★观测落库（任务终态）：task_history upsert + 调用链span合并三进程落库（异步线程，失败不影响主流程） */
     private static void persistObservation(String sessionId, String taskStatus, Object userIdObj,
                                            managerAgent.hook.EventStore.TaskMeta meta) {

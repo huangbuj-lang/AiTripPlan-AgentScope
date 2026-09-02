@@ -19,10 +19,16 @@ public class AmapEnhancedToolFactory {
 
     /** Agent 类型：决定暴露哪组复合工具 */
     public enum AgentType {
-        /** 行程Agent：只暴露 query_trip（一次拿齐天气/景点/酒店/美食） */
+        /** 行程Agent（门面）：暴露 query_candidates（并行三域候选）+ query_trip（兜底） */
         TRIP,
         /** 路线Agent：只暴露路线综合工具（驾车路线+距离） */
-        ROUTE
+        ROUTE,
+        /** 景点域专家Agent：地点搜索+详情 */
+        ATTRACTION,
+        /** 酒店域专家Agent：地点搜索 */
+        HOTEL,
+        /** 餐饮域专家Agent：地点搜索 */
+        DINING
     }
 
     /** Wait once during JVM startup so the first toolkit uses the latest Nacos snapshot. */
@@ -42,14 +48,19 @@ public class AmapEnhancedToolFactory {
 
     /** 全部复合工具名（来自 AmapCompositeTool 的 @Tool） */
     private static final Set<String> ALL_COMPOSITE = Set.of(
-            "query_trip", "query_route_all", "query_route", "query_around",
+            "query_trip", "query_trip_candidates", "query_route_all", "query_route", "query_around",
             "query_distance", "query_weather", "query_places", "query_place_detail",
             "query_urban_route", "query_route_unified");
 
-    /** 行程Agent保留的复合工具（固定链综合工具，模型只调它拿全部行程数据） */
-    private static final Set<String> TRIP_KEEP = Set.of("query_trip");
+    /** 行程Agent（门面）保留的复合工具：query_candidates 主力 + query_trip 兜底 */
+    private static final Set<String> TRIP_KEEP = Set.of("query_trip", "query_trip_candidates");
     /** 路线Agent保留的唯一综合工具：query_route_unified（内部按mode区分自驾/市内步行公交） */
     private static final Set<String> ROUTE_KEEP = Set.of("query_route_unified");
+    /** 景点域专家保留：地点搜索 + 详情（评分/门票/开放时间） */
+    private static final Set<String> ATTRACTION_KEEP = Set.of("query_places", "query_place_detail");
+    /** 酒店/餐饮域专家保留：地点搜索 */
+    private static final Set<String> HOTEL_KEEP = Set.of("query_places");
+    private static final Set<String> DINING_KEEP = Set.of("query_places");
 
     /** 默认装配：行程Agent（兼容旧调用） */
     public static void register(Toolkit toolkit) {
@@ -82,7 +93,14 @@ public class AmapEnhancedToolFactory {
             }
             // 注册全部复合工具
             toolkit.registration().tool(new AmapCompositeTool(mcp)).apply();
-            Set<String> keep = type == AgentType.ROUTE ? ROUTE_KEEP : TRIP_KEEP;
+            toolkit.registration().tool(new CandidatesTool(mcp)).apply();
+            Set<String> keep = switch (type) {
+                case ROUTE -> ROUTE_KEEP;
+                case ATTRACTION -> ATTRACTION_KEEP;
+                case HOTEL -> HOTEL_KEEP;
+                case DINING -> DINING_KEEP;
+                default -> TRIP_KEEP;
+            };
             for (String t : ALL_COMPOSITE) {
                 if (!keep.contains(t)) {
                     try { toolkit.removeTool(t); } catch (Exception ignored) { }
@@ -92,10 +110,16 @@ public class AmapEnhancedToolFactory {
                     utils.AgentPrompts.toolQueryTrip());
             HotToolDescription.wrap(toolkit, "query_route_unified", "toolRouteUnified",
                     utils.AgentPrompts.toolRouteUnified());
+            if (type == AgentType.TRIP) {
+                HotToolDescription.wrap(toolkit, "query_trip_candidates", "toolQueryCandidates",
+                        utils.AgentPrompts.toolQueryCandidates());
+            }
         }
 
-        // 行程Agent额外挂本地知识库工具；路线Agent不挂
-        if (type == AgentType.TRIP && localKnowledgeEnabled) {
+        // 行程门面与三域专家挂本地知识库工具；路线Agent不挂
+        boolean domainAgent = type == AgentType.TRIP || type == AgentType.ATTRACTION
+                || type == AgentType.HOTEL || type == AgentType.DINING;
+        if (domainAgent && localKnowledgeEnabled) {
             try {
                 toolkit.registration().tool(new LocalKnowledgeTool()).apply();
             } catch (Exception e) {

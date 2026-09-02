@@ -101,4 +101,110 @@ class RequirementNormalizerTest {
         assertDoesNotThrow(() -> RequirementNormalizer.normalize(req));
         assertNotNull(req.getConstraints());
     }
+
+    // ==================== 旅行类型 / 同行人 / 日期规范化 ====================
+
+    @Test
+    void travelTypeFromRules() {
+        TripRequest loop = new TripRequest();
+        loop.setRaw("川西大环线7日游");
+        loop.setDestination("川西");
+        RequirementNormalizer.normalize(loop);
+        assertEquals("LOOP", loop.getTravelType());
+
+        TripRequest drive = new TripRequest();
+        drive.setRaw("深圳到惠州3日自驾游");
+        drive.setOrigin("深圳");
+        drive.setDestination("惠州");
+        RequirementNormalizer.normalize(drive);
+        assertEquals("SELF_DRIVE", drive.getTravelType());
+
+        TripRequest cross = new TripRequest();
+        cross.setRaw("成都到重庆4日游");
+        cross.setOrigin("成都");
+        cross.setDestination("重庆");
+        RequirementNormalizer.normalize(cross);
+        assertEquals("CROSS_CITY", cross.getTravelType());
+
+        TripRequest single = new TripRequest();
+        single.setRaw("成都3日游");
+        single.setDestination("成都");
+        RequirementNormalizer.normalize(single);
+        assertEquals("SINGLE_CITY", single.getTravelType());
+    }
+
+    @Test
+    void travelTypeKeepsValidLlmValue() {
+        TripRequest req = new TripRequest();
+        req.setRaw("川西7日环线");
+        req.setTravelType("LOOP");
+        RequirementNormalizer.normalize(req);
+        assertEquals("LOOP", req.getTravelType(), "LLM 合法值不应被规则覆盖");
+    }
+
+    @Test
+    void travelersAndTypeFromRaw() {
+        TripRequest req = new TripRequest();
+        req.setRaw("两个人去三亚5日游，蜜月旅行");
+        RequirementNormalizer.normalize(req);
+        assertEquals(2, req.getTravelers());
+        assertEquals("couple", req.getTravelerType());
+
+        TripRequest fam = new TripRequest();
+        fam.setRaw("带5岁孩子去三亚玩5天");
+        fam.setTravelers(0);
+        RequirementNormalizer.normalize(fam);
+        assertEquals("family", fam.getTravelerType());
+    }
+
+    @Test
+    void weatherSensitiveFromKeywords() {
+        TripRequest req = new TripRequest();
+        req.setRaw("川西徒步7日游，想拍星空");
+        RequirementNormalizer.normalize(req);
+        assertTrue(req.isWeatherSensitive(), "徒步/拍照类需求应标记天气敏感");
+
+        TripRequest calm = new TripRequest();
+        calm.setRaw("成都3日游，吃吃逛逛");
+        RequirementNormalizer.normalize(calm);
+        assertFalse(calm.isWeatherSensitive());
+    }
+
+    @Test
+    void dateNormalizationCnFormat() {
+        TripRequest req = new TripRequest();
+        req.setRaw("帮我规划2026年9月10日出发的成都3日游");
+        req.setDate("2026年9月10日");
+        RequirementNormalizer.normalize(req);
+        assertEquals("2026-09-10", req.getDate());
+    }
+
+    @Test
+    void dateNormalizationKeepsIso() {
+        TripRequest req = new TripRequest();
+        req.setRaw("成都3日游");
+        req.setDate("2026-10-01");
+        RequirementNormalizer.normalize(req);
+        assertEquals("2026-10-01", req.getDate(), "标准 ISO 日期不动");
+    }
+
+    @Test
+    void stateBriefRendersCoreFields() {
+        TripRequest req = new TripRequest();
+        req.setRaw("情侣去厦门4日游，预算8000");
+        req.setOrigin("");
+        req.setDestination("厦门");
+        req.setDays(4);
+        req.setBudgetTotal(8000);
+        req.setTravelers(2);
+        req.setTravelerType("couple");
+        req.getConstraints().add(new TripRequest.Constraint("必去鼓浪屿", "P0"));
+        RequirementNormalizer.normalize(req);
+        String brief = req.toStateBrief();
+        assertTrue(brief.contains("【TravelState 统一状态"));
+        assertTrue(brief.contains("厦门") && brief.contains("4 天"));
+        assertTrue(brief.contains("预算总额: 8000"));
+        assertTrue(brief.contains("情侣"));
+        assertTrue(brief.contains("必去鼓浪屿"));
+    }
 }

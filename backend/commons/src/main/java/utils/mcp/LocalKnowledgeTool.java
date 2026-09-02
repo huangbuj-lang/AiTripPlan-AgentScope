@@ -48,13 +48,15 @@ public class LocalKnowledgeTool {
         return DriverManager.getConnection(url, user, pass);
     }
 
-    /** 本地知识查询（按城市+偏好，偏好经同义词归一后下推SQL过滤）。 */
+    /** 本地知识查询（按城市+偏好，偏好经同义词归一后下推SQL过滤）。domain 可限定单域（景点/美食/酒店），域专家Agent专用。 */
     @Tool(name = "query_local_knowledge",
             description = "查询本地沉淀的景点/美食/酒店知识库（含评分、类型、档次、门票、时长、开放时间、游客提示）。与高德综合工具并行调用，" +
-                    "作为高德实时数据的补充。传 city 城市名；preference 偏好可用自然语言（如 带娃/出片/吃得地道/性价比），会自动匹配标签。")
+                    "作为高德实时数据的补充。传 city 城市名；preference 偏好可用自然语言（如 带娃/出片/吃得地道/性价比），会自动匹配标签；" +
+                    "domain 可选传 景点/美食/酒店 限定只查该域（域专家Agent用），不传则三类都查。")
     public String queryLocalKnowledge(
             @ToolParam(name = "city", description = "城市名，如：成都") String city,
-            @ToolParam(name = "preference", description = "偏好描述，可用自然语言，如：带娃亲子/出片拍照/地道美食/性价比高") String preference) {
+            @ToolParam(name = "preference", description = "偏好描述，可用自然语言，如：带娃亲子/出片拍照/地道美食/性价比高") String preference,
+            @ToolParam(name = "domain", required = false, description = "限定域：景点/美食/酒店（可选，不传查全部）") String domain) {
         if (city == null || city.isBlank()) {
             LK_CALLS.incrementAndGet(); LK_FAILS.incrementAndGet(); // 参数缺失也算失败调用
             return "【本地知识获取失败】city 必填";
@@ -62,7 +64,7 @@ public class LocalKnowledgeTool {
         long lkStart = System.currentTimeMillis();
         LK_CALLS.incrementAndGet();
         try {
-            String out = doQuery(city, preference);
+            String out = doQuery(city, preference, domain);
             LK_COST_MS.addAndGet(System.currentTimeMillis() - lkStart);
             boolean lkOk = !out.contains("获取失败");
             utils.CallTrace.record(utils.SafeModel.lastTraceId(), "TOOL", "query_local_knowledge",
@@ -79,8 +81,8 @@ public class LocalKnowledgeTool {
         }
     }
 
-    /** 原查询逻辑（观测埋点拆出的主体） */
-    private String doQuery(String city, String preference) {
+    /** 原查询逻辑（观测埋点拆出的主体）；domain 非空时只查该域 */
+    private String doQuery(String city, String preference, String domain) {
         String p = preference == null ? "" : preference.trim();
         // ★偏好归一：自由文本 → 标准标签（同义词表）
         List<String> prefTags = PrefSynonyms.normalize(p);
@@ -110,6 +112,16 @@ public class LocalKnowledgeTool {
         if (spotHit) intents.add("景点");
         if (intents.isEmpty()) {
             intents.add("景点"); intents.add("美食"); intents.add("酒店");
+        }
+        // ★域限定：域专家Agent传 domain 时只查该域（景点/美食/酒店），避免跨域噪音
+        if (domain != null && !domain.isBlank()) {
+            String d = domain.trim();
+            String want = d.contains("景") ? "景点" : d.contains("美") || d.contains("餐") || d.contains("吃") ? "美食"
+                    : d.contains("酒") || d.contains("住") ? "酒店" : "";
+            if (!want.isBlank()) {
+                intents.clear();
+                intents.add(want);
+            }
         }
 
         StringBuilder sb = new StringBuilder("【本地知识库|").append(city).append("】");

@@ -24,13 +24,38 @@ public final class RequirementNormalizer {
     /** 回避类约束：不去/不要去/不想去/避开/别去 + 对象名 */
     private static final Pattern AVOID = Pattern.compile("(?:不去|不要去|不想去|避开|别去)([\\u4e00-\\u9fa5A-Za-z0-9]{2,10})");
 
+    /** 同行人数：数字/中文数字 + 人（如 2人 / 两个人 / 4大1小取4） */
+    private static final Pattern TRAVELERS = Pattern.compile(
+            "(\\d+|[一二两三四五六七八九十])\\s*(?:个|位)?(?:大?人|成人|大人)");
+
+    /** 出行日期：2026年9月10日 / 2026-9-10 / 2026.9.10 / 9月10日（无年份补当年，早于今天则进位一年） */
+    private static final Pattern DATE_CN = Pattern.compile(
+            "(?:(\\d{4})\\s*[年\\-/.]\\s*)?(\\d{1,2})\\s*[月\\-/.]\\s*(\\d{1,2})\\s*[日号]?");
+
+    /** 旅行类型关键词 */
+    private static final Pattern LOOP_KW = Pattern.compile("环线|环游|大环线|小环线");
+    private static final Pattern DRIVE_KW = Pattern.compile("自驾|开车|包车|租车|房车");
+    private static final Pattern CROSS_KW = Pattern.compile("[到→→经]");
+
+    /** 天气敏感关键词（户外/摄影类需求，行程需重点关注天气） */
+    private static final Pattern WEATHER_KW = Pattern.compile(
+            "徒步|登山|露营|户外|滑雪|潜水|漂流|骑行|摄影|拍照|出片|星空|日出|日落|雨季|台风");
+
+    /** 同行人类别关键词 */
+    private static final Pattern COUPLE_KW = Pattern.compile("情侣|夫妻|蜜月| honeymoon", Pattern.CASE_INSENSITIVE);
+    private static final Pattern FAMILY_KW = Pattern.compile("亲子|带娃|带孩子|孩子|小孩|儿童|家庭|娃");
+    private static final Pattern ELDER_KW = Pattern.compile("父母|老人|爸妈|爷爷|奶奶|外公|外婆");
+    private static final Pattern FRIENDS_KW = Pattern.compile("朋友|闺蜜|兄弟|同学|同事");
+    private static final Pattern SOLO_KW = Pattern.compile("一个人|独自|单人");
+    private static final Pattern BUSINESS_KW = Pattern.compile("商务|出差|团建");
+
     /** 约束条数上限（防极端长文撑爆提示词） */
     private static final int MAX_CONSTRAINTS = 8;
 
     private RequirementNormalizer() {
     }
 
-    /** 就地规整：预算缺失时从原文提取；约束去重/层级校准；补登 P0 预算、P0 必去、P1 回避。 */
+    /** 就地规整：预算数值化 + 旅行类型/同行人/日期/天气敏感补全 + 约束去重/层级校准。 */
     public static void normalize(TripRequest req) {
         if (req == null) {
             return;
@@ -43,6 +68,12 @@ public final class RequirementNormalizer {
             if (b > 0) {
                 req.setBudgetTotal(b);
             }
+        }
+        normalizeTravelType(req);
+        normalizeTravelers(req);
+        normalizeDate(req);
+        if (!req.isWeatherSensitive() && req.getRaw() != null) {
+            req.setWeatherSensitive(WEATHER_KW.matcher(req.getRaw()).find());
         }
         Map<String, String> uniq = new LinkedHashMap<>();
         for (TripRequest.Constraint c : req.getConstraints()) {
@@ -112,5 +143,108 @@ public final class RequirementNormalizer {
             case "P0", "P1", "P2", "P3" -> level.trim().toUpperCase();
             default -> "P2";
         };
+    }
+
+    // ==================== 旅行类型识别（PDF 补充篇：单城市/跨城路线/环线/自驾） ====================
+
+    /** 旅行类型：LLM 已识别出合法值则保留；否则按原文规则推导（环线/自驾 > 跨城 > 单城）。 */
+    static void normalizeTravelType(TripRequest req) {
+        if (validType(req.getTravelType())) {
+            return; // LLM 值合法，直接采信
+        }
+        String raw = req.getRaw() == null ? "" : req.getRaw();
+        boolean loop = LOOP_KW.matcher(raw).find();
+        boolean drive = DRIVE_KW.matcher(raw).find();
+        String origin = nz(req.getOrigin());
+        String dest = nz(req.getDestination());
+        boolean crossCity = !origin.isBlank() && !dest.isBlank() && !origin.trim().equals(dest.trim());
+        if (loop && drive) {
+            req.setTravelType("SELF_DRIVE");
+        } else if (loop) {
+            req.setTravelType("LOOP");
+        } else if (crossCity) {
+            req.setTravelType(drive ? "SELF_DRIVE" : "CROSS_CITY");
+        } else {
+            req.setTravelType("SINGLE_CITY");
+        }
+    }
+
+    /** 同行人：LLM 漏解析时正则补人数与类别（情侣/亲子/老人/朋友/独自/商务）。 */
+    static void normalizeTravelers(TripRequest req) {
+        if (req.getTravelers() > 0 && req.getTravelerType() != null && !req.getTravelerType().isBlank()) {
+            return;
+        }
+        String raw = req.getRaw() == null ? "" : req.getRaw();
+        if (req.getTravelers() <= 0) {
+            Matcher m = TRAVELERS.matcher(raw);
+            if (m.find()) {
+                req.setTravelers(cnToInt(m.group(1)));
+            }
+        }
+        if (req.getTravelerType() == null || req.getTravelerType().isBlank()) {
+            if (FAMILY_KW.matcher(raw).find()) req.setTravelerType("family");
+            else if (ELDER_KW.matcher(raw).find()) req.setTravelerType("elder");
+            else if (COUPLE_KW.matcher(raw).find()) req.setTravelerType("couple");
+            else if (BUSINESS_KW.matcher(raw).find()) req.setTravelerType("business");
+            else if (SOLO_KW.matcher(raw).find()) req.setTravelerType("solo");
+            else if (FRIENDS_KW.matcher(raw).find()) req.setTravelerType("friends");
+        }
+    }
+
+    /** 出行日期规范化：LLM 输出统一为 ISO（YYYY-MM-DD）；中文/缺年格式由正则兜底补全。 */
+    static void normalizeDate(TripRequest req) {
+        String d = req.getDate() == null ? "" : req.getDate().trim();
+        if (d.matches("\\d{4}-\\d{2}-\\d{2}")) {
+            return; // 已是标准格式
+        }
+        String raw = req.getRaw() == null ? "" : req.getRaw();
+        Matcher m = DATE_CN.matcher(raw);
+        if (m.find()) {
+            try {
+                int year = m.group(1) != null ? Integer.parseInt(m.group(1)) : java.time.LocalDate.now().getYear();
+                int month = Integer.parseInt(m.group(2));
+                int day = Integer.parseInt(m.group(3));
+                if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                    java.time.LocalDate date = java.time.LocalDate.of(year, month, day);
+                    // 无年份且日期早于今天 → 顺延一年（用户说的"9月10日"大概率指下一个）
+                    if (m.group(1) == null && date.isBefore(java.time.LocalDate.now())) {
+                        date = date.plusYears(1);
+                    }
+                    req.setDate(date.toString());
+                }
+            } catch (Exception ignored) {
+                // 非法日期保留 LLM 原值
+            }
+        }
+    }
+
+    /** 旅行类型值合法性 */
+    private static boolean validType(String t) {
+        if (t == null) return false;
+        return switch (t.trim().toUpperCase()) {
+            case "SINGLE_CITY", "CROSS_CITY", "LOOP", "SELF_DRIVE" -> true;
+            default -> false;
+        };
+    }
+
+    /** 中文数字/阿拉伯数字 → int（一~十；超出范围返回 0） */
+    private static int cnToInt(String s) {
+        String t = s.trim();
+        if (t.matches("\\d+")) {
+            try {
+                int v = Integer.parseInt(t);
+                return (v >= 1 && v <= 50) ? v : 0;
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+        String cn = "一二三四五六七八九十";
+        if (t.equals("两")) return 2;
+        int idx = cn.indexOf(t);
+        return idx >= 0 ? idx + 1 : 0;
+    }
+
+    private static String nz(String s) {
+        return s == null ? "" : s;
     }
 }

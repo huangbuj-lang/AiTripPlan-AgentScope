@@ -31,6 +31,9 @@ public class TravelState {
     /** 市内景点清单（从行程产物提取，逗号分隔；跨城游为空） */
     private String sights = "";
 
+    /** 三域结构化候选 JSON（景点/酒店/餐饮 Top-3，含来源与置信度；行程子Agent产出，空=无结构化候选） */
+    private String candidatesJson = "";
+
     /** 专家产物是否命中结果缓存 */
     private boolean fromCache = false;
 

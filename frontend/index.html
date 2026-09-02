@@ -128,6 +128,14 @@
     <button class="save-btn" onclick="savePlan()"><i class="fa-solid fa-floppy-disk"></i> 保存到我的行程</button>
   </div>
 
+  <!-- 修订条(会话式增量修正:只重跑受影响部分，不推翻重来) -->
+  <div id="reviseBar" class="save-bar" style="display:none">
+    <span class="revise-label"><i class="fa-solid fa-wand-magic-sparkles"></i> 智能修改</span>
+    <input id="reviseInput" class="revise-input" type="text" maxlength="200"
+           placeholder="想调整？直接说，如：第三天不去稻城了，改去四姑娘山" />
+    <button class="save-btn" onclick="submitRevise()"><i class="fa-solid fa-rotate"></i> 应用修改</button>
+  </div>
+
   <!-- ====== 精选目的地 ====== -->
   <section class="section" id="destinations">
     <div class="section-head">

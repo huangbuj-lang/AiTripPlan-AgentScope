@@ -221,4 +221,79 @@ class ConstraintEngineTest {
         assertNull(ConstraintEngine.stripPrefix("预算不超过8000元", new String[]{"必去", "不去"}));
         assertEquals("动物园", ConstraintEngine.stripPrefix("避开动物园", new String[]{"避开", "不去"}));
     }
+
+    // ==================== ⑤ 营业时间 / ⑥ 酒店位置（候选数据驱动） ====================
+
+    /** 构造三域候选 JSON（attraction 含营业时间；hotel 含城市与区域） */
+    private String candidatesJson(String openTime, String hotelCity, String hotelArea) {
+        return "{\"attraction\":{\"candidates\":[{\"name\":\"西湖\",\"openTime\":\"" + openTime + "\",\"confidence\":0.9}]},"
+                + "\"hotel\":{\"candidates\":[{\"name\":\"湖畔酒店\",\"city\":\"" + hotelCity + "\",\"area\":\"" + hotelArea + "\",\"confidence\":0.9}]}}";
+    }
+
+    @Test
+    void flagsAttractionOutsideOpeningHours() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        TripPlanData p = plan(1, "西湖");
+        p.getSections().get(0).getItems().get(0).setTime("19:30"); // 08:00-17:30 之外
+        ValidationReport vr = ConstraintEngine.validate(req, p, candidatesJson("08:00-17:30", "杭州", "西湖区"));
+        assertTrue(vr.getIssues().stream().anyMatch(i -> "opening".equals(i.getType())),
+                "超营业时间应报 opening 问题");
+    }
+
+    @Test
+    void passesAttractionWithinOpeningHours() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        TripPlanData p = plan(1, "西湖");
+        p.getSections().get(0).getItems().get(0).setTime("09:00"); // 时间段内
+        ValidationReport vr = ConstraintEngine.validate(req, p, candidatesJson("08:00-17:30", "杭州", "西湖区"));
+        assertFalse(vr.getIssues().stream().anyMatch(i -> "opening".equals(i.getType())));
+    }
+
+    @Test
+    void skipsOpeningHoursWithoutCandidates() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        TripPlanData p = plan(1, "西湖");
+        p.getSections().get(0).getItems().get(0).setTime("19:30");
+        ValidationReport vr = ConstraintEngine.validate(req, p, null);
+        assertTrue(vr.getIssues().stream().noneMatch(i -> "opening".equals(i.getType())),
+                "无候选数据时应跳过而非误报");
+        assertTrue(vr.getSkippedChecks().stream().anyMatch(s -> s.contains("营业时间")));
+    }
+
+    @Test
+    void flagsHotelCityMismatch() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        req.setDestination("杭州");
+        ValidationReport vr = ConstraintEngine.validate(req, plan(1, "西湖"),
+                candidatesJson("08:00-17:30", "苏州", "金鸡湖"));
+        assertTrue(vr.getIssues().stream().anyMatch(i -> "hotel".equals(i.getType())
+                        && i.getReason().contains("不一致")),
+                "酒店候选城市与目的地不符应报 hotel 问题");
+    }
+
+    @Test
+    void warnsLowWhenHotelAreaNeverOverlapsActivities() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        req.setDestination("杭州");
+        ValidationReport vr = ConstraintEngine.validate(req, plan(1, "西湖"),
+                candidatesJson("08:00-17:30", "杭州", "滨江高新区"));
+        assertTrue(vr.getIssues().stream().anyMatch(i -> "hotel".equals(i.getType())
+                        && i.getSeverity().equals("low")),
+                "酒店区域与活动地点零重合应给 low 提示");
+    }
+
+    @Test
+    void hotelLocationPassesWhenAreaOverlaps() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        req.setDestination("杭州");
+        ValidationReport vr = ConstraintEngine.validate(req, plan(1, "西湖"),
+                candidatesJson("08:00-17:30", "杭州", "西湖区"));
+        assertFalse(vr.getIssues().stream().anyMatch(i -> "hotel".equals(i.getType())));
+    }
 }

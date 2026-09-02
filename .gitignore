@@ -35,3 +35,7 @@ desktop.ini
 node_modules/
 __pycache__/
 *.pyc
+
+# ===== 本次改造不入库 =====
+work/
+改造记录-20260902.md

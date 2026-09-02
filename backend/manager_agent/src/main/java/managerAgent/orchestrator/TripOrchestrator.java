@@ -79,40 +79,56 @@ public class TripOrchestrator {
         // ③ 聚合：结构化 JSON（失败退回 markdown 原文兜底）
         EventStore.add(sessionId, "思考", "正在融合路线与行程数据，规划每日安排...");
         EventStore.add(sessionId, "整合", "正在整合路线与行程数据...");
-        TripPlanData plan = aggregate(state.getRequest(), state.getRouteResult(), state.getPlanResult());
+        TripPlanData plan = aggregate(state);
         if (plan == null) {
             plan = fallbackPlan(state.getRequest(), state.getRouteResult(), state.getPlanResult()); // 兜底已含完整 markdown 原文
         } else {
             plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
-            // ④ Reviewer 闭环：独立审查 → REVISE 带反馈定向重跑聚合（≤2轮）
+            // ④ Reviewer 闭环：独立审查 → REVISE 按域定向重跑受影响部分（≤2轮）
             EventStore.add(sessionId, "审查", "独立审查员正在检查行程质量...");
-            plan = reviewerLoop(state.getRequest(), state.getRouteResult(), state.getPlanResult(), plan, null);
+            plan = reviewerLoop(state, plan, null);
         }
-        // ⑤ 终版确定性校验 + 六维评分
-        validateAndReport(state.getRequest(), plan, "方案",
-                state.getRouteResult() != null && !state.getRouteResult().isBlank(),
-                state.getPlanResult() != null && !state.getPlanResult().isBlank(), true);
+        // ⑤ 终版确定性校验 + 六维评分 + 证据链存档
+        validateAndReport(state, plan, "方案", true);
+        archiveEvidence(state, plan);
         EventStore.add(sessionId, "完成", "结构化行程生成完成");
         return plan;
     }
 
     /** 确定性校验并把结果写入事件流；withScore=true 时同步输出六维评分。返回校验报告供调用方复用。 */
-    private dto.ValidationReport validateAndReport(TripRequest req, TripPlanData plan, String label,
-                                                   boolean routeOk, boolean planOk, boolean withScore) {
+    private dto.ValidationReport validateAndReport(TravelState state, TripPlanData plan, String label, boolean withScore) {
         try {
-            dto.ValidationReport vr = utils.ConstraintEngine.validate(req, plan);
+            dto.ValidationReport vr = utils.ConstraintEngine.validate(state.getRequest(), plan, state.getCandidatesJson());
             if (!vr.getSkippedChecks().isEmpty()) {
                 EventStore.add(sessionId, "校验", label + " 跳过检查: " + String.join("、", vr.getSkippedChecks()));
             }
             EventStore.add(sessionId, "校验", label + " 校验结果 " + vr.summary());
             if (withScore) {
-                dto.ScoreResult sr = utils.PlanScorer.score(req, plan, vr, routeOk, planOk);
+                dto.ScoreResult sr = utils.PlanScorer.score(state.getRequest(), plan, vr,
+                        state.getRouteResult() != null && !state.getRouteResult().isBlank(),
+                        state.getPlanResult() != null && !state.getPlanResult().isBlank());
                 EventStore.add(sessionId, "评分", label + " " + sr.getSummary());
             }
             return vr;
         } catch (Exception e) {
             log.warn("确定性校验/评分异常(不阻断交付): {}", e.getMessage());
             return new dto.ValidationReport();
+        }
+    }
+
+    /** 证据链存档（仅后端记录，前端不渲染）：候选来源/等级/抓取时间/置信度 → plan.evidence + 事件流摘要 */
+    private void archiveEvidence(TravelState state, TripPlanData plan) {
+        try {
+            if (plan == null) return;
+            plan.setCandidatesJson(state.getCandidatesJson());
+            java.util.Map<String, Object> cands = utils.CandidateUtil.parse(state.getCandidatesJson());
+            plan.setEvidence(utils.CandidateUtil.evidenceList(cands));
+            String summary = utils.CandidateUtil.evidenceSummary(cands);
+            if (!summary.isBlank()) {
+                EventStore.add(sessionId, "证据链", summary + "（后端留存，详见行程JSON evidence 字段）");
+            }
+        } catch (Exception e) {
+            log.warn("证据链存档异常(忽略): {}", e.getMessage());
         }
     }
 
@@ -128,17 +144,17 @@ public class TripOrchestrator {
         return ReviewVerdict.parse(out); // null=解析失败，调用方按 PASS 兜底
     }
 
-    /** Reviewer 闭环：审查 → REVISE 带反馈定向重跑聚合 → 再审，上限 MAX_REVIEW_ROUNDS 轮。
+    /** Reviewer 闭环：审查 → REVISE 按域定向重跑（PDF §十二/§十三：只重跑有问题域，不推翻重来）→ 再审，上限 MAX_REVIEW_ROUNDS 轮。
      *  style 为多方案风格文案（保持重跑不丢风格），单方案传 null。
      *  审查器/重跑故障均不阻断交付（保留当前版本）。 */
-    private TripPlanData reviewerLoop(TripRequest req, String routeResult, String planResult,
-                                      TripPlanData plan, String style) {
+    private TripPlanData reviewerLoop(TravelState state, TripPlanData plan, String style) {
+        TripRequest req = state.getRequest();
         TripPlanData current = plan;
         for (int round = 1; round <= MAX_REVIEW_ROUNDS; round++) {
             checkCancel();
             dto.ValidationReport vr = null;
             try {
-                vr = utils.ConstraintEngine.validate(req, current);
+                vr = utils.ConstraintEngine.validate(req, current, state.getCandidatesJson());
             } catch (Exception ignored) {
             }
             ReviewVerdict v = reviewPlan(req, current, vr);
@@ -148,18 +164,22 @@ public class TripOrchestrator {
             }
             if (!v.needsRevise()) {
                 EventStore.add(sessionId, "审查", "第" + round + "轮审查通过"
+                        + (v.getScore() >= 0 ? "（质量分 " + v.getScore() + "）" : "")
                         + (v.getIssues().isEmpty() ? "" : "（" + v.getIssues().size() + " 条轻微建议已记录）"));
                 break;
             }
-            EventStore.add(sessionId, "审查", "第" + round + "轮审查 REVISE：" + v.feedbackText());
+            EventStore.add(sessionId, "审查", "第" + round + "轮审查 REVISE"
+                    + (v.getScore() >= 0 ? "（质量分 " + v.getScore() + "）" : "") + "：" + v.feedbackText());
             if (round == MAX_REVIEW_ROUNDS) {
                 EventStore.add(sessionId, "审查", "已达修正上限(" + MAX_REVIEW_ROUNDS + " 轮)，交付当前版本");
                 break;
             }
+            // ★按域定向重跑（PDF §十三）：审查问题落在哪些域，只重查哪些域的候选，其余沿用
+            refetchAffectedDomains(state, v);
             EventStore.add(sessionId, "审查", "带审查反馈重跑聚合（第 " + round + " 次修正）...");
             TripPlanData fixed;
             try {
-                fixed = aggregateCore(req, routeResult, planResult, style, v.feedbackText());
+                fixed = aggregateCore(state, style, v.feedbackText());
             } catch (Exception e) {
                 log.warn("Reviewer 修正重跑异常: {}", e.getMessage());
                 EventStore.add(sessionId, "审查", "修正重跑异常，交付当前版本");
@@ -175,6 +195,55 @@ public class TripOrchestrator {
         return current;
     }
 
+    /** 审查问题 → 受影响域集合（attraction/hotel/dining；保守映射，无把握不重跑） */
+    private java.util.Set<String> affectedDomains(ReviewVerdict v) {
+        java.util.Set<String> domains = new java.util.LinkedHashSet<>();
+        for (ReviewVerdict.Issue is : v.getIssues()) {
+            String d = is.domain == null ? "" : is.domain.trim().toLowerCase();
+            if (d.equals("attraction") || d.equals("hotel") || d.equals("dining")) {
+                domains.add(d);
+                continue;
+            }
+            String target = is.target == null ? "" : is.target.trim().toLowerCase();
+            String type = is.type == null ? "" : is.type.trim().toLowerCase();
+            if (target.contains("hotel") || type.equals("hotel")) domains.add("hotel");
+            else if (type.equals("dining")) domains.add("dining");
+        }
+        return domains;
+    }
+
+    /** 按域定向重跑：直连行程子服务内部候选端点（绕过门面 ReAct，实测门面两轮大 prompt LLM 占 ~125s/143s），
+     *  服务内只重查受影响域、其余沿用已有候选。失败静默（走聚合反馈兜底）。 */
+    private void refetchAffectedDomains(TravelState state, ReviewVerdict v) {
+        java.util.Set<String> domains = affectedDomains(v);
+        java.util.Map<String, Object> existing = utils.CandidateUtil.parse(state.getCandidatesJson());
+        if (domains.isEmpty() || existing == null || existing.isEmpty()) {
+            return; // 无候选存档或问题不落在具体域 → 直接聚合反馈兜底
+        }
+        try {
+            String refine = utils.JsonUtils.toJson(java.util.Map.of(
+                    "domains", java.util.List.copyOf(domains), "existing", existing, "focus", v.feedbackText()));
+            TripRequest creq = state.getRequest();
+            long t0 = System.currentTimeMillis();
+            String reply = await(PARALLEL_POOL.submit(() -> utils.mcp.CandidatesDirectClient.query(
+                    creq.getDestination(), String.valueOf(creq.getDays()), creq.getPreference(),
+                    state.getWaypoints(), creq.toStateBrief(), refine, 270_000)), "域候选直连(定向重查)");
+            String block = utils.CandidateUtil.extractBlock(reply);
+            java.util.Map<String, Object> updated = utils.CandidateUtil.parse(block);
+            if (updated != null && !updated.isEmpty()) {
+                state.setCandidatesJson(utils.JsonUtils.toJson(updated));
+                java.util.List<String> labels = new java.util.ArrayList<>();
+                for (String d : domains) labels.add(utils.CandidateUtil.domainLabel(d));
+                EventStore.add(sessionId, "审查", "按域定向重跑完成：" + String.join("、", labels)
+                        + "（其余域沿用已有候选，未推翻重来，耗时"
+                        + (System.currentTimeMillis() - t0) / 1000 + "s）");
+                state.addTrace("定向重跑", String.join("/", domains));
+            }
+        } catch (Exception e) {
+            log.warn("按域定向重跑异常(降级为聚合反馈): {}", e.getMessage());
+        }
+    }
+
     /** 多方案编排：并行聚合出美食向/出片向/省钱向 3 套方案供前端对比。 */
     public PlanSet runMultiScheme(String userPrompt) {
         TravelState state = resolveAndFetch(userPrompt, null);
@@ -184,10 +253,8 @@ public class TripOrchestrator {
         }
         EventStore.add(sessionId, "思考", "正在融合专家数据，规划多套差异化方案...");
         EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
-        PlanSet set = aggregateMulti(state.getRequest(), state.getRouteResult(), state.getPlanResult());
+        PlanSet set = aggregateMulti(state);
         // 每套方案补降级 markdown（前端打印/导出用）+ 逐套确定性校验与评分，择优 recommendedIndex
-        boolean routeOk = state.getRouteResult() != null && !state.getRouteResult().isBlank();
-        boolean planOk = state.getPlanResult() != null && !state.getPlanResult().isBlank();
         if (set != null) {
             for (int i = 0; i < set.getPlans().size(); i++) {
                 TripPlanData p = set.getPlans().get(i);
@@ -195,10 +262,11 @@ public class TripOrchestrator {
                     p.setMarkdown(renderMarkdown(p));
                 }
                 String slogan = i < set.getSlogans().size() ? set.getSlogans().get(i) : ("方案" + (i + 1));
-                dto.ValidationReport vr = validateAndReport(state.getRequest(), p, "「" + slogan + "」",
-                        routeOk, planOk, false);
+                dto.ValidationReport vr = validateAndReport(state, p, "「" + slogan + "」", false);
                 try {
-                    dto.ScoreResult sr = utils.PlanScorer.score(state.getRequest(), p, vr, routeOk, planOk);
+                    dto.ScoreResult sr = utils.PlanScorer.score(state.getRequest(), p, vr,
+                            state.getRouteResult() != null && !state.getRouteResult().isBlank(),
+                            state.getPlanResult() != null && !state.getPlanResult().isBlank());
                     set.getScores().add(sr.getTotal());
                     EventStore.add(sessionId, "评分", "「" + slogan + "」 " + sr.getSummary());
                 } catch (Exception e) {
@@ -211,23 +279,29 @@ public class TripOrchestrator {
                 set.setRecommendedIndex(best);
                 String bestSlogan = best < set.getSlogans().size() ? set.getSlogans().get(best) : ("方案" + (best + 1));
                 EventStore.add(sessionId, "评分", "★ 推荐方案：" + bestSlogan);
-                // ★Reviewer 闭环只审推荐方案（省 2/3 审查开销）：REVISE 带反馈重跑该套聚合（保持风格），修正后重算评分
+                // ★Reviewer 闭环只审推荐方案（省 2/3 审查开销）：REVISE 按域定向重跑（保持风格），修正后重算评分
                 TripPlanData rec = set.getPlans().get(best);
                 if (rec != null && rec.getSections() != null && !rec.getSections().isEmpty()) {
                     EventStore.add(sessionId, "审查", "对推荐方案「" + bestSlogan + "」执行独立审查...");
-                    TripPlanData reviewed = reviewerLoop(state.getRequest(), state.getRouteResult(),
-                            state.getPlanResult(), rec, PLAN_STYLES[best][2]);
+                    TripPlanData reviewed = reviewerLoop(state, rec, PLAN_STYLES[best][2]);
                     if (reviewed != rec) {
                         set.getPlans().set(best, reviewed);
                         try {
-                            dto.ValidationReport vrf = utils.ConstraintEngine.validate(state.getRequest(), reviewed);
-                            dto.ScoreResult sr = utils.PlanScorer.score(state.getRequest(), reviewed, vrf, routeOk, planOk);
+                            dto.ValidationReport vrf = utils.ConstraintEngine.validate(
+                                    state.getRequest(), reviewed, state.getCandidatesJson());
+                            dto.ScoreResult sr = utils.PlanScorer.score(state.getRequest(), reviewed, vrf,
+                                    state.getRouteResult() != null && !state.getRouteResult().isBlank(),
+                                    state.getPlanResult() != null && !state.getPlanResult().isBlank());
                             set.getScores().set(best, sr.getTotal());
                             EventStore.add(sessionId, "评分", "「" + bestSlogan + "」审查修正后 " + sr.getSummary());
                         } catch (Exception ignored) {
                         }
                     }
                 }
+            }
+            // 每套方案存档候选与证据链（前端不渲染，增量修正/审计用）
+            for (TripPlanData p : set.getPlans()) {
+                archiveEvidence(state, p);
             }
         }
         EventStore.add(sessionId, "完成", "多方案生成完成（" + (set == null ? 0 : set.getPlans().size()) + " 套）");
@@ -253,22 +327,28 @@ public class TripOrchestrator {
                 + (req.getBudgetTotal() > 0 ? "，预算 " + (long) req.getBudgetTotal() + " 元" : "")
                 + constraintSummary
                 + (req.getPreference().isBlank() ? "" : "（" + req.getPreference() + "）")
+                + (req.travelTypeLabel().isBlank() ? "" : "，类型「" + req.travelTypeLabel() + "」")
+                + (req.getTravelers() > 0 ? "，" + req.getTravelers() + " 人"
+                        + (req.travelerTypeLabel().isBlank() ? "" : "（" + req.travelerTypeLabel() + "）") : "")
                 + buildPreferenceLabel(req));
         state.addTrace("解析", req.getOrigin() + "→" + req.getDestination() + " " + req.getDays() + "天"
-                + (req.getBudgetTotal() > 0 ? " 预算" + (long) req.getBudgetTotal() : ""));
+                + (req.getBudgetTotal() > 0 ? " 预算" + (long) req.getBudgetTotal() : "")
+                + (req.travelTypeLabel().isBlank() ? "" : " " + req.travelTypeLabel()));
         checkCancel();
 
-        /* ★ 结果缓存（进程内）：key=SHA1(目的+|天数|出发|+个人中心沉淀偏好)。
+        /* ★ 结果缓存（进程内）：key=目的地|天数|出发|沉淀偏好|本次偏好|需求指纹(预算/人数/类型/约束)。
            仅缓存专家产物，LLM 聚合仍每次执行——防串 + 偏好变化即时生效。 */
         String storedPrefs = (req.getPreferences() != null && !req.getPreferences().isEmpty())
                 ? req.getPreferences().toPromptText() : "";
+        String cacheFingerprint = req.cacheFingerprint();
         utils.cache.PlanCache.Entry hit = utils.cache.PlanCache.get(
-                req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs, req.getPreference());
+                req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs, req.getPreference(), cacheFingerprint);
         if (hit != null) {
             EventStore.add(sessionId, "解析", "· 命中结果缓存，跳过专家调用 ·");
             state.setFromCache(true);
             state.setRouteResult(hit.routeResult);
             state.setPlanResult(hit.planResult);
+            state.setCandidatesJson(hit.candidatesJson); // 候选随缓存复用（旧条目为空串则聚合走原文兜底）
             return state;
         }
 
@@ -283,9 +363,11 @@ public class TripOrchestrator {
         boolean crossCity = req.getOrigin() != null && !req.getOrigin().isBlank()
                 && req.getDestination() != null && !req.getDestination().isBlank()
                 && !req.getOrigin().trim().equals(req.getDestination().trim());
-        boolean cityTour = !crossCity;  // 单城 / 起点=终点 / 无起点 → 市内
+        boolean cityTour = !crossCity;  // 单城 / 起点=终点 / 无起点 → 市内（环线游无起点也走此分支）
         if (crossCity) {
-            EventStore.add(sessionId, "路线", "跨城自驾，先规划路线提取途经城市...");
+            EventStore.add(sessionId, "路线", "跨城"
+                    + (req.travelTypeLabel().isBlank() ? "" : "「" + req.travelTypeLabel() + "」")
+                    + "，先规划路线提取途经城市...");
             String routeResult = await(PARALLEL_POOL.submit(() ->
                     remoteTool.callRouteMakingAgent(routeTask(req, ""))), "路线Agent");
             state.setRouteResult(routeResult);
@@ -296,17 +378,21 @@ public class TripOrchestrator {
             String planResult = await(PARALLEL_POOL.submit(() ->
                     remoteTool.callTripPlannerAgent(planTask(req, waypoints))), "行程Agent");
             state.setPlanResult(planResult);
+            harvestCandidates(state);
             checkCancel();
             utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
-                    req.getPreference(), routeResult, planResult);
+                    req.getPreference(), cacheFingerprint, state.getRouteResult(), state.getPlanResult(), state.getCandidatesJson());
             return state;
         }
-        EventStore.add(sessionId, "行程", "市内游，先规划行程提取景点清单...");
+        EventStore.add(sessionId, "行程", "市内"
+                + (req.travelTypeLabel().isBlank() ? "游" : "「" + req.travelTypeLabel() + "」")
+                + "，先规划行程提取景点清单...");
         String planFirst = await(PARALLEL_POOL.submit(() ->
                 remoteTool.callTripPlannerAgent(planTask(req, ""))), "行程Agent");
         state.setPlanResult(planFirst);
+        harvestCandidates(state);
         checkCancel();
-        String sights = extractSights(planFirst, req.getDestination());
+        String sights = extractSights(state.getPlanResult(), req.getDestination());
         state.setSights(sights);
         state.addTrace("行程", "景点清单: " + (sights.isBlank() ? "未提取到" : sights));
         String routeResult2 = await(PARALLEL_POOL.submit(() ->
@@ -314,8 +400,29 @@ public class TripOrchestrator {
         state.setRouteResult(routeResult2);
         checkCancel();
         utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
-                req.getPreference(), routeResult2, planFirst);
+                req.getPreference(), cacheFingerprint, state.getRouteResult(), state.getPlanResult(), state.getCandidatesJson());
         return state;
+    }
+
+    /** 从行程专家回复中收割三域候选 JSON（结构化候选入状态中心；无块则保持空串，聚合按原文兜底）。
+     *  候选块随即从正文中剥离：聚合/缓存/降级渲染消费纯行程文本，不再夹带大段 JSON（防超长截断与解析劣化）。 */
+    private void harvestCandidates(TravelState state) {
+        try {
+            String block = utils.CandidateUtil.extractBlock(state.getPlanResult());
+            if (!block.isBlank()) {
+                java.util.Map<String, Object> cands = utils.CandidateUtil.parse(block);
+                if (cands != null && !cands.isEmpty()) {
+                    state.setCandidatesJson(utils.JsonUtils.toJson(cands));
+                    state.setPlanResult(utils.CandidateUtil.stripBlock(state.getPlanResult()));
+                    String summary = utils.CandidateUtil.evidenceSummary(cands);
+                    EventStore.add(sessionId, "候选", "三域候选已入状态中心"
+                            + (summary.isBlank() ? "" : "：" + summary));
+                    state.addTrace("候选", "三域Top3候选(结构化)");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("候选收割异常(忽略，走原文聚合): {}", e.getMessage());
+        }
     }
 
     // ==================== ① 需求解析 ====================
@@ -398,9 +505,11 @@ public class TripOrchestrator {
         // sightList 非空 → 市内游且已由行程Agent定好景点，路线按这些景点查衔接
         String dest = (req.getDestination() == null || req.getDestination().isBlank()) ? "" : req.getDestination();
         boolean noOrigin = req.getOrigin() == null || req.getOrigin().isBlank();
+        // ★统一状态下发（PDF §三）：子 Agent 围绕 TravelState 决策，不各自解读原始用户文本
+        String brief = req.toStateBrief() + "\n";
         if (noOrigin || sightList != null && !sightList.isBlank()) {
             // 市内/行程先行：路线Agent针对"行程已定的景点"查衔接，不再自己猜景点
-            String base = "这是 " + dest + " 的" + req.getDays() + "天市内/周边游（用户未提供出发地）。\n";
+            String base = brief + "这是 " + dest + " 的" + req.getDays() + "天市内/周边游（用户未提供出发地）。\n";
             if (sightList != null && !sightList.isBlank()) {
                 base += "行程Agent已确定景点清单：" + sightList + "。\n"
                         + "★请用 query_route_unified(mode=urban" + (routePrefStr.isBlank() ? "" : ", routePref=" + routePrefStr)
@@ -415,11 +524,15 @@ public class TripOrchestrator {
                     + "最终回复：完整可读的市内行程，含每日安排、景点间衔接方式、大致耗时。";
             return base;
         }
-        return "请规划从 " + req.getOrigin() + " 到 " + dest + " 的自驾路线，"
-                + req.getDays() + " 天，包含每日行车路线、途经景点、驾驶时间与费用。\n"
+        String driveHint = switch (req.getTravelType() == null ? "" : req.getTravelType()) {
+            case "LOOP", "SELF_DRIVE" -> "（环线游：每日路线尽量不走回头路，环形串联）";
+            default -> "";
+        };
+        return brief + "请规划从 " + req.getOrigin() + " 到 " + dest + " 的自驾路线，"
+                + req.getDays() + " 天，包含每日行车路线、途经景点、驾驶时间与费用" + driveHint + "。\n"
                 + "★调用 query_route_unified，mode 参数driving" + (routePrefStr.isBlank() ? "" : "，routePref=" + routePrefStr)
                 + "（自驾路线与距离），查询各段自驾线路。\n"
-                + "★严格限制：总行程必须正好 " + req.getDays() + " 天，不得增加天数、不得扩展为更长的环线。\n"
+                + "★严格限制：总行程必须正好 " + req.getDays() + " 天，不得增加天数。\n"
                 + "如果 " + req.getDays() + " 天跑不完某条长线，请选择适合 " + req.getDays() + " 天的缩短路线（或减少景点），"
                 + "天数只允许少不允许多。";
     }
@@ -429,20 +542,23 @@ public class TripOrchestrator {
         java.util.List<String> tripPrefs = new java.util.ArrayList<>();
         if (req.getTripPref() != null && !req.getTripPref().isBlank()) tripPrefs.add(req.getTripPref().trim());
         String prefStr = tripPrefs.isEmpty() ? "" : String.join(" ", tripPrefs);
+        // ★统一状态下发（PDF §三）：候选专家围绕 TravelState 决策；brief 参数需原样传给 query_trip_candidates
+        String brief = req.toStateBrief() + "\n";
         if (waypoints != null && !waypoints.isBlank()) {
             // 跨城自驾：查沿途城市景点
-            return "请规划从 " + req.getOrigin() + " 到 " + req.getDestination() + " 的" + req.getDays() + "天自驾行程，"
+            return brief + "请规划从 " + req.getOrigin() + " 到 " + req.getDestination() + " 的" + req.getDays() + "天自驾行程，"
                     + "重点规划【路途沿途】的景点。\n"
-                    + "★调用 query_trip 时，把途经城市传 waypoints 参数（逗号分隔）：" + waypoints + "，"
-                    + "只查这些途经点的景点/美食，不要查起点或终点城市内部的景点。\n"
+                    + "★调用 query_trip_candidates 时，把途经城市传 waypoints 参数（逗号分隔）：" + waypoints + "，"
+                    + "只查这些途经点的景点/美食，不要查起点或终点城市内部的景点；brief 参数传任务开头的【TravelState 统一状态】块原文。\n"
                     + "结合路线按 Day 每日给出途经景点行程与安排。"
                     + (prefStr.isBlank() ? "" : "★把行程偏好作为 preference 参数传入：" + prefStr + "。");
         }
-        return "请规划 " + req.getDestination() + " " + req.getDays() + " 日游的景点与每日行程，"
+        return brief + "请规划 " + req.getDestination() + " " + req.getDays() + " 日游的景点与每日行程，"
                 + "包含景点、门票、住宿、餐饮美食"
                 + (prefStr.isBlank() ? "" : "，偏好：" + prefStr) + "。\n"
-                + "★调用 query_trip 时，把上述偏好作为 preference 参数传入，"
-                + "让固定链按偏好查询更贴合的数据(如'亲子景点'/'美食餐厅')，不要忽略偏好查通用清单。";
+                + "★调用 query_trip_candidates 时，把上述偏好作为 preference 参数传入，"
+                + "brief 参数传任务开头的【TravelState 统一状态】块原文，"
+                + "让三域专家按偏好与约束查询更贴合的数据(如'亲子景点'/'美食餐厅')，不要忽略偏好查通用清单。";
     }
 
     /** 从路线结果提取途经城市名（带市/区/县后缀，排除起终点，最多5个）。 */
@@ -578,8 +694,8 @@ public class TripOrchestrator {
 
     // ==================== ③ 聚合 ====================
 
-    private TripPlanData aggregate(TripRequest req, String routeResult, String planResult) {
-        return aggregateWithStyle(req, routeResult, planResult, null);
+    private TripPlanData aggregate(TravelState state) {
+        return aggregateWithStyle(state, null);
     }
 
     /** 输入侧缺失描述：路线/行程哪路为空返回对应文案，齐全返回空串 */
@@ -606,12 +722,16 @@ public class TripOrchestrator {
     }
 
     /** 单套方案聚合（style=null 表示默认无风格；否则注入风格约束） */
-    private TripPlanData aggregateWithStyle(TripRequest req, String routeResult, String planResult, String style) {
-        return aggregateCore(req, routeResult, planResult, style, "");
+    private TripPlanData aggregateWithStyle(TravelState state, String style) {
+        return aggregateCore(state, style, "");
     }
 
-    /** 聚合核心：feedback 非空时为 Reviewer 修正重跑（注入审查反馈要求定向修改）。 */
-    private TripPlanData aggregateCore(TripRequest req, String routeResult, String planResult, String style, String feedback) {
+    /** 聚合核心：feedback 非空时为 Reviewer 修正重跑（注入审查反馈要求定向修改）。
+     *  输入 = 用户需求 + 确定性校验/统一状态 + 三域候选（结构化优先）+ 专家原文。 */
+    private TripPlanData aggregateCore(TravelState state, String style, String feedback) {
+        TripRequest req = state.getRequest();
+        String routeResult = state.getRouteResult();
+        String planResult = state.getPlanResult();
         utils.SafeModel.setStage("聚合生成"); // ★调用链：聚合 LLM span 标注阶段
         String sysPrompt = AgentPrompts.tripAggregator()
                 + buildStyleHint(style)
@@ -620,6 +740,8 @@ public class TripOrchestrator {
                         "\n★审查修正铁律：上一版方案经审查发现问题：" + feedback + "\n本次输出必须逐条修复上述问题，其余符合要求的内容保持不变。");
         String userPrompt = "用户需求：" + req.getRaw()
                 + buildPreferencePrompt(req)  // 偏好约束
+                + "\n\n" + req.toStateBrief()
+                + buildCandidatesSection(state) // ★三域结构化候选（PDF §八：候选优先，全局权衡）
                 + "\n\n【路线数据】\n" + clip(routeResult) + "\n\n【行程数据】\n" + clip(planResult);
         String text = callModelJson(sysPrompt, userPrompt);
         TripPlanData plan = JsonUtils.extractAndParse(text, TripPlanData.class);
@@ -767,6 +889,16 @@ public class TripOrchestrator {
         return String.join("、", gaps);
     }
 
+    /** 三域结构化候选区块（聚合提示词拼装；无候选返回空串） */
+    private String buildCandidatesSection(TravelState state) {
+        if (state == null || state.getCandidatesJson().isBlank()) return "";
+        String text = utils.CandidateUtil.toPromptText(
+                utils.CandidateUtil.parse(state.getCandidatesJson()), 3);
+        if (text.isBlank()) return "";
+        return "\n\n【三域候选（结构化，已按需求筛选，含置信度）】\n" + text
+                + "\n（候选来自真实查询，行程安排优先从中选取；⚠标记项在 note 注明\"建议出发前再次确认\"）";
+    }
+
     /** 多方案风格定义（style key / 展示名 / 聚合风格约束文案）：aggregateMulti 与 Reviewer 重跑共用，保证重跑不丢风格 */
     private static final String[][] PLAN_STYLES = {
             {"food", "美食向", "本次方案为「美食向」：以地道美食为主线，突出必吃餐厅、夜市、小吃街，行程围绕用餐地点安排，每个时段尽量给出具体餐厅/小吃推荐。"},
@@ -778,7 +910,10 @@ public class TripOrchestrator {
     private static final int MAX_REVIEW_ROUNDS = 2;
 
     /** 3 套差异化方案并行聚合（美食向/出片向/省钱向） */
-    private PlanSet aggregateMulti(TripRequest req, String routeResult, String planResult) {
+    private PlanSet aggregateMulti(TravelState state) {
+        TripRequest req = state.getRequest();
+        String routeResult = state.getRouteResult();
+        String planResult = state.getPlanResult();
         String[][] styles = PLAN_STYLES;
         // 并行提交 3 套聚合（PARALLEL_POOL 已 4 线程）
         @SuppressWarnings("unchecked")
@@ -786,7 +921,7 @@ public class TripOrchestrator {
         for (int i = 0; i < 3; i++) {
             final int idx = i;
             futures[i] = PARALLEL_POOL.submit(() ->
-                    aggregateWithStyle(req, routeResult, planResult, styles[idx][2]));
+                    aggregateWithStyle(state, styles[idx][2]));
         }
         PlanSet set = new PlanSet();
         int successCount = 0;

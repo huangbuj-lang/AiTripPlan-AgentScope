@@ -76,11 +76,11 @@ def collect_digest(user_id):
         lines.append(f"【点赞的文章】共{len(likes)}篇：")
         for i, (title, content) in enumerate(likes, 1):
             lines.append(f"{i}. {_clean(title, 40)} | {_clean(content)}")
-    prefs = sql(f"SELECT travel_style, preferred_style, budget_level, pace, museum_ratio, "
-                f"walk_tolerance, chronotype, avoid_list FROM user_preferences WHERE user_id={user_id}")
+    # 只查 user_preferences 实际存在的列（preferred_style/museum_ratio/walk_tolerance/chronotype 库表与schema均无）
+    prefs = sql(f"SELECT travel_style, budget_level, pace, avoid_list FROM user_preferences WHERE user_id={user_id}")
     if prefs and any(v and v != "NULL" for v in prefs[0]):
         has = True
-        keys = ["旅行风格", "偏好类型", "预算级", "节奏", "博物馆占比", "步行容忍", "作息", "避讳"]
+        keys = ["旅行风格", "预算级", "节奏", "避讳"]
         kv = "；".join(f"{k}={_clean(v, 60)}" for k, v in zip(keys, prefs[0]) if v and v != "NULL")
         lines.append(f"【个人中心主动设置】{kv}")
     return "\n".join(lines), has

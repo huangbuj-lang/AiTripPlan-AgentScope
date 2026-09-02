@@ -91,7 +91,7 @@ class SafeModelTest {
 
     /** ★观测：重试后成功的 LLM span 说明里标注重试次数 */
     @Test
-    void llmRetrySuccessSpanMentionsRetries() {
+    void llmRetrySuccessSpanMentionsRetries() throws Exception {
         SafeModel.setSessionId("test-llm-retry");
         StubModel primary = new StubModel("deepseek",
                 new RuntimeException("500 Internal Server Error")); // 第1次失败→重试→第2次成功(空流)
@@ -100,6 +100,11 @@ class SafeModelTest {
         CallTrace.Span llm = CallTrace.trace("test-llm-retry").stream()
                 .filter(sp -> sp.layer.equals("LLM")).findFirst().orElse(null);
         assertNotNull(llm);
+        // doFinally 的 span 收尾在下游终止信号之后才执行：轮询等终态，避免断言竞态
+        long deadline = System.currentTimeMillis() + 2000;
+        while (!llm.success && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10);
+        }
         assertTrue(llm.success);
         assertTrue(llm.detail.contains("重试1次后成功"), "实际: " + llm.detail);
         CallTrace.clear("test-llm-retry");
