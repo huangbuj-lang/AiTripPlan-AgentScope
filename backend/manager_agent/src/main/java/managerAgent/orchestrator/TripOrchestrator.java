@@ -77,6 +77,7 @@ public class TripOrchestrator {
             EventStore.add(sessionId, "整合", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
         }
         // ③ 聚合：结构化 JSON（失败退回 markdown 原文兜底）
+        EventStore.add(sessionId, "思考", "正在融合路线与行程数据，规划每日安排...");
         EventStore.add(sessionId, "整合", "正在整合路线与行程数据...");
         TripPlanData plan = aggregate(state.getRequest(), state.getRouteResult(), state.getPlanResult());
         if (plan == null) {
@@ -535,6 +536,7 @@ public class TripOrchestrator {
 
     /** 等待 Future 结果，超时/异常返回空串并记录事件；★中断感知：每 500ms 轮询取消标志，点中断立即生效（原步骤边界检查太慢） */
     private String await(Future<String> future, String label) {
+        EventStore.add(sessionId, "调用工具", "调用「" + label + "」获取真实数据...");
         RemoteTimeout.configure(utils.NacosModelConfig.orchestrationConfig());
         Duration timeout = RemoteTimeout.timeout();
         long deadline = System.nanoTime() + timeout.toNanos();

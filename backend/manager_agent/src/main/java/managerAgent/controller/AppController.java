@@ -75,6 +75,9 @@ public class AppController {
         TASK_POOL.submit(() -> {
             String taskStatus = "DONE"; // 任务最终状态（异常路径改写）
             try {
+                // 用户输入事件：前端思考区首条（截断防超长 prompt 撑爆事件流）
+                String promptPreview = prompt == null ? "" : (prompt.length() > 80 ? prompt.substring(0, 80) + "…" : prompt);
+                EventStore.add(sessionId, "用户输入", promptPreview);
                 TripOrchestrator orchestrator = new TripOrchestrator(sessionId); // 确定性编排器（会话隔离）
                 // 用户画像注入：与用户输入放一起
                 String profileLine = (userIdObj != null && !skipPrefs)
