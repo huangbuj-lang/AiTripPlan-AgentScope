@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>AiTripPlan</artifactId>
+        <groupId>com.imooc</groupId>
+        <version>1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>commons</artifactId>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- AgentScope 核心(提供 @Tool/@ToolParam 注解 + MCP客户端类，AmapMapEnhancedTool 共用)。
+             ⚠️ 不要用 agentscope-a2a-starter：会触发 A2A 自动配置要求 AgentRunner bean，
+             导致无 AgentRunner 的模块启动失败 -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-spring-boot-starter</artifactId>
+            <version>${AgentScope.version}</version>
+        </dependency>
+
+        <!-- Nacos Prompt APIs require the 3.2.x client -->
+        <dependency>
+            <groupId>com.alibaba.nacos</groupId>
+            <artifactId>nacos-client</artifactId>
+            <version>3.2.3</version>
+        </dependency>
+        <!-- Jackson JSON：AmapMapEnhancedTool 解析 MCP 响应所需 -->
+                <dependency>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </dependency>
+                <!-- MySQL 驱动：LocalKnowledgeTool 直接连接特征表（本地知识库），免去 8090 Python 中转 -->
+                <dependency>
+                    <groupId>com.mysql</groupId>
+                    <artifactId>mysql-connector-j</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
+                <!-- 单元测试：JUnit 5（版本由 spring-boot-dependencies 管理） -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

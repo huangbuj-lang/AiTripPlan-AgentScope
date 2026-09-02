@@ -1,0 +1,90 @@
+/* ============================================================
+   漫旅登录页 — 左侧风景品牌区 + 右侧登录卡（森林绿+沙色系）
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap');
+
+:root {
+  --sand-50: #FBF8F3;
+  --sand-200: #EAE3D5;
+  --forest-950: #0F1A14;
+  --forest-900: #1D2D23;
+  --green-600: #3A6149;
+  --green-500: #47755A;
+  --green-100: #E3EDE6;
+  --gold: #C9A96A;
+  --muted: #64736E;
+  --serif: "Fraunces", "Noto Serif SC", Georgia, serif;
+  --sans: "Noto Sans SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-font-smoothing: antialiased; }
+body {
+  font-family: var(--sans); min-height: 100vh; color: var(--forest-900);
+  background: var(--sand-50); line-height: 1.6;
+}
+.login-shell { display: grid; grid-template-columns: 1.15fr 1fr; min-height: 100vh; }
+
+/* ===== 左侧品牌视觉 ===== */
+.login-visual {
+  position: relative; display: flex; flex-direction: column; justify-content: flex-end;
+  padding: 48px 56px; color: #fff;
+  background: url('../img/landscape-hero.png') center 60% / cover no-repeat, linear-gradient(160deg,#8B9B7E,#2C4636);
+}
+.login-visual::before { content: ""; position: absolute; inset: 0; background: linear-gradient(200deg, rgba(15,26,20,.08) 30%, rgba(15,26,20,.62) 100%); }
+.lv-brand { position: absolute; top: 40px; left: 56px; display: flex; align-items: center; gap: 10px; font-family: var(--serif); font-size: 19px; font-weight: 700; letter-spacing: 1px; }
+.lv-brand .pin { width: 28px; height: 28px; border-radius: 50% 50% 50% 4px; transform: rotate(-45deg); background: linear-gradient(135deg, #F6C56E, #E88A7D); }
+.lv-title { position: relative; font-family: var(--serif); font-size: clamp(34px, 3.6vw, 52px); font-weight: 700; line-height: 1.2; }
+.lv-title em { font-style: italic; color: #F2D9A6; }
+.lv-sub { position: relative; margin-top: 14px; font-size: 15px; opacity: .92; max-width: 420px; }
+
+/* ===== 右侧登录卡 ===== */
+.login-side { display: flex; align-items: center; justify-content: center; padding: 40px 32px; }
+.login-card {
+  width: min(400px, 100%); background: #fff; border-radius: 24px; padding: 42px 38px 30px;
+  box-shadow: 0 24px 64px rgba(29,45,35,.12); border: 1px solid var(--sand-200);
+}
+.logo { text-align: center; margin-bottom: 26px; }
+.logo .icon {
+  width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 18px;
+  background: var(--green-600); color: #fff; font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+}
+.logo h1 { font-family: var(--serif); font-size: 24px; font-weight: 700; color: var(--forest-900); }
+.logo p { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+
+.tabs { display: flex; background: var(--green-100); border-radius: 9999px; padding: 4px; margin-bottom: 26px; }
+.tab {
+  flex: 1; text-align: center; padding: 9px 0; border-radius: 9999px; font-size: 14px;
+  color: var(--muted); cursor: pointer; transition: .2s; font-weight: 500;
+}
+.tab.active { background: var(--green-600); color: #fff; font-weight: 700; }
+
+.form-group { margin-bottom: 18px; }
+.form-group label { display: block; font-size: 12.5px; font-weight: 700; color: var(--forest-900); margin-bottom: 7px; letter-spacing: .5px; }
+.form-group input {
+  width: 100%; padding: 12px 16px; border: 1px solid var(--sand-200); border-radius: 13px;
+  font-size: 14.5px; font-family: var(--sans); outline: none; transition: .2s;
+  background: var(--sand-50); color: var(--forest-900);
+}
+.form-group input:focus { border-color: var(--green-600); background: #fff; box-shadow: 0 0 0 4px rgba(58,97,73,.1); }
+.form-group input::placeholder { color: #A8B2AC; }
+
+.btn-login {
+  width: 100%; margin-top: 8px; padding: 13px; border: none; border-radius: 9999px;
+  background: var(--green-600); color: #fff; font-size: 15.5px; font-weight: 700; letter-spacing: 4px;
+  cursor: pointer; font-family: var(--sans); transition: .2s;
+}
+.btn-login:hover { background: var(--green-500); box-shadow: 0 10px 26px rgba(58,97,73,.35); }
+.btn-login:disabled { opacity: .6; cursor: not-allowed; box-shadow: none; }
+
+.msg { margin-top: 14px; font-size: 13px; text-align: center; min-height: 20px; }
+.msg.err { color: #B8674F; }
+.msg.ok { color: var(--green-600); }
+.footer { margin-top: 20px; text-align: center; font-size: 11.5px; color: var(--muted); letter-spacing: .5px; }
+
+/* ===== 响应式：窄屏隐藏左视觉 ===== */
+@media (max-width: 860px) {
+  .login-shell { grid-template-columns: 1fr; }
+  .login-visual { display: none; }
+  .login-side { padding: 40px 20px; }
+}

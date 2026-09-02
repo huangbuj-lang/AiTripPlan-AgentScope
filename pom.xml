@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.imooc</groupId>
+    <artifactId>AiTripPlan</artifactId>
+    <packaging>pom</packaging>
+    <version>1.0-SNAPSHOT</version>
+    <modules>
+        <!--   📦 后端大包：4 个 Maven 模块全部收进 backend/  -->
+        <module>backend/manager_agent</module>
+        <module>backend/routeMaking_agent</module>
+        <module>backend/tripPlanner_agent</module>
+        <module>backend/commons</module>
+    </modules>
+
+    <properties>
+
+        <!--  SpringBoot 4      -->
+        <spring-boot.version>4.0.2</spring-boot.version>
+        <!--   AgentScope     -->
+        <AgentScope.version>1.0.8</AgentScope.version>
+        <logback.version>1.5.25</logback.version>
+
+
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <build>
+        <plugins>
+            <!-- JDK 23+ 默认禁用注解处理，必须显式开启，否则 Lombok @Slf4j 不生效 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <compilerArgs>
+                        <arg>-proc:full</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>io.agentscope</groupId>
+                <artifactId>agentscope-a2a-spring-boot-starter</artifactId>
+                <version>${AgentScope.version}</version>
+            </dependency>
+
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+<!--   AgentScope 和 SpringBoot 的集成     -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-spring-boot-starter</artifactId>
+            <version>${AgentScope.version}</version>
+        </dependency>
+
+        <!--   实现slf4j接口，不然日志打印不出来    -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+<!--   以 SpringBoot 方式添加 A2A 依赖     -->
+<!--        <dependency>-->
+<!--            <groupId>io.agentscope</groupId>-->
+<!--            <artifactId>agentscope-a2a-spring-boot-starter</artifactId>-->
+<!--            <version>${AgentScope.version}</version>-->
+<!--        </dependency>-->
+
+        <!-- 额外添加 Nacos Spring Boot starter 的依赖 -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-nacos-spring-boot-starter</artifactId>
+            <version>${AgentScope.version}</version>
+        </dependency>
+
+    </dependencies>
+
+</project>

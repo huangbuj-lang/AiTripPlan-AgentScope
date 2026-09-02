@@ -1,0 +1,13 @@
+server:
+  port: 8081
+  tomcat:
+    uri-encoding: UTF-8  # ★中文参数根治：显式声明 query/form 按 UTF-8 解码（配合前端 encodeURIComponent，直连传码后中文也不 400）
+
+spring:
+  # ★新功能：MySQL 数据源（连接阿里云RDS）
+  # 连接信息用环境变量注入（服务器启动时设置），密码不写进代码，保证安全
+  datasource:
+    url: jdbc:mysql://${RDS_HOST:127.0.0.1:3306}/aitripplan?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
+    username: ${RDS_USER:trip_user}
+    password: ${RDS_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver

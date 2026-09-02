@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>通知中心 · AI 旅行规划助手</title>
+<link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .nt-wrap { max-width: 720px; margin: 30px auto; padding: 0 16px; }
+  .back-link { display:inline-block; margin-bottom:16px; color:#0984e3; font-size:14px; text-decoration:none; }
+  .nt-card { background:#fff; border-radius:16px; box-shadow:0 6px 24px rgba(9,132,227,.08); overflow:hidden; }
+  .nt-head { display:flex; align-items:center; justify-content:space-between; padding:18px 24px; border-bottom:1px solid #eee; }
+  .nt-head h2 { margin:0; font-size:18px; }
+  .nt-head button { background:none; border:none; color:#0984e3; cursor:pointer; font-size:13px; }
+  .nt-item { padding:16px 24px; border-bottom:1px solid #f5f5f5; cursor:pointer; display:flex; gap:12px; align-items:flex-start; }
+  .nt-item:hover { background:#fafafa; }
+  .nt-item.unread { background:#f0f9f6; }
+  .nt-icon { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:15px; }
+  .nt-body { flex:1; }
+  .nt-content { font-size:14px; color:#2d3436; line-height:1.5; }
+  .nt-time { font-size:12px; color:#b2bec3; margin-top:4px; }
+  .empty { text-align:center; color:#b2bec3; padding:50px 20px; }
+</style>
+<link rel="stylesheet" href="css/travel-theme.css?v=20260828a">
+</head>
+<body>
+<div class="nt-wrap">
+  <a class="back-link" href="forum.html"><i class="fa-solid fa-arrow-left"></i> 返回论坛</a>
+  <div class="nt-card">
+    <div class="nt-head">
+      <h2><i class="fa-regular fa-bell"></i> 通知</h2>
+      <button onclick="readAll()">全部标记已读</button>
+    </div>
+    <div id="ntList"><div class="empty">加载中...</div></div>
+  </div>
+</div>
+<script src="js/notifications.js"></script>
+</body>
+</html>

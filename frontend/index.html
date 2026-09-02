@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>漫旅 · 规划你的下一段旅程</title>
+<link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="css/style.css?v=20260828e">
+<link rel="stylesheet" href="css/print.css" media="print">
+</head>
+<body>
+
+<!-- ====== HERO：全屏山景 ====== -->
+<header class="hero">
+  <div style="padding:0 40px">
+    <nav class="hero-nav">
+      <div class="logo"><span class="pin"></span>漫旅 · MANLÜ</div>
+      <div class="nav-links" style="margin-left:auto">
+        <button id="adminBtn" class="chip" onclick="location.href='admin.html'" style="display:none"><i class="fa-solid fa-gauge"></i> 管理端</button>
+        <button id="forumBtn" class="chip" onclick="location.href='forum.html'" style="display:none"><i class="fa-solid fa-comments"></i> 论坛</button>
+        <button id="profileBtn" class="chip" onclick="location.href='profile.html'" style="display:none"><i class="fa-solid fa-user-gear"></i> 个人中心</button>
+        <button id="myPlansBtn" class="chip" onclick="showMyPlans()" style="display:none"><i class="fa-solid fa-folder-open"></i> 我的行程</button>
+        <button id="logoutBtn" class="chip" onclick="logout()" style="display:none"><i class="fa-solid fa-right-from-bracket"></i> 退出</button>
+      </div>
+    </nav>
+  </div>
+
+  <div class="wrap hero-main">
+    <span class="hero-badge">✦ 2026 年最新一代 · AI 旅行规划平台</span>
+    <h1>寻找你的下一段<br><em>难忘旅程</em></h1>
+    <p class="hero-sub">量身定制的行程，通往世界上最壮丽的自然奇观。告诉我们你的梦想——多 Agent 为你规划一切细节。</p>
+
+    <!-- 搜索条（原输入区升级：目的地/天数/探索） -->
+    <div class="hero-search">
+      <div class="hs-field" style="flex:2.2">
+        <label><i class="fa-solid fa-location-dot"></i> 目的地</label>
+        <input id="prompt" type="text" placeholder="你想去哪里?" onkeydown="if(event.key==='Enter') send()">
+      </div>
+      <div class="hs-field hs-pax">
+        <label><i class="fa-solid fa-user-group"></i> 出行人数</label>
+        <div class="hs-select" id="paxSelect" tabindex="0">
+          <span class="hs-select-val" id="paxVal">2 人出行</span>
+          <i class="fa-solid fa-chevron-down hs-arrow"></i>
+          <div class="hs-menu" id="paxMenu">
+            <div class="hs-opt" data-v="1 人出行">1 人出行</div>
+            <div class="hs-opt" data-v="2 人出行">2 人出行</div>
+            <div class="hs-opt" data-v="3 人出行">3 人出行</div>
+            <div class="hs-opt" data-v="4 人及以上">4 人及以上</div>
+          </div>
+          <select id="paxSel" class="hs-native" tabindex="-1" aria-hidden="true">
+            <option>1 人出行</option><option selected>2 人出行</option><option>3 人出行</option><option>4 人及以上</option>
+          </select>
+        </div>
+      </div>
+      <button id="sendBtn" class="btn-explore" onclick="send()"><i class="fa-solid fa-magnifying-glass"></i> 探索</button>
+      <button id="cancelBtn" class="btn-cancel-hero" onclick="cancelTask()" title="停止"><i class="fa-solid fa-stop"></i></button>
+    </div>
+
+    <!-- ★方案选择弹窗：单方案 / 多方案（多方案=后端并行聚合3套差异化行程） -->
+    <div id="schemeModal" class="scheme-modal" style="display:none" onclick="if(event.target===this)closeSchemeModal()">
+      <div class="scheme-card">
+        <h3 class="scheme-title">选择生成方式</h3>
+        <p class="scheme-sub">多方案将并行生成 美食向 / 出片向 / 省钱向 三套行程，可对比后一键采用</p>
+        <div class="scheme-opts">
+          <div class="scheme-opt" id="optSingle" onclick="pickScheme('single')">
+            <div class="opt-icon"><i class="fa-solid fa-file-lines"></i></div>
+            <div class="opt-name">单方案</div>
+            <div class="opt-desc">快速生成一套完整行程，省时优先</div>
+          </div>
+          <div class="scheme-opt" id="optMulti" onclick="pickScheme('multi')">
+            <div class="opt-icon"><i class="fa-solid fa-layer-group"></i></div>
+            <div class="opt-name">多方案</div>
+            <div class="opt-desc">三套差异化方案并行生成，选择更自由</div>
+          </div>
+        </div>
+        <div class="scheme-actions">
+          <button class="scheme-btn scheme-cancel" onclick="closeSchemeModal()">取消</button>
+          <button class="scheme-btn scheme-ok" onclick="confirmScheme()">开始生成</button>
+        </div>
+      </div>
+    </div>
+    <style>
+      .scheme-modal{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(8,20,14,.55);backdrop-filter:blur(3px)}
+      .scheme-card{width:min(480px,92vw);background:#fff;border-radius:18px;padding:30px 28px 24px;box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center}
+      .scheme-title{margin:0 0 6px;font-size:21px;font-weight:800;color:#0B3D2E;letter-spacing:1px}
+      .scheme-sub{margin:0 0 20px;font-size:13px;color:#7A8A80;line-height:1.6}
+      .scheme-opts{display:flex;gap:14px;margin-bottom:22px}
+      .scheme-opt{flex:1;border:2px solid #E3E9E5;border-radius:14px;padding:18px 10px 14px;cursor:pointer;transition:all .18s}
+      .scheme-opt:hover{border-color:#10B981;transform:translateY(-2px)}
+      .scheme-opt.active{border-color:#10B981;background:#F0FDF7;box-shadow:0 4px 14px rgba(16,185,129,.18)}
+      .opt-icon{font-size:26px;color:#F97316;margin-bottom:8px}
+      .opt-name{font-size:16px;font-weight:700;color:#0B3D2E;margin-bottom:4px}
+      .opt-desc{font-size:12px;color:#8A948C;line-height:1.5}
+      .scheme-actions{display:flex;gap:12px;justify-content:center}
+      .scheme-btn{border:none;border-radius:10px;padding:10px 26px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
+      .scheme-cancel{background:#F1F4F2;color:#5B6B62}
+      .scheme-cancel:hover{background:#E6EBE8}
+      .scheme-ok{background:linear-gradient(135deg,#10B981,#059669);color:#fff}
+      .scheme-ok:hover{opacity:.9}
+    </style>
+    <div class="hero-stats">
+      <div><div class="hs-num">180+</div><div class="hs-label">目的地</div></div>
+      <div><div class="hs-num">5万+</div><div class="hs-label">满意旅人</div></div>
+      <div><div class="hs-num">4.9</div><div class="hs-label">平均评分</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap work">
+
+  <!-- 打印视图(仅打印时显示:概览+详情) -->
+  <div id="printView" class="print-view"></div>
+
+  <!-- 状态容器（隐藏，供 app.js 状态更新调用） -->
+  <div id="status" style="display:none"></div>
+  <!-- 结果区：轨迹 + 天卡片 -->
+  <div class="trip-view" id="resultBody">
+  </div>
+
+  <!-- 保存条(对称操作条:打印/导出 + 保存) -->
+  <div id="saveBar" class="save-bar" style="display:none">
+    <button class="mini-btn" onclick="toggleExportMenu(event)"><i class="fa-solid fa-print"></i> 打印 / 导出</button>
+    <div class="export-menu" id="exportMenu" style="display:none">
+      <a href="javascript:void(0)" onclick="exportPDF(event)"><i class="fa-regular fa-file-pdf"></i> 导出 PDF</a>
+      <a href="javascript:void(0)" onclick="exportWord(event)"><i class="fa-regular fa-file-word"></i> 导出 Word</a>
+    </div>
+    <span id="saveMsg" class="save-msg"></span>
+    <button class="save-btn" onclick="savePlan()"><i class="fa-solid fa-floppy-disk"></i> 保存到我的行程</button>
+  </div>
+
+  <!-- ====== 精选目的地 ====== -->
+  <section class="section" id="destinations">
+    <div class="section-head">
+      <div>
+        <div class="section-kicker">Featured Destinations</div>
+        <div class="section-title">风会带你去往何方？</div>
+        <div class="section-sub">每条路线都由当地向导精心策划，他们知道最佳观景点、安静的小径，以及一天中最美的时刻。</div>
+      </div>
+    </div>
+    <div class="cat-tabs" id="catTabs">
+      <button class="cat-tab active" data-cat="all" onclick="filterDest('all',this)">全部</button>
+      <button class="cat-tab" data-cat="mountain" onclick="filterDest('mountain',this)">山脉</button>
+      <button class="cat-tab" data-cat="culture" onclick="filterDest('culture',this)">人文</button>
+      <button class="cat-tab" data-cat="sea" onclick="filterDest('sea',this)">海滨</button>
+    </div>
+    <div class="dest-grid" id="destGrid"></div>
+  </section>
+
+  <!-- ====== 论坛热帖 ====== -->
+  <section class="testimonials">
+    <div class="section-kicker">Travelers' Tales</div>
+    <div class="section-title">把故事留在路上</div>
+    <div class="testi-grid" id="hotPostGrid">
+      <div class="empty" style="color:#8A948C">加载中...</div>
+    </div>
+    <div style="text-align:center;margin-top:24px"><a href="forum.html" style="color:#F2D9A6;font-size:13.5px;text-decoration:none;border-bottom:1px solid rgba(242,217,166,.4)">进入论坛查看更多 →</a></div>
+  </section>
+
+  <!-- 调度中心(思考过程) -->
+  <div class="think" style="margin-top:32px">
+    <div class="think-head">调度中心<span class="live">LIVE</span></div>
+    <div id="thinkBody" class="think-body">
+      <div class="empty" style="color:#8A948C">发送任务后，这里会实时显示主管Agent的每一步动作</div>
+    </div>
+  </div>
+
+  <footer>漫旅 MANLÜ · 多 Agent 协作 · 实时事件驱动</footer>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="modal-mask" id="modalMask">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="em" id="modalEm">🏯</span>
+      <div><h3 id="modalTitle">第 1 天</h3><div class="sub" id="modalSub">DAY ONE</div></div>
+      <button class="x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- 我的行程弹层 -->
+<div id="myPlansModal" class="my-plans-modal" style="display:none">
+  <div class="modal-card">
+    <div class="modal-head">
+      <b><i class="fa-solid fa-folder-open"></i> 我的行程</b>
+      <button class="x" onclick="closeMyPlans()" title="关闭"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div id="myPlansList" class="modal-body"></div>
+  </div>
+</div>
+
+
+  </div>
+</div>
+
+<script src="js/purify.min.js"></script>
+<script src="js/app.js?v=20260828c"></script>
+<script>
+/* 出行人数自定义下拉（纯交互：展开/选中/外部点击关闭，paxSel 同步保持兼容） */
+(function () {
+  var sel = document.getElementById('paxSelect');
+  if (!sel) return;
+  var menu = document.getElementById('paxMenu');
+  var val = document.getElementById('paxVal');
+  var native = document.getElementById('paxSel');
+  function closeMenu() { menu.classList.remove('open'); sel.classList.remove('open'); }
+  sel.addEventListener('click', function (e) {
+    var opt = e.target.closest ? e.target.closest('.hs-opt') : null;
+    if (opt) {
+      val.textContent = opt.dataset.v;
+      native.value = opt.dataset.v;
+      menu.querySelectorAll('.hs-opt').forEach(function (o) { o.classList.toggle('sel', o.dataset.v === opt.dataset.v); });
+      closeMenu();
+      return;
+    }
+    var willOpen = !menu.classList.contains('open');
+    menu.classList.toggle('open', willOpen);
+    sel.classList.toggle('open', willOpen);
+  });
+  document.addEventListener('click', function (e) { if (!sel.contains(e.target)) closeMenu(); });
+  menu.querySelectorAll('.hs-opt').forEach(function (o) { o.classList.toggle('sel', o.dataset.v === native.value); });
+})();
+</script>
+<script>
+/* ===== 精选目的地数据 + 渲染 + 筛选（纯前端新增） ===== */
+const DESTS = [
+  {name:'九寨沟', loc:'四川 · 阿坝', cat:'mountain', rating:4.9, badge:'精选', desc:'翠海叠瀑与彩林雪峰，秋季彩林倒映海子', tags:['山脉','湖泊'], price:'¥280', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/1_jiuzhaigou_valley_wu_hua_hai_2011b.jpg/960px-1_jiuzhaigou_valley_wu_hua_hai_2011b.jpg'},
+  {name:'张家界武陵源', loc:'湖南 · 张家界', cat:'mountain', rating:4.8, badge:'世界遗产', desc:'三千奇峰拔地而起，袁家界云海如临仙境', tags:['山脉','徒步'], price:'¥165', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/1_zhangjiajie_huangshizhai_wulingyuan_panorama_2012.jpg/960px-1_zhangjiajie_huangshizhai_wulingyuan_panorama_2012.jpg'},
+  {name:'黄山', loc:'安徽 · 黄山', cat:'mountain', rating:4.9, badge:'热门', desc:'奇松怪石云海温泉，日出光明顶雾凇如画', tags:['山脉','日出'], price:'¥190', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Huangshan_mist_20141109.jpg/960px-Huangshan_mist_20141109.jpg'},
+  {name:'敦煌莫高窟', loc:'甘肃 · 敦煌', cat:'culture', rating:4.9, badge:'世界遗产', desc:'千年壁画艺术宝库，数字观影加实体洞窟', tags:['人文','石窟'], price:'¥238', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/%E8%8E%AB%E9%AB%98%E7%AA%9F%E4%B9%9D%E5%B1%82%E6%A5%BC_-_panoramio.jpg/960px-%E8%8E%AB%E9%AB%98%E7%AA%9F%E4%B9%9D%E5%B1%82%E6%A5%BC_-_panoramio.jpg'},
+  {name:'丽江古城', loc:'云南 · 丽江', cat:'culture', rating:4.7, badge:'世界遗产', desc:'纳西古镇小桥流水，远眺玉龙雪山终年积雪', tags:['人文','古镇'], price:'¥50', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/1_lijiang_old_town_night.jpg/960px-1_lijiang_old_town_night.jpg'},
+  {name:'鼓浪屿', loc:'福建 · 厦门', cat:'sea', rating:4.6, badge:'新上线', desc:'万国建筑博览与琴岛涛声，慢游文艺小巷', tags:['海滨','休闲'], price:'¥35', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Gulangyu_Island_from_Zhongshan_Road%2C_Xiamen.jpg/960px-Gulangyu_Island_from_Zhongshan_Road%2C_Xiamen.jpg'},
+];
+function starOf(r){ return '★ ' + r.toFixed(1); }
+function renderDests(list){
+  const g = document.getElementById('destGrid');
+  if(!list.length){ g.innerHTML = '<div class="empty">该分类暂无目的地</div>'; return; }
+  g.innerHTML = list.map((d,i) => `
+    <div class="dest-card" onclick="quickPlan('${d.name}')">
+      <div class="dest-media">
+        <img src="${d.img}" alt="${d.name}" loading="lazy" onerror="this.style.background='linear-gradient(135deg,#47755A,#C9A96A)';this.removeAttribute('src')">
+        ${d.badge?`<span class="dest-badge">${d.badge}</span>`:''}
+        <span class="dest-rating">${starOf(d.rating)}</span>
+        <span class="dest-loc"><i class="fa-solid fa-location-dot"></i>${d.loc}</span>
+      </div>
+      <div class="dest-body">
+        <div class="dest-name">${d.name}</div>
+        <div class="dest-desc">${d.desc}</div>
+        <div class="dest-tags">${d.tags.map(t=>`<span class="dest-tag">${t}</span>`).join('')}</div>
+        <div class="dest-foot">
+          <div class="dest-price">${d.price} <small>/ 人起</small></div>
+          <div class="dest-go"><i class="fa-solid fa-arrow-right"></i></div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+function filterDest(cat, btn){
+  document.querySelectorAll('.cat-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderDests(cat==='all' ? DESTS : DESTS.filter(d=>d.cat===cat));
+}
+/* 点卡片 → 快速填充该目的地并开始规划 */
+function quickPlan(name){
+  const inp = document.getElementById('prompt');
+  inp.value = name + ' 3 日游';
+  inp.scrollIntoView({behavior:'smooth', block:'center'});
+  inp.focus();
+}
+renderDests(DESTS);
+/* ===== 论坛热帖（真实帖子，点击跳帖子详情，与论坛一致） ===== */
+function loadHotPosts(){
+  const g = document.getElementById('hotPostGrid');
+  fetch('/api/forum/posts?sort=latest').then(r=>r.json()).then(d=>{
+    if(!d.success || !(d.posts||[]).length){ g.innerHTML = '<div class="empty" style="color:#8A948C">暂无帖子</div>'; return; }
+    const esc2 = s => (s==null?'':String(s)).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    g.innerHTML = (d.posts||[]).slice(0,3).map(p=>`
+      <div class="testi-card" style="cursor:pointer" onclick="location.href='post.html?id='+${p.id}">
+        <div class="testi-quote">”</div>
+        <div style="font-size:13px;letter-spacing:2px;color:var(--gold);margin:8px 0 2px">${esc2(p.board_name)}${p.has_trip?' · 含行程':''}</div>
+        <div style="font-family:var(--serif);font-size:17px;font-weight:700;color:#F5F1E8;margin:6px 0 8px">${esc2(p.title)}</div>
+        <div class="testi-text">${p.destination?('目的地：'+esc2(p.destination)):'点击查看帖子详情'}</div>
+        <div class="testi-user"><div class="testi-avatar">${esc2((p.author||'旅')[0])}</div><div><div class="testi-name">${esc2(p.author||'旅人')}</div><div class="testi-meta">${p.comment_count!=null?('回复 '+p.comment_count):''}${p.like_count?' · ♥ '+p.like_count:''}${p.view_count?' · 浏览 '+p.view_count:''}</div></div></div>
+      </div>`).join('');
+  }).catch(()=>{ g.innerHTML = '<div class="empty" style="color:#8A948C">帖子加载失败</div>'; });
+}
+loadHotPosts();
+</script>
+</body>
+</html>
