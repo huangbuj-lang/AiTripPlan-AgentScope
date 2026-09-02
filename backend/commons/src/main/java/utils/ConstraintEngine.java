@@ -70,6 +70,7 @@ public final class ConstraintEngine {
             report.getSkippedChecks().add("天数一致性(请求天数未知)");
             return;
         }
+        report.getExecutedChecks().add("天数一致性");
         if (plan.getDays() > 0 && plan.getDays() != req.getDays()) {
             report.add(new ValidationReport.Issue("schedule", "high", "overall",
                     "天数不符：请求 " + req.getDays() + " 天，方案 " + plan.getDays() + " 天"));
@@ -120,6 +121,7 @@ public final class ConstraintEngine {
             report.getSkippedChecks().add("预算校验(行程中无可解析金额)");
             return;
         }
+        report.getExecutedChecks().add("预算校验(按行程标注费用累加比对)");
         if (sum > budget) {
             report.add(new ValidationReport.Issue("budget", "high", "overall",
                     "预算超支：明细估算 " + (long) sum + " 元 > 预算 " + (long) budget + " 元（按行程标注费用累加）"));
@@ -167,6 +169,7 @@ public final class ConstraintEngine {
             report.getSkippedChecks().add("约束校验(行程无文本)");
             return;
         }
+        report.getExecutedChecks().add("必去/回避约束校验");
         for (TripRequest.Constraint c : req.getConstraints()) {
             String t = c.getText() == null ? "" : c.getText().trim();
             String must = stripPrefix(t, MUST_PREFIXES);
@@ -204,6 +207,7 @@ public final class ConstraintEngine {
             report.getSkippedChecks().add("时间顺序/重复景点(无区块)");
             return;
         }
+        report.getExecutedChecks().add("同天景点重复检查");
         Set<String> seenAcrossDays = new HashSet<>();
         for (Section s : plan.getSections()) {
             if (!"timeline".equals(s.getType()) || s.getItems() == null || s.getItems().isEmpty()) {
@@ -258,6 +262,7 @@ public final class ConstraintEngine {
             report.getSkippedChecks().add("交通时长(无区块)");
             return;
         }
+        report.getExecutedChecks().add("交通时长检查(单段超限判定)");
         boolean any = false;
         for (Section s : plan.getSections()) {
             if (!"transport".equals(s.getType()) || s.getItems() == null) continue;
@@ -311,6 +316,7 @@ public final class ConstraintEngine {
             report.getSkippedChecks().add("营业时间(候选无营业时间数据)");
             return;
         }
+        report.getExecutedChecks().add("营业时间检查(候选开放时段比对)");
         int checked = 0;
         for (Section s : plan.getSections()) {
             if (!"timeline".equals(s.getType()) || s.getItems() == null) continue;
@@ -367,6 +373,7 @@ public final class ConstraintEngine {
             report.getSkippedChecks().add("酒店位置(无酒店候选)");
             return;
         }
+        report.getExecutedChecks().add("酒店位置检查(城市一致性+区域重合度)");
         String dest = req == null || req.getDestination() == null ? "" : req.getDestination().trim();
         // ① 城市一致性：候选 city 与目的地互不包含 → 数据可能错配
         int cityMismatch = 0;

@@ -134,11 +134,11 @@ public class TripOrchestrator {
 
     // ==================== Reviewer 闭环 ====================
 
-    /** Reviewer 单次审查：独立 LLM 审查员按检查清单输出结构化裁定；输入含确定性校验摘要作证据。 */
+    /** Reviewer 单次审查：独立 LLM 审查员按检查清单输出结构化裁定；输入含确定性校验完整摘要（已执行/跳过检查清单）作证据。 */
     private ReviewVerdict reviewPlan(TripRequest req, TripPlanData plan, dto.ValidationReport vr) {
         utils.SafeModel.setStage("行程审查");
         String user = "【用户需求】" + (req == null || req.getRaw() == null ? "" : req.getRaw())
-                + "\n\n【确定性校验结果】" + (vr == null ? "未执行" : vr.summary())
+                + "\n\n【确定性校验结果】" + (vr == null ? "未执行" : vr.detailedSummary())
                 + "\n\n【行程JSON】\n" + clip(utils.JsonUtils.toJson(plan), 6000);
         String out = callModelJson(AgentPrompts.tripReviewer(), user);
         return ReviewVerdict.parse(out); // null=解析失败，调用方按 PASS 兜底

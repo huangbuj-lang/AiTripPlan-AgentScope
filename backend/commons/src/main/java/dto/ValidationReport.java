@@ -26,6 +26,23 @@ public class ValidationReport {
     /** 已执行/跳过的检查项名称（追溯哪些检查因数据缺失未执行） */
     private List<String> skippedChecks = new ArrayList<>();
 
+    /** 引擎已实际执行的检查项名称（数据充分、真跑了规则；含查出的问题和通过的项） */
+    private List<String> executedChecks = new ArrayList<>();
+
+    /** 供 Reviewer 消费的完整校验摘要：状态+分数+问题明细+已执行检查清单 */
+    public String detailedSummary() {
+        StringBuilder sb = new StringBuilder(summary());
+        if (!executedChecks.isEmpty()) {
+            sb.append("\n引擎已实际执行的确定性检查（这些项以代码规则为准，无需再凭感觉复检）：")
+              .append(String.join("、", executedChecks));
+        }
+        if (!skippedChecks.isEmpty()) {
+            sb.append("\n引擎因数据缺失跳过的检查（这些项可由你补充人工判断）：")
+              .append(String.join("、", skippedChecks));
+        }
+        return sb.toString();
+    }
+
     @Data
     @NoArgsConstructor
     public static class Issue {

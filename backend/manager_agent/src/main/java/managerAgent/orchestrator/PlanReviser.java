@@ -194,7 +194,7 @@ public class PlanReviser {
     private ReviewVerdict reviewRevise(TripRequest req, String instruction, Impact impact,
                                        TripPlanData plan, dto.ValidationReport vr) {
         String user = "【本次修改】" + instruction + "（影响：" + impact.daysText() + "）"
-                + "\n\n【确定性校验结果】" + (vr == null ? "未执行" : vr.summary())
+                + "\n\n【确定性校验结果】" + (vr == null ? "未执行" : vr.detailedSummary())
                 + "\n\n★重点检查受影响天（" + impact.daysText() + "）的修改质量与前后衔接；未受影响天只需确认未被误改。\n"
                 + "\n【行程JSON】\n" + clip(JsonUtils.toJson(plan), 6000);
         String out = callModelJson(AgentPrompts.tripReviewer(), user);
