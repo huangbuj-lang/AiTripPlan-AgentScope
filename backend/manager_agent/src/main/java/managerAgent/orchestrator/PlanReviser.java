@@ -17,8 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 会话式增量修正器（PDF §十三：用户中途修改 → 影响分析 → 只重跑受影响 Agent → 再校验 → 合并）。
- * 不推翻整份行程：受影响域定向重查候选 → 仅受影响天重聚合 → 确定性校验 + 聚焦审查 → 存档修订记录。
+ * 会话式增量修正器（用户中途修改 → 影响分析 → 仅受影响天重聚合 → 再校验 → 合并）。
+ * 不推翻整份行程：基于上一版候选存档，仅受影响天重聚合 → 确定性校验 + 聚焦审查 → 存档修订记录。
  * 任一环节失败保留上一版交付（修正失败不劣化）。
  */
 @Slf4j
@@ -70,11 +70,8 @@ public class PlanReviser {
                 + "（" + impact.understanding + "）");
         checkCancel();
 
-        // ② 受影响域定向重查（只重跑受影响 Agent，PDF §十三核心；其余域沿用已有候选）
+        // ② 受影响域定向重查已移除（直连候选重查路径下线）：局部重排直接基于上一版候选存档执行
         String candidatesJson = prev.getCandidatesJson() == null ? "" : prev.getCandidatesJson();
-        if (!impact.domains.isEmpty()) {
-            candidatesJson = refetchDomains(prev, impact, instruction, candidatesJson);
-        }
 
         // ③ 局部重聚合：只改受影响天，其余天逐字保留
         EventStore.add(sessionId, "修订", "局部重聚合：只重排 " + impact.daysText() + "，其余天保持不变...");
@@ -165,43 +162,6 @@ public class PlanReviser {
         return impact;
     }
 
-    // ==================== 受影响域定向重查 ====================
-
-    /** 直连行程子服务内部候选端点（修订模式）：只重查受影响域，其余沿用已有候选；失败返回原候选。
-     *  绕过门面 ReAct（省两轮大 prompt LLM），参数从上一版行程精确构造。 */
-    private String refetchDomains(TripPlanData prev, Impact impact, String instruction, String candidatesJson) {
-        Map<String, Object> existing = CandidateUtil.parse(candidatesJson);
-        if (existing == null || existing.isEmpty()) {
-            EventStore.add(sessionId, "修订", "无候选存档（旧版本行程），跳过定向重查，按指令直接重排");
-            return candidatesJson;
-        }
-        try {
-            List<String> fetchDomains = new ArrayList<>(impact.domains);
-            fetchDomains.removeIf(d -> !d.equals("attraction") && !d.equals("hotel") && !d.equals("dining"));
-            if (fetchDomains.isEmpty()) return candidatesJson;
-            String refine = JsonUtils.toJson(Map.of(
-                    "domains", fetchDomains, "existing", existing, "focus", instruction));
-            EventStore.add(sessionId, "修订", "定向重查受影响域："
-                    + String.join("、", fetchDomains.stream().map(CandidateUtil::domainLabel).toList())
-                    + "（其余域沿用已有候选）");
-            String reply = utils.mcp.CandidatesDirectClient.query(
-                    prev.getDestination(), String.valueOf(prev.getDays()), "",
-                    "", stateBriefOf(prev), refine, 270_000);
-            String block = CandidateUtil.extractBlock(reply);
-            Map<String, Object> updated = CandidateUtil.parse(block);
-            if (updated != null && !updated.isEmpty()) {
-                EventStore.add(sessionId, "修订", "受影响域候选已更新（局部重跑，未推翻整份行程）");
-                return JsonUtils.toJson(updated);
-            }
-        } catch (managerAgent.hook.CancelledException ce) {
-            throw ce;
-        } catch (Exception e) {
-            log.warn("定向重查失败(沿用原候选): {}", e.getMessage());
-            EventStore.add(sessionId, "修订", "定向重查失败，沿用原候选继续修正");
-        }
-        return candidatesJson;
-    }
-
     // ==================== 局部重聚合 ====================
 
     /** 只改受影响天的重聚合（LLM）；feedback 非空为校验/审查失败后的修正重跑。失败返回 null。 */
@@ -269,13 +229,6 @@ public class PlanReviser {
             }
         }
         return sb.toString();
-    }
-
-    /** 修订任务用状态简报（上一版行程推导的降级版） */
-    private String stateBriefOf(TripPlanData prev) {
-        return "【TravelState 统一状态·修订快照】\n目的地: " + prev.getDestination()
-                + "\n天数: " + prev.getDays() + " 天\n"
-                + (prev.getDate() == null || prev.getDate().isBlank() ? "" : "出行日期: " + prev.getDate() + "\n");
     }
 
     private dto.ValidationReport safeValidate(TripRequest req, TripPlanData plan, String candidatesJson) {

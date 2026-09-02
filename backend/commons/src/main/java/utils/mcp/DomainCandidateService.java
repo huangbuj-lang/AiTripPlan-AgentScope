@@ -29,7 +29,6 @@ import java.util.concurrent.TimeUnit;
  * 三域候选并行调度服务（PDF §一/§五：景点/酒店/餐饮并行取候选；§十七：域间不自由聊天，结果结构化汇聚）。
  * 在行程子服务进程内运行：为每个域构建独立的 ReAct 专家 Agent（各自工具集+域专属提示词），
  * 三域并行执行后合并为结构化候选 JSON（含来源/置信度/证据字段）。
- * 修订模式（refine 非空）：只重跑指定域，其余域原样沿用已有候选——PDF §十三 局部增量修正。
  * 置信度门槛（PDF §十八）：域均值 < 0.70 自动带失败信号重查一次，仍低则逐候选标注 needsConfirm。
  */
 @Slf4j
@@ -43,32 +42,6 @@ public class DomainCandidateService {
 
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-    /** 修订指令：只重跑哪些域 + 已有候选 + 修改重点 */
-    public record Refine(List<String> domains, Map<String, Object> existing, String focus) {
-    }
-
-    /** 解析 refine JSON（非法返回 null） */
-    public static Refine parseRefine(String refineJson) {
-        Map<String, Object> node = JsonUtils.extractAndParse(refineJson, Map.class);
-        if (node == null) return null;
-        List<String> domains = new ArrayList<>();
-        if (node.get("domains") instanceof List<?> list) {
-            for (Object o : list) {
-                String d = String.valueOf(o);
-                for (String ok : CandidateUtil.DOMAINS) {
-                    if (ok.equalsIgnoreCase(d) && !domains.contains(ok)) domains.add(ok);
-                }
-            }
-        }
-        Map<String, Object> existing = null;
-        if (node.get("existing") instanceof Map<?, ?> m) {
-            existing = new LinkedHashMap<>();
-            for (Map.Entry<?, ?> en : m.entrySet()) existing.put(String.valueOf(en.getKey()), en.getValue());
-        }
-        String focus = node.get("focus") == null ? "" : String.valueOf(node.get("focus"));
-        return new Refine(domains, existing, focus);
-    }
-
     /**
      * 并行调度三域候选，返回【可读摘要 + 域候选JSON块】（门面Agent直接作为工具结果消费）。
      *
@@ -77,29 +50,19 @@ public class DomainCandidateService {
      * @param preference  行程偏好
      * @param waypoints   跨城途经城市（逗号分隔，空=单城）
      * @param brief       TravelState 状态简报（任务文本权威快照，域专家围绕它决策）
-     * @param refineJson  修订模式 JSON（null=全新查询）
      */
     public static String run(String destination, String days, String preference,
-                             String waypoints, String brief, String refineJson) {
+                             String waypoints, String brief) {
         long t0 = System.currentTimeMillis();
-        Refine refine = parseRefine(refineJson);
         List<String> toRun = new ArrayList<>();
         Map<String, Object> merged = new LinkedHashMap<>();
-        if (refine != null && refine.existing() != null) {
-            merged.putAll(refine.existing());
-        }
-        if (refine != null && !refine.domains().isEmpty()) {
-            toRun.addAll(refine.domains());
-        } else {
-            for (String d : CandidateUtil.DOMAINS) toRun.add(d);
-        }
+        for (String d : CandidateUtil.DOMAINS) toRun.add(d);
 
-        // 三域并行提交（修订模式只提交受影响域）
+        // 三域并行提交
         Map<String, Future<String>> futures = new LinkedHashMap<>();
         Map<String, String> tasks = new LinkedHashMap<>();
         for (String domain : toRun) {
-            String task = buildDomainTask(domain, destination, days, preference, waypoints,
-                    brief, refine == null ? "" : refine.focus());
+            String task = buildDomainTask(domain, destination, days, preference, waypoints, brief);
             tasks.put(domain, task);
             futures.put(domain, DOMAIN_POOL.submit(() -> runDomainAgent(domain, task)));
         }
@@ -124,22 +87,18 @@ public class DomainCandidateService {
                 log.warn("[域专家] {} 输出无可解析候选JSON(长度{}): {}", domain, out.length(), head.replace('\n', ' '));
             }
             if (node == null || CandidateUtil.degraded(node, domain)) {
-                // 域失败：修订模式保留旧值（不覆盖），全新模式写入降级标记
+                // 域失败：写入降级标记
                 String head = out == null ? "null"
                         : (out.length() > 300 ? out.substring(0, 300) + "…" : out);
                 log.warn("[域专家] {} 降级（{}）输出头部: {}", domain,
                         node == null ? (out == null || out.isBlank() ? "无输出" : "无可解析候选") : "自报degraded",
                         head.replace('\n', ' '));
-                if (!(refine != null && merged.containsKey(domain))) {
-                    Map<String, Object> dg = new LinkedHashMap<>();
-                    dg.put("domain", domain);
-                    dg.put("degraded", true);
-                    dg.put("reason", "域专家查询失败，本域候选缺失");
-                    merged.put(domain, dg);
-                    degradedDomains.add(domain);
-                } else {
-                    degradedDomains.add(domain + "(保留旧值)");
-                }
+                Map<String, Object> dg = new LinkedHashMap<>();
+                dg.put("domain", domain);
+                dg.put("degraded", true);
+                dg.put("reason", "域专家查询失败，本域候选缺失");
+                merged.put(domain, dg);
+                degradedDomains.add(domain);
                 continue;
             }
             // 置信度门槛（PDF §十八）：均值<0.70 带失败信号重查一次
@@ -164,7 +123,7 @@ public class DomainCandidateService {
         }
 
         String json = JsonUtils.toJson(merged);
-        String digest = buildDigest(merged, degradedDomains, lowConfDomains, refine);
+        String digest = buildDigest(merged, degradedDomains, lowConfDomains);
         utils.CallTrace.record(utils.SafeModel.lastTraceId(), "TOOL", "domain_candidates",
                 "三域并行候选完成: " + String.join("/", futures.keySet())
                         + (degradedDomains.isEmpty() ? "" : " · 降级:" + degradedDomains)
@@ -220,7 +179,7 @@ public class DomainCandidateService {
 
     /** 域专家任务文本：状态简报 + 域职责 + 输出契约提示 */
     private static String buildDomainTask(String domain, String destination, String days, String preference,
-                                          String waypoints, String brief, String focus) {
+                                          String waypoints, String brief) {
         StringBuilder sb = new StringBuilder();
         if (brief != null && !brief.isBlank()) {
             sb.append(brief.trim()).append("\n\n");
@@ -233,17 +192,14 @@ public class DomainCandidateService {
             sb.append("跨城途经城市: ").append(waypoints)
               .append("（景点/餐饮域请对每个途经城市分别查询；酒店域查终点城市）\n");
         }
-        if (focus != null && !focus.isBlank()) {
-            sb.append("★修订重点: ").append(focus).append("\n");
-        }
         return sb.toString();
     }
 
     /** 工具结果可读摘要（门面 Agent 据此撰写行程；JSON 块原样透传给主管） */
     private static String buildDigest(Map<String, Object> merged, List<String> degraded,
-                                      List<String> lowConf, Refine refine) {
+                                      List<String> lowConf) {
         StringBuilder sb = new StringBuilder();
-        sb.append("【三域候选获取").append(refine != null ? "（修订模式：只重跑受影响域）" : "").append("】\n");
+        sb.append("【三域候选获取】\n");
         for (String d : CandidateUtil.DOMAINS) {
             Map<String, Object> node = CandidateUtil.domain(merged, d);
             List<Map<String, Object>> items = CandidateUtil.items(merged, d);

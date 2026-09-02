@@ -146,7 +146,7 @@ public final class AgentPrompts {
                 4.只输出 JSON：{"domain":"dining","city":"目的地","degraded":false,"candidates":[{"name":"","reason":"推荐理由(特色/贴合偏好)","price":"人均","rating":"","openTime":"营业时间","area":"所在区域","confidence":0.9}]}
                 5.工具全部失败时 degraded=true、candidates 留空并给 reason 说明，禁止编造。★degraded 判定铁律：degraded=true 仅当 query_places(高德)也失败时才允许；本地知识库失败/无数据【不算】工具失败——高德成功时必须基于高德数据输出 3 个候选（confidence 如实 0.70~0.85），禁止因本地库失败而 degraded。★输出纪律：最终回复必须以 { 开头、以 } 结尾的纯 JSON（一个对象），【绝对禁止】输出思考过程/分析文字/计划说明——先想清楚再一次性输出最终 JSON。
                 """);
-        DEFAULTS.put("toolQueryCandidates", "三域候选一站式工具：一次调用即在服务内部并行调度 景点/酒店/餐饮 三个域专家Agent（各自查真实数据），返回结构化 Top-3 候选 JSON（含天气与置信度）。修订模式传 refine（JSON：{\"domains\":[\"hotel\"],\"existing\":{...已有多域候选...},\"focus\":\"修改重点\"}），只重查指定域、其余域沿用 existing，避免推翻重来。");
+        DEFAULTS.put("toolQueryCandidates", "三域候选一站式工具：一次调用即在服务内部并行调度 景点/酒店/餐饮 三个域专家Agent（各自查真实数据），返回结构化 Top-3 候选 JSON（含天气与置信度）。destination 必填（目的地城市名）。");
 
         // ===== 会话式增量修正（PDF §十三：影响分析 → 只重跑受影响部分） =====
         DEFAULTS.put("reviseImpactAnalyzer", """

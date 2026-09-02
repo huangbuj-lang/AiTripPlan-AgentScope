@@ -174,8 +174,6 @@ public class TripOrchestrator {
                 EventStore.add(sessionId, "审查", "已达修正上限(" + MAX_REVIEW_ROUNDS + " 轮)，交付当前版本");
                 break;
             }
-            // ★按域定向重跑（PDF §十三）：审查问题落在哪些域，只重查哪些域的候选，其余沿用
-            refetchAffectedDomains(state, v);
             EventStore.add(sessionId, "审查", "带审查反馈重跑聚合（第 " + round + " 次修正）...");
             TripPlanData fixed;
             try {
@@ -193,55 +191,6 @@ public class TripOrchestrator {
             current = fixed;
         }
         return current;
-    }
-
-    /** 审查问题 → 受影响域集合（attraction/hotel/dining；保守映射，无把握不重跑） */
-    private java.util.Set<String> affectedDomains(ReviewVerdict v) {
-        java.util.Set<String> domains = new java.util.LinkedHashSet<>();
-        for (ReviewVerdict.Issue is : v.getIssues()) {
-            String d = is.domain == null ? "" : is.domain.trim().toLowerCase();
-            if (d.equals("attraction") || d.equals("hotel") || d.equals("dining")) {
-                domains.add(d);
-                continue;
-            }
-            String target = is.target == null ? "" : is.target.trim().toLowerCase();
-            String type = is.type == null ? "" : is.type.trim().toLowerCase();
-            if (target.contains("hotel") || type.equals("hotel")) domains.add("hotel");
-            else if (type.equals("dining")) domains.add("dining");
-        }
-        return domains;
-    }
-
-    /** 按域定向重跑：直连行程子服务内部候选端点（绕过门面 ReAct，实测门面两轮大 prompt LLM 占 ~125s/143s），
-     *  服务内只重查受影响域、其余沿用已有候选。失败静默（走聚合反馈兜底）。 */
-    private void refetchAffectedDomains(TravelState state, ReviewVerdict v) {
-        java.util.Set<String> domains = affectedDomains(v);
-        java.util.Map<String, Object> existing = utils.CandidateUtil.parse(state.getCandidatesJson());
-        if (domains.isEmpty() || existing == null || existing.isEmpty()) {
-            return; // 无候选存档或问题不落在具体域 → 直接聚合反馈兜底
-        }
-        try {
-            String refine = utils.JsonUtils.toJson(java.util.Map.of(
-                    "domains", java.util.List.copyOf(domains), "existing", existing, "focus", v.feedbackText()));
-            TripRequest creq = state.getRequest();
-            long t0 = System.currentTimeMillis();
-            String reply = await(PARALLEL_POOL.submit(() -> utils.mcp.CandidatesDirectClient.query(
-                    creq.getDestination(), String.valueOf(creq.getDays()), creq.getPreference(),
-                    state.getWaypoints(), creq.toStateBrief(), refine, 270_000)), "域候选直连(定向重查)");
-            String block = utils.CandidateUtil.extractBlock(reply);
-            java.util.Map<String, Object> updated = utils.CandidateUtil.parse(block);
-            if (updated != null && !updated.isEmpty()) {
-                state.setCandidatesJson(utils.JsonUtils.toJson(updated));
-                java.util.List<String> labels = new java.util.ArrayList<>();
-                for (String d : domains) labels.add(utils.CandidateUtil.domainLabel(d));
-                EventStore.add(sessionId, "审查", "按域定向重跑完成：" + String.join("、", labels)
-                        + "（其余域沿用已有候选，未推翻重来，耗时"
-                        + (System.currentTimeMillis() - t0) / 1000 + "s）");
-                state.addTrace("定向重跑", String.join("/", domains));
-            }
-        } catch (Exception e) {
-            log.warn("按域定向重跑异常(降级为聚合反馈): {}", e.getMessage());
-        }
     }
 
     /** 多方案编排：并行聚合出美食向/出片向/省钱向 3 套方案供前端对比。 */
