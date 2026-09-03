@@ -280,6 +280,32 @@ public final class CandidateUtil {
         return sb.toString();
     }
 
+    /** 
+     * 景点区域分组提示（纯代码空间聚类·文本分组版）：把景点候选按 area 文本归堆，
+     * 输出"每个区域含哪些景点"的清单，供聚合提示词按"同区域尽量同一天"约束排天。
+     * 景点不足 2 个、无 area 数据或全在同区域时不产生分组价值，返回空串。
+     */
+    public static String areaGroupHint(Map<String, Object> candidates) {
+        List<Map<String, Object>> spots = items(candidates, "attraction");
+        if (spots.size() < 2) return "";
+        // area → 景点名（保序；area 空白的归"未标注"）
+        Map<String, List<String>> groups = new LinkedHashMap<>();
+        for (Map<String, Object> it : spots) {
+            String area = str(it.get("area")).trim();
+            String name = str(it.get("name")).trim();
+            if (name.isBlank()) continue;
+            groups.computeIfAbsent(area.isBlank() ? "未标注区域" : area, k -> new ArrayList<>()).add(name);
+        }
+        if (groups.size() < 2) return ""; // 全在同区域/全未标注 → 分组无意义
+        StringBuilder sb = new StringBuilder("【景点区域分组（按地理邻近预分组，代码计算）】\n");
+        int gi = 1;
+        for (Map.Entry<String, List<String>> en : groups.entrySet()) {
+            sb.append("组").append(gi++).append("（").append(en.getKey()).append("）：")
+              .append(String.join("、", en.getValue())).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
     /** 聚合/校验用紧凑文本（每域最多 maxPerDomain 条，供提示词拼装） */
     public static String toPromptText(Map<String, Object> candidates, int maxPerDomain) {
         if (candidates == null || candidates.isEmpty()) return "";

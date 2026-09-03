@@ -169,12 +169,15 @@ public class PlanReviser {
                                     String candidatesJson, String feedback) {
         String sys = AgentPrompts.reviseDayAggregator()
                 + (feedback == null || feedback.isBlank() ? "" : "\n" + feedback);
+        Map<String, Object> cands = candidatesJson.isBlank() ? null : CandidateUtil.parse(candidatesJson);
+        String groupHint = CandidateUtil.areaGroupHint(cands); // ★区域分组（同组尽量同一天）
         String user = "【修改指令】" + instruction
                 + "\n【影响范围】" + impact.daysText() + "｜受影响域：" + impact.domains
                 + "\n\n【原行程JSON】\n" + clip(JsonUtils.toJson(prev), 12000)
-                + (candidatesJson.isBlank() ? "" :
+                + (cands == null ? "" :
                         "\n\n【三域候选（受影响域已重查，含置信度）】\n"
-                                + CandidateUtil.toPromptText(CandidateUtil.parse(candidatesJson), 3)
+                                + CandidateUtil.toPromptText(cands, 3)
+                                + (groupHint.isBlank() ? "" : "\n\n" + groupHint)
                                 + "\n完整候选JSON：\n" + clip(candidatesJson, 4000));
         String out = callModelJson(sys, user);
         TripPlanData revised = JsonUtils.extractAndParse(out, TripPlanData.class);

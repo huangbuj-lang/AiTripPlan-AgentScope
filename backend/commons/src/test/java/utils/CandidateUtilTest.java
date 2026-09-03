@@ -139,4 +139,40 @@ class CandidateUtilTest {
         assertNull(CandidateUtil.parseDomainNode("{\"domain\":\"hotel\",\"reason\":\"还在分析\"}", "hotel"),
                 "既无 candidates 也无 degraded 的对象不算域节点");
     }
+
+    @Test
+    void areaGroupHintGroupsByAreaText() {
+        String multi = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区","confidence":0.9},
+                  {"name":"西街","area":"鲤城区","confidence":0.9},
+                  {"name":"洛阳桥","area":"洛江区","confidence":0.85}]}}
+                """;
+        String hint = CandidateUtil.areaGroupHint(CandidateUtil.parse(multi));
+        assertTrue(hint.contains("鲤城区"), "应含区域名: " + hint);
+        assertTrue(hint.contains("开元寺、西街"), "同区域景点应归同组（保序）: " + hint);
+        assertTrue(hint.contains("洛阳桥"), "另一区域应单独成组: " + hint);
+        assertTrue(hint.startsWith("【景点区域分组"), "应有分组标题前缀");
+    }
+
+    @Test
+    void areaGroupHintEmptyWhenNotGroupable() {
+        // 全在同区域 → 分组无意义
+        String same = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区","confidence":0.9},
+                  {"name":"西街","area":"鲤城区","confidence":0.9}]}}
+                """;
+        assertEquals("", CandidateUtil.areaGroupHint(CandidateUtil.parse(same)), "同区域应返回空串");
+        // 无 area 字段 → 全归"未标注区域"一组 → 空
+        String noArea = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","confidence":0.9},
+                  {"name":"西街","confidence":0.9}]}}
+                """;
+        assertEquals("", CandidateUtil.areaGroupHint(CandidateUtil.parse(noArea)), "无 area 应返回空串");
+        // 空候选 / null / 单景点 → 空
+        assertEquals("", CandidateUtil.areaGroupHint(CandidateUtil.parse("{\"attraction\":{\"candidates\":[]}}")));
+        assertEquals("", CandidateUtil.areaGroupHint(null));
+    }
 }

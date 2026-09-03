@@ -841,10 +841,12 @@ public class TripOrchestrator {
     /** 三域结构化候选区块（聚合提示词拼装；无候选返回空串） */
     private String buildCandidatesSection(TravelState state) {
         if (state == null || state.getCandidatesJson().isBlank()) return "";
-        String text = utils.CandidateUtil.toPromptText(
-                utils.CandidateUtil.parse(state.getCandidatesJson()), 3);
+        Map<String, Object> cands = utils.CandidateUtil.parse(state.getCandidatesJson());
+        String text = utils.CandidateUtil.toPromptText(cands, 3);
         if (text.isBlank()) return "";
+        String groupHint = utils.CandidateUtil.areaGroupHint(cands); // ★区域分组（纯代码聚类，同组尽量同一天）
         return "\n\n【三域候选（结构化，已按需求筛选，含置信度）】\n" + text
+                + (groupHint.isBlank() ? "" : "\n\n" + groupHint)
                 + "\n（候选来自真实查询，行程安排优先从中选取；⚠标记项在 note 注明\"建议出发前再次确认\"）";
     }
 
