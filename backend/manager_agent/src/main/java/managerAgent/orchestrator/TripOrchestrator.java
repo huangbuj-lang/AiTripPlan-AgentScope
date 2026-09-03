@@ -494,12 +494,14 @@ public class TripOrchestrator {
         // ★统一状态下发（PDF §三）：候选专家围绕 TravelState 决策；brief 参数需原样传给 query_trip_candidates
         String brief = req.toStateBrief() + "\n";
         if (waypoints != null && !waypoints.isBlank()) {
-            // 跨城自驾：查沿途城市景点
-            return brief + "请规划从 " + req.getOrigin() + " 到 " + req.getDestination() + " 的" + req.getDays() + "天自驾行程，"
-                    + "重点规划【路途沿途】的景点。\n"
-                    + "★调用 query_trip_candidates 时，把途经城市传 waypoints 参数（逗号分隔）：" + waypoints + "，"
-                    + "只查这些途经点的景点/美食，不要查起点或终点城市内部的景点；brief 参数传任务开头的【TravelState 统一状态】块原文。\n"
-                    + "结合路线按 Day 每日给出途经景点行程与安排。"
+            // 跨城：路线先行提取途经城市后，候选重点查终点城市 + 途经城市，不查起点
+            return brief + "请规划从 " + req.getOrigin() + " 到 " + req.getDestination() + " 的" + req.getDays() + "天行程，"
+                    + "重点规划【终点城市】与【途经城市】的景点。\n"
+                    + "★调用 query_trip_candidates 时，destination 固定传【" + req.getDestination() + "】，"
+                    + "把途经城市传 waypoints 参数（逗号分隔）：" + waypoints + "，"
+                    + "查终点城市与途经城市的景点/美食；【不要查起点城市 " + req.getOrigin() + " 内部的景点】（起点只是出发地，不是游玩地）；"
+                    + "brief 参数传任务开头的【TravelState 统一状态】块原文。\n"
+                    + "结合路线按 Day 每日给出行程与安排（前段可排途经城市，后段重点排终点城市）。"
                     + (prefStr.isBlank() ? "" : "★把行程偏好作为 preference 参数传入：" + prefStr + "。");
         }
         return brief + "请规划 " + req.getDestination() + " " + req.getDays() + " 日游的景点与每日行程，"

@@ -35,6 +35,22 @@ class ConstraintEngineTest {
         return p;
     }
 
+    /** 向第 day 天 timeline 追加一个景点条目（pace 用例辅助） */
+    private void appendSpot(TripPlanData p, int day, String place) {
+        int d = 0;
+        for (Section s : p.getSections()) {
+            if (!"timeline".equals(s.getType())) continue;
+            d++;
+            if (d == day) {
+                SectionItem it = new SectionItem();
+                it.setTime("14:00");
+                it.setPlace(place);
+                s.getItems().add(it);
+                return;
+            }
+        }
+    }
+
     /** 单天多 item 构造器：places 依次作为同一天内的多条记录 */
     private TripPlanData oneDayPlan(String... places) {
         TripPlanData p = new TripPlanData();
@@ -59,6 +75,8 @@ class ConstraintEngineTest {
         req.setDays(2);
         req.setBudgetTotal(100000);
         TripPlanData p = plan(2, "西湖", "灵隐寺");
+        appendSpot(p, 1, "断桥残雪"); // pace 校验要求每天≥2景点
+        appendSpot(p, 2, "河坊街");
         ValidationReport vr = ConstraintEngine.validate(req, p);
         assertEquals("PASS", vr.getStatus());
         assertEquals(100, vr.getScore());
@@ -80,7 +98,9 @@ class ConstraintEngineTest {
         TripRequest req = new TripRequest();
         req.setDays(1);
         req.setBudgetTotal(150); // 1天×100元=100 → PASS
-        assertEquals("PASS", ConstraintEngine.validate(req, plan(1, "西湖")).getStatus());
+        TripPlanData ok = plan(1, "西湖");
+        appendSpot(ok, 1, "断桥残雪"); // pace 校验要求每天≥2景点
+        assertEquals("PASS", ConstraintEngine.validate(req, ok).getStatus());
 
         req.setBudgetTotal(90); // 100 > 90 → FAIL
         ValidationReport over = ConstraintEngine.validate(req, plan(1, "西湖"));
@@ -131,7 +151,9 @@ class ConstraintEngineTest {
         TripRequest req = new TripRequest();
         req.setDays(1);
         req.getConstraints().add(new TripRequest.Constraint("必去西湖", "P0"));
-        ValidationReport vr = ConstraintEngine.validate(req, plan(1, "西湖"));
+        TripPlanData p = plan(1, "西湖");
+        appendSpot(p, 1, "断桥残雪"); // pace 校验要求每天≥2景点
+        ValidationReport vr = ConstraintEngine.validate(req, p);
         assertTrue(vr.getIssues().isEmpty());
     }
 
@@ -261,6 +283,39 @@ class ConstraintEngineTest {
         assertTrue(vr.getIssues().stream().noneMatch(i -> "opening".equals(i.getType())),
                 "无候选数据时应跳过而非误报");
         assertTrue(vr.getSkippedChecks().stream().anyMatch(s -> s.contains("营业时间")));
+    }
+
+    @Test
+    void flagsTooFewSpotsPerDay() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        TripPlanData p = plan(1, "西湖"); // 每天1个景点 → medium
+        ValidationReport vr = ConstraintEngine.validate(req, p);
+        assertTrue(vr.getIssues().stream().anyMatch(i -> i.getReason().contains("内容过少")), vr.detailedSummary());
+        // 补足后无 pace issue
+        appendSpot(p, 1, "断桥残雪");
+        ValidationReport vr2 = ConstraintEngine.validate(req, p);
+        assertTrue(vr2.getIssues().stream().noneMatch(i -> i.getReason().contains("景点，内容过少") || i.getReason().contains("内容过少")));
+    }
+
+    @Test
+    void flagsTooManySpotsPerDay() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        TripPlanData p = oneDayPlan("西湖", "灵隐寺", "断桥残雪", "河坊街", "雷峰塔", "九溪");
+        ValidationReport vr = ConstraintEngine.validate(req, p);
+        assertTrue(vr.getIssues().stream().anyMatch(i -> i.getReason().contains("赶场")), vr.detailedSummary());
+    }
+
+    @Test
+    void skipsPaceWhenUserExplicit() {
+        TripRequest req = new TripRequest();
+        req.setDays(1);
+        req.setRaw("杭州1日游，特种兵式打卡");
+        TripPlanData p = plan(1, "西湖"); // 1个景点，但用户显式特种兵 → 跳过
+        ValidationReport vr = ConstraintEngine.validate(req, p);
+        assertTrue(vr.getSkippedChecks().stream().anyMatch(s -> s.contains("每天景点量")), vr.detailedSummary());
+        assertTrue(vr.getIssues().stream().noneMatch(i -> i.getReason().contains("内容过少")));
     }
 
     @Test

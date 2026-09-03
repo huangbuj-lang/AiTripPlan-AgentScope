@@ -51,6 +51,7 @@ public final class ConstraintEngine {
             return report;
         }
         checkDays(req, plan, report);
+        checkDailyPace(req, plan, report);
         checkBudget(req, plan, report);
         checkConstraints(req, plan, report);
         checkTimeline(plan, report);
@@ -92,6 +93,56 @@ public final class ConstraintEngine {
             }
         }
         return n;
+    }
+
+    // ==================== ①b 每天景点量（节奏硬校验） ====================
+
+    /** 默认节奏上下限：每天 2~4 个景点；用户写明多排/少排时不校验（用户显式要求优先）。 */
+    private static final int PACE_MIN = 2;
+    private static final int PACE_MAX = 5;
+
+    /** 用户原文含显式节奏要求（多排/少排/特种兵/慢节奏等）→ 跳过数量校验。 */
+    private static boolean userOverridesPace(TripRequest req) {
+        if (req == null || req.getRaw() == null) return false;
+        String raw = req.getRaw();
+        return raw.contains("特种兵") || raw.contains("多排") || raw.contains("少排")
+                || raw.contains("慢节奏") || raw.contains("慢游") || raw.contains("悠闲")
+                || raw.contains("不赶") || raw.contains("轻松") || raw.contains("多去几个")
+                || raw.contains("多安排") || raw.contains("少安排");
+    }
+
+    /** 每天景点条目数 &lt;2 → medium（糊弄/内容缺失）；&gt;PACE_MAX → medium（赶场）。数据不足跳过。 */
+    private static void checkDailyPace(TripRequest req, TripPlanData plan, ValidationReport report) {
+        if (userOverridesPace(req)) {
+            report.getSkippedChecks().add("每天景点量(用户显式要求节奏)");
+            return;
+        }
+        if (plan.getSections() == null) {
+            report.getSkippedChecks().add("每天景点量(无行程区块)");
+            return;
+        }
+        report.getExecutedChecks().add("每天景点量");
+        int day = 0;
+        for (Section s : plan.getSections()) {
+            if (!"timeline".equals(s.getType()) || s.getItems() == null || s.getItems().isEmpty()) continue;
+            day++;
+            int spots = 0;
+            for (SectionItem it : s.getItems()) {
+                String cat = it.getCategory() == null ? "" : it.getCategory().trim();
+                boolean attraction = cat.isBlank() || "景点".equals(cat) || "attraction".equalsIgnoreCase(cat);
+                String place = it.getPlace() == null ? "" : it.getPlace().trim();
+                if (attraction && !place.isBlank() && !isGenericPlace(place)) {
+                    spots++;
+                }
+            }
+            if (spots < PACE_MIN) {
+                report.add(new ValidationReport.Issue("schedule", "medium", "第" + day + "天",
+                        "第" + day + "天仅安排 " + spots + " 个景点，内容过少（默认每天 " + PACE_MIN + "~4 个）"));
+            } else if (spots > PACE_MAX) {
+                report.add(new ValidationReport.Issue("schedule", "medium", "第" + day + "天",
+                        "第" + day + "天安排 " + spots + " 个景点，过于赶场（默认每天 " + PACE_MIN + "~4 个，至多 " + PACE_MAX + "）"));
+            }
+        }
     }
 
     // ==================== ② 预算校验 ====================
