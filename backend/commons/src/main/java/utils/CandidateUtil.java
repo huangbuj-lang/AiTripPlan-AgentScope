@@ -280,7 +280,16 @@ public final class CandidateUtil {
         return sb.toString();
     }
 
-    /** 
+    /** 区域文本归一化：域专家常填"丰泽区·泉山路"式（区+街道），取"·"前行政区作分组键；无分隔符原样返回 */
+    private static String normalizeArea(String area) {
+        if (area == null) return "";
+        String a = area.trim();
+        int sep = a.indexOf('·');
+        if (sep > 0) a = a.substring(0, sep).trim();
+        return a;
+    }
+
+    /**
      * 景点区域分组提示（纯代码空间聚类·文本分组版）：把景点候选按 area 文本归堆，
      * 输出"每个区域含哪些景点"的清单，供聚合提示词按"同区域尽量同一天"约束排天。
      * 景点不足 2 个、无 area 数据或全在同区域时不产生分组价值，返回空串。
@@ -288,10 +297,10 @@ public final class CandidateUtil {
     public static String areaGroupHint(Map<String, Object> candidates) {
         List<Map<String, Object>> spots = items(candidates, "attraction");
         if (spots.size() < 2) return "";
-        // area → 景点名（保序；area 空白的归"未标注"）
+        // 归一化 area → 景点名（保序；area 空白的归"未标注"）
         Map<String, List<String>> groups = new LinkedHashMap<>();
         for (Map<String, Object> it : spots) {
-            String area = str(it.get("area")).trim();
+            String area = normalizeArea(str(it.get("area")));
             String name = str(it.get("name")).trim();
             if (name.isBlank()) continue;
             groups.computeIfAbsent(area.isBlank() ? "未标注区域" : area, k -> new ArrayList<>()).add(name);

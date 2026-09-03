@@ -144,15 +144,24 @@ class CandidateUtilTest {
     void areaGroupHintGroupsByAreaText() {
         String multi = """
                 {"attraction":{"city":"泉州","degraded":false,"candidates":[
-                  {"name":"开元寺","area":"鲤城区","confidence":0.9},
-                  {"name":"西街","area":"鲤城区","confidence":0.9},
-                  {"name":"洛阳桥","area":"洛江区","confidence":0.85}]}}
+                  {"name":"开元寺","area":"鲤城区·西街","confidence":0.9},
+                  {"name":"天后宫","area":"鲤城区·天后路","confidence":0.9},
+                  {"name":"洛阳桥","area":"洛江区·桥南村","confidence":0.85}]}}
                 """;
         String hint = CandidateUtil.areaGroupHint(CandidateUtil.parse(multi));
-        assertTrue(hint.contains("鲤城区"), "应含区域名: " + hint);
-        assertTrue(hint.contains("开元寺、西街"), "同区域景点应归同组（保序）: " + hint);
+        assertTrue(hint.contains("鲤城区"), "应含归一化后的行政区名: " + hint);
+        assertTrue(hint.contains("开元寺、天后宫"), "同行政区（·前缀相同）应归同组（保序）: " + hint);
         assertTrue(hint.contains("洛阳桥"), "另一区域应单独成组: " + hint);
         assertTrue(hint.startsWith("【景点区域分组"), "应有分组标题前缀");
+        // 真实坑回归：域专家填"丰泽区·泉山路/丰泽区·北清东路268号"应归同组而非按全串拆散
+        String quanzhou = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"清源山","area":"丰泽区·泉山路","confidence":0.85},
+                  {"name":"泉州博物馆","area":"丰泽区·北清东路268号","confidence":0.85},
+                  {"name":"泉州少林寺","area":"丰泽区·古道街66号","confidence":0.85}]}}
+                """;
+        assertEquals("", CandidateUtil.areaGroupHint(CandidateUtil.parse(quanzhou)),
+                "归一化后全同区（丰泽区）→ 返回空串不产生噪音分组");
     }
 
     @Test
