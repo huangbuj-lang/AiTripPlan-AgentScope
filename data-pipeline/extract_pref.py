@@ -26,7 +26,8 @@ STANDARD_TAGS = ["亲子", "老人", "情侣", "拍照", "美食", "自然风光
 
 def sql(query, fetch=True):
     host, port = (RDS_HOST.split(":") + ["3306"])[:2]
-    cmd = ["mysql", f"-h{host}", f"-P{port}", f"-u{RDS_USER}", f"-p{RDS_PASS}",
+    mysql_bin = ENV.get("MYSQL_BIN") or os.environ.get("MYSQL_BIN") or "mysql"
+    cmd = [mysql_bin, f"-h{host}", f"-P{port}", f"-u{RDS_USER}", f"-p{RDS_PASS}",
            "--default-character-set=utf8mb4", "-D", "aitripplan", "-N", "-B", "-e", query]
     r = subprocess.run(cmd, check=False, capture_output=True, text=True)
     if r.returncode != 0:
