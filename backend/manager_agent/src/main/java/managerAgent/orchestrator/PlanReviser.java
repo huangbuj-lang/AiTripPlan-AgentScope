@@ -170,7 +170,8 @@ public class PlanReviser {
         String sys = AgentPrompts.reviseDayAggregator()
                 + (feedback == null || feedback.isBlank() ? "" : "\n" + feedback);
         Map<String, Object> cands = candidatesJson.isBlank() ? null : CandidateUtil.parse(candidatesJson);
-        String groupHint = CandidateUtil.areaGroupHint(cands); // ★区域分组（同组尽量同一天）
+        String groupHint = CandidateUtil.coordinateGroupHint(cands); // ★坐标聚类（P1b）
+        if (groupHint.isBlank()) groupHint = CandidateUtil.areaGroupHint(cands); // 坐标缺失回退文本分组
         String user = "【修改指令】" + instruction
                 + "\n【影响范围】" + impact.daysText() + "｜受影响域：" + impact.domains
                 + "\n\n【原行程JSON】\n" + clip(JsonUtils.toJson(prev), 12000)

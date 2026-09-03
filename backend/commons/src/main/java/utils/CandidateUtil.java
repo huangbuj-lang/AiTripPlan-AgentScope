@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 /**
  * 三域结构化候选（景点/酒店/餐饮 Top-3）JSON 工具。
  * 契约（行程子 Agent 产出，主管消费）：
- * {"attraction":{"city":"..","candidates":[{"name":"","reason":"","price":"","rating":"","openTime":"","duration":"","area":"","confidence":0.9,"source":"amap+local_db","needsConfirm":false}],"degraded":false}, "hotel":{...}, "dining":{...}}
+ * {"attraction":{"city":"..","candidates":[{"name":"","reason":"","price":"","rating":"","openTime":"","duration":"","area":"","location":"经度,纬度(高德原样,可空)","confidence":0.9,"source":"amap+local_db","needsConfirm":false}],"degraded":false}, "hotel":{...}, "dining":{...}}
  * 来源分级（PDF §十五）：S=官方站点（暂无）/ A=高德API与本地知识库 / B=专业平台 / C=LLM常识补充。
  * 置信度门槛（PDF §十八）：域均值 < 0.70 触发一次重查，仍低则逐候选标注 needsConfirm=true（"建议出发前确认"）。
  */
@@ -314,6 +314,123 @@ public final class CandidateUtil {
         }
         return sb.toString().trim();
     }
+
+    /**
+     * 候选空间聚类提示（坐标版，P1b）：景点候选带高德 location("lng,lat") 时按真实坐标贪心成簇，
+     * 输出"每个近邻簇含哪些景点"清单，供聚合提示词按"同组尽量同一天"约束排天。
+     * 有效坐标不足 2 个返回空串（调用方回退 areaGroupHint 文本分组）。
+     */
+    public static String coordinateGroupHint(Map<String, Object> candidates) {
+        List<Map<String, Object>> spots = items(candidates, "attraction");
+        if (spots.size() < 2) return "";
+        // 只保留带有效坐标的候选（保序）
+        List<Map<String, Object>> coord = new ArrayList<>();
+        for (Map<String, Object> it : spots) {
+            if (parseLocation(str(it.get("location"))) != null) coord.add(it);
+        }
+        if (coord.size() < 2) return ""; // 坐标不足 → 交给文本分组
+        // 贪心聚类：按原始顺序遍历，与已有组质心距离 ≤ 阈值(默认5km)则入组，否则开新组
+        List<List<Map<String, Object>>> groups = new ArrayList<>();
+        List<double[]> centroids = new ArrayList<>(); // 每组质心 [lng,lat]
+        for (Map<String, Object> it : coord) {
+            double[] p = parseLocation(str(it.get("location")));
+            int best = -1;
+            double bestDist = Double.MAX_VALUE;
+            for (int g = 0; g < groups.size(); g++) {
+                double[] c = centroids.get(g);
+                double d = haversineKm(c[1], c[0], p[1], p[0]); // (lat1,lng1,lat2,lng2)
+                if (d <= CLUSTER_KM && d < bestDist) { best = g; bestDist = d; }
+            }
+            if (best >= 0) {
+                groups.get(best).add(it);
+                double[] c = centroids.get(best);
+                c[0] = (c[0] * (groups.get(best).size() - 1) + p[0]) / groups.get(best).size();
+                c[1] = (c[1] * (groups.get(best).size() - 1) + p[1]) / groups.get(best).size();
+            } else {
+                List<Map<String, Object>> g = new ArrayList<>();
+                g.add(it);
+                groups.add(g);
+                centroids.add(new double[]{p[0], p[1]});
+            }
+        }
+        if (groups.size() < 2) return ""; // 全部近邻成一簇 → 无分组价值
+        StringBuilder sb = new StringBuilder("【景点区域分组（按真实坐标邻近预分组，代码计算）】\n");
+        for (int gi = 0; gi < groups.size(); gi++) {
+            List<Map<String, Object>> g = groups.get(gi);
+            sb.append("组").append(gi + 1).append("（").append(groupLabel(g)).append("）：")
+              .append(String.join("、", namesOf(g))).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    /** 一簇的展示名：取组内面积众数行政区（·前缀），全无 area 时用坐标跨度描述 */
+    private static String groupLabel(List<Map<String, Object>> g) {
+        Map<String, Integer> freq = new LinkedHashMap<>();
+        for (Map<String, Object> it : g) {
+            String area = normalizeArea(str(it.get("area")));
+            if (!area.isBlank()) freq.merge(area, 1, Integer::sum);
+        }
+        if (!freq.isEmpty()) {
+            String top = null; int max = 0;
+            for (Map.Entry<String, Integer> en : freq.entrySet()) {
+                if (en.getValue() > max) { max = en.getValue(); top = en.getKey(); }
+            }
+            return top;
+        }
+        // 无 area：算组内最大跨度
+        double span = 0;
+        for (int i = 0; i < g.size(); i++) {
+            double[] a = parseLocation(str(g.get(i).get("location")));
+            if (a == null) continue;
+            for (int j = i + 1; j < g.size(); j++) {
+                double[] b = parseLocation(str(g.get(j).get("location")));
+                if (b == null) continue;
+                double d = haversineKm(a[1], a[0], b[1], b[0]);
+                if (d > span) span = d;
+            }
+        }
+        return "近邻·跨度约" + Math.max(1, Math.round(span)) + "km";
+    }
+
+    /** 组内景点名（保序，去空） */
+    private static List<String> namesOf(List<Map<String, Object>> g) {
+        List<String> out = new ArrayList<>();
+        for (Map<String, Object> it : g) {
+            String n = str(it.get("name")).trim();
+            if (!n.isBlank()) out.add(n);
+        }
+        return out;
+    }
+
+    /** 解析高德 location "经度,纬度" → [lng,lat]；非法返回 null */
+    private static double[] parseLocation(String loc) {
+        if (loc == null || loc.isBlank()) return null;
+        int comma = loc.indexOf(',');
+        if (comma < 0) comma = loc.indexOf('，');
+        if (comma < 0) return null;
+        try {
+            double lng = Double.parseDouble(loc.substring(0, comma).trim());
+            double lat = Double.parseDouble(loc.substring(comma + 1).trim());
+            if (lng < -180 || lng > 180 || lat < -90 || lat > 90) return null;
+            return new double[]{lng, lat};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** 球面距离（km），Haversine */
+    private static double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+        double r = 6371.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
+    }
+
+    /** 坐标聚类半径阈值（km）：市内"同片区"邻近距离 */
+    private static final double CLUSTER_KM = 5.0;
 
     /** 聚合/校验用紧凑文本（每域最多 maxPerDomain 条，供提示词拼装） */
     public static String toPromptText(Map<String, Object> candidates, int maxPerDomain) {

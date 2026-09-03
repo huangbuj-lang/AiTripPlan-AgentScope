@@ -165,6 +165,69 @@ class CandidateUtilTest {
     }
 
     @Test
+    void coordinateGroupHintClustersByRealCoords() {
+        // 泉州真实坐标：开元寺(鲤城) 与 洛阳桥(洛江) 相距 ~11km > 5km 阈值 → 应分两组；
+        // 同片区两个景点（西街近开元寺 ~1km）应同组。鲤城区坐标对：
+        String json = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区·西街","location":"118.586,24.908","confidence":0.9},
+                  {"name":"西街","area":"鲤城区·钟楼","location":"118.581,24.909","confidence":0.85},
+                  {"name":"洛阳桥","area":"洛江区·桥南村","location":"118.684,24.963","confidence":0.85}]}}
+                """;
+        String hint = CandidateUtil.coordinateGroupHint(CandidateUtil.parse(json));
+        assertTrue(hint.contains("开元寺、西街"), "距离近(坐标<1km)应同组: " + hint);
+        assertTrue(hint.contains("洛阳桥"), "洛阳桥(相距>10km)应独立成组: " + hint);
+        assertTrue(hint.contains("鲤城区"), "组名应取众数行政区(鲤城区): " + hint);
+        assertTrue(hint.startsWith("【景点区域分组"), "应有坐标分组标题: " + hint);
+    }
+
+    @Test
+    void coordinateGroupHintFallsBackEmptyWhenNoCoords() {
+        // 全部无 location → 返回空（调用方回退 areaGroupHint）
+        String noLoc = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区","confidence":0.9},
+                  {"name":"洛阳桥","area":"洛江区","confidence":0.85}]}}
+                """;
+        assertEquals("", CandidateUtil.coordinateGroupHint(CandidateUtil.parse(noLoc)), "无坐标应返回空串");
+        // 非法坐标 → 空
+        String badLoc = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"A","location":"abc","confidence":0.9},
+                  {"name":"B","location":"118,24","confidence":0.9}]}}
+                """;
+        assertEquals("", CandidateUtil.coordinateGroupHint(CandidateUtil.parse(badLoc)), "非法坐标应返回空串");
+        // null / 空 → 空
+        assertEquals("", CandidateUtil.coordinateGroupHint(null));
+    }
+
+    @Test
+    void coordinateGroupHintAllNearbyIsEmpty() {
+        // 全在 5km 内一簇 → 无分组价值返回空
+        String near = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","location":"118.586,24.908","confidence":0.9},
+                  {"name":"承天寺","location":"118.591,24.905","confidence":0.85},
+                  {"name":"清净寺","location":"118.588,24.902","confidence":0.85}]}}
+                """;
+        assertEquals("", CandidateUtil.coordinateGroupHint(CandidateUtil.parse(near)), "全近邻一簇应返回空串");
+    }
+
+    @Test
+    void coordinateGroupHintLabelsWithoutAreaBySpan() {
+        // 无 area 但有真实远近距离 → 组名用跨度描述；分两组
+        String json = """
+                {"attraction":{"city":"X","degraded":false,"candidates":[
+                  {"name":"近A","location":"118.586,24.908","confidence":0.9},
+                  {"name":"近B","location":"118.590,24.905","confidence":0.85},
+                  {"name":"远C","location":"118.780,25.100","confidence":0.85}]}}
+                """;
+        String hint = CandidateUtil.coordinateGroupHint(CandidateUtil.parse(json));
+        assertTrue(hint.contains("近A、近B"), "近邻两点应同组: " + hint);
+        assertTrue(hint.contains("近邻·跨度约"), "无area组名应含跨度描述: " + hint);
+    }
+
+    @Test
     void areaGroupHintEmptyWhenNotGroupable() {
         // 全在同区域 → 分组无意义
         String same = """
