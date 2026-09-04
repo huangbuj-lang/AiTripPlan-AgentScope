@@ -138,8 +138,9 @@ public class LocalKnowledgeTool {
                 if (table == null) continue;
                 boolean isAttraction = "attractions_features".equals(table);
                 boolean hasSuitableTags = isAttraction || "foods_features".equals(table); // ★hotels_features 无 suitable_tags 列
+                // ★列名适配：特征表实际列名是 visit_duration（本地与云端同源），代码历史误写 suggest_duration 致 SQL 报错，别名对齐并兼容两者
                 String sel = isAttraction
-                        ? "SELECT name, label, rating, level, suggest_duration, tips, best_time FROM " + table
+                        ? "SELECT name, label, rating, level, visit_duration AS suggest_duration, tips, best_time FROM " + table
                         : "SELECT name, label, rating, level, NULL AS suggest_duration, NULL AS tips, NULL AS best_time FROM " + table;
 
                 // 两段式：先带偏好标签过滤；命中0条回退该城评分top
