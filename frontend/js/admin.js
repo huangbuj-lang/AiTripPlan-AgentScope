@@ -523,6 +523,9 @@ function showTrace(sessionId) {
             if (llms.length) gs.push({ label: 'LLM调用', desc: '模型调用', spans: llms });
             const tools = list.filter(x => x.layer === 'TOOL' && (x.name === 'query_trip' || x.name === 'query_route_unified'));
             if (tools.length) gs.push({ label: '综合工具', desc: '综合工具调用', spans: tools });
+            // ★三域候选（含域降级信息）：原先被静默丢弃，现单独成组
+            const cands = list.filter(x => x.layer === 'TOOL' && (x.name === 'query_trip_candidates' || x.name === 'domain_candidates'));
+            if (cands.length) gs.push({ label: '三域候选', desc: cands.map(x => (x.detail || '').replace('三域并行候选完成: ', '').replace('三域候选工具完成 · ', '')).join('；'), spans: cands });
             const lk = list.filter(x => x.layer === 'TOOL' && x.name === 'query_local_knowledge');
             if (lk.length) gs.push({ label: '知识库工具', desc: '知识库调用', spans: lk });
             if (gs.length) nodes.push({ label: ag + 'Agent', desc: gs.map(g => g.label).join('/'), groups: gs });

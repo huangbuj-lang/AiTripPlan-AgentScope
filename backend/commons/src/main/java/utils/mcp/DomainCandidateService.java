@@ -132,9 +132,10 @@ public class DomainCandidateService {
         return digest + "\n\n【域候选JSON】\n" + json + "\n【域候选JSON结束】";
     }
 
-    /** 单域专家 Agent 构建 + 执行（阻塞至最终回复） */
+    /** 单域专家 Agent 构建 + 执行（阻塞至最终回复）。★setStage 按域标注：调用链 LLM span 说明"域专家·酒店"可区分 */
     private static String runDomainAgent(String domain, String task) {
         try {
+            utils.SafeModel.setStage("域专家·" + domainLabel(domain)); // ★调用链域标注
             String name = switch (domain) {
                 case "attraction" -> "AttractionAgent";
                 case "hotel" -> "HotelAgent";
