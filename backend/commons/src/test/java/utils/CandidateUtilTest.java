@@ -276,7 +276,7 @@ class CandidateUtilTest {
                   {"name":"洛阳桥","area":"洛江区·桥南村","confidence":0.85}]}}
                 """;
         String s = CandidateUtil.clusterHintSummary(CandidateUtil.parse(noLoc));
-        assertTrue(s.contains("回退区域文本分组已注入"), "坐标不足应报回退: " + s);
+        assertTrue(s.contains("回退区域文本分组已注入"), "坐标成簇不足应报回退: " + s);
         assertTrue(s.contains("2 组"), "应报文本分组数: " + s);
         assertTrue(s.contains("0/3"), "应报坐标覆盖 0/3: " + s);
     }

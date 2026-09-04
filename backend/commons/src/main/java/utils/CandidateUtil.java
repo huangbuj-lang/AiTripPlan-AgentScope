@@ -382,7 +382,11 @@ public final class CandidateUtil {
         }
         String areaHint = areaGroupHint(candidates);
         if (!areaHint.isBlank()) {
-            return "坐标不足(" + withCoord + "/" + spots.size() + ")，回退区域文本分组已注入：" + countGroups(areaHint) + " 组";
+            // 回退原因按带坐标数区分：坐标齐但相距>5km 未成簇 / 坐标太少根本无从成簇
+            String why = withCoord >= 2
+                    ? "坐标成簇不足(" + withCoord + "/" + spots.size() + " 个带坐标但相距>5km 未成簇)"
+                    : "坐标不足(" + withCoord + "/" + spots.size() + " 个带坐标)";
+            return why + "，回退区域文本分组已注入：" + countGroups(areaHint) + " 组";
         }
         return "无分组提示（景点候选 " + spots.size() + " 个，坐标仅 " + withCoord + " 个，无法成簇）";
     }
