@@ -123,6 +123,10 @@ public class AdminController {
             m.put("modelCallsUsed", meta.status.equals("RUNNING")
                     ? utils.SafeModel.MODEL_CALLS.get() - meta.modelCallsStart  // 运行中=实时差值
                     : meta.modelCallsUsed);                                     // 已结束=定格差值
+            if (meta.reviseRounds > 0) { // ★任务2：REVISE 轮次进历史表（0=首轮通过不占列）
+                m.put("reviseRounds", meta.reviseRounds);
+                m.put("reviseOutcome", meta.reviseOutcome);
+            }
             history.add(m);
             seen.add(meta.sessionId);
         }
@@ -214,6 +218,105 @@ public class AdminController {
         r.put("spans", spans);
         r.put("success", true);
         return r;
+    }
+
+    /** 单个任务的阶段事件明细（管理端透明化：解析/专家/聚合/校验/评分/审查/修订等全阶段事件文本）。
+     *  事件仅存进程内存（最多100条/会话，30分钟无活动清理），重启或过久的会话可能无记录——事件 API 不创建会话。
+     *  附带结构化观测：reviseSummary（任务2 REVISE 轮次/原因/结局）+ clusterStats（任务3 聚类效果统计）。 */
+    @GetMapping("/tasks/events")
+    public Map<String, Object> taskEvents(@RequestParam("sessionId") String sessionId) {
+        Map<String, Object> r = new HashMap<>();
+        r.put("sessionId", sessionId);
+        List<Map<String, String>> events = EventStore.allQuiet(sessionId);
+        r.put("events", events == null ? List.of() : events);
+        Map<String, Object> meta = null;
+        EventStore.TaskMeta live = EventStore.metaOf(sessionId);
+        if (live != null) {
+            meta = taskMetaBrief(live);
+        } else {
+            for (EventStore.TaskMeta m : EventStore.listHistory()) { // 已结束任务在历史环形队列里
+                if (sessionId.equals(m.sessionId)) { meta = taskMetaBrief(m); break; }
+            }
+        }
+        r.put("meta", meta);
+        // ★结构化观测数据（EventStore extras；会话不存在=重启丢失，返回空对象而非报错）
+        Map<String, Object> obs = new HashMap<>();
+        Object rounds = EventStore.getExtra(sessionId, "reviseRounds");
+        Object outcome = EventStore.getExtra(sessionId, "reviseOutcome");
+        if (rounds != null) obs.put("reviseRounds", rounds);
+        if (outcome != null) obs.put("reviseOutcome", outcome);
+        Object cluster = EventStore.getExtra(sessionId, "clusterStats");
+        if (cluster != null) obs.put("clusterStats", cluster);
+        if (!obs.isEmpty()) r.put("obs", obs);
+        r.put("success", true);
+        return r;
+    }
+
+    /** 全部已记录任务的结构化 REVISE 汇总（内存+历史，新的在前）：管理端一屏看返工任务分布 */
+    @GetMapping("/tasks/revise-summary")
+    public Map<String, Object> reviseSummaryAll() {
+        Map<String, Object> r = new HashMap<>();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        // 运行中会话
+        for (Map<String, Object> s : EventStore.listSessions()) {
+            String sid = String.valueOf(s.get("sessionId"));
+            seen.add(sid);
+            addReviseRow(rows, sid, "RUNNING");
+        }
+        // 历史任务（近200）
+        for (EventStore.TaskMeta meta : EventStore.listHistory()) {
+            if (!seen.add(meta.sessionId)) continue;
+            addReviseRow(rows, meta.sessionId, meta.status);
+        }
+        rows.removeIf(m -> !m.containsKey("reviseRounds") && !m.containsKey("error")); // 只留有 REVISE 数据的
+        r.put("rows", rows);
+        r.put("success", true);
+        return r;
+    }
+
+    /** 拼一行 REVISE 汇总（异常会话记 error 字段不中断列表） */
+    private void addReviseRow(List<Map<String, Object>> rows, String sid, String status) {
+        try {
+            Map<String, Object> m = new HashMap<>();
+            m.put("sessionId", sid);
+            m.put("status", status);
+            Object rounds = EventStore.getExtra(sid, "reviseRounds");
+            if (rounds instanceof List<?> l && !l.isEmpty()) m.put("reviseRounds", l);
+            Object outcome = EventStore.getExtra(sid, "reviseOutcome");
+            if (outcome != null) m.put("reviseOutcome", outcome);
+            EventStore.TaskMeta meta = EventStore.metaOf(sid);
+            if (meta == null) {
+                for (EventStore.TaskMeta h : EventStore.listHistory()) {
+                    if (sid.equals(h.sessionId)) { meta = h; break; }
+                }
+            }
+            if (meta != null) {
+                m.put("submitMs", meta.submitMs);
+                if (meta.reviseRounds > 0) m.put("roundCount", meta.reviseRounds);
+            }
+            rows.add(m);
+        } catch (Exception e) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("sessionId", sid);
+            m.put("error", e.getMessage());
+            rows.add(m);
+        }
+    }
+
+    /** TaskMeta → 前端口径简表（与 /tasks history 行字段一致） */
+    private Map<String, Object> taskMetaBrief(EventStore.TaskMeta meta) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("sessionId", meta.sessionId);
+        m.put("userId", meta.userId);
+        m.put("status", meta.status);
+        m.put("currentStep", meta.currentStep);
+        m.put("submitMs", meta.submitMs);
+        m.put("lastActiveMs", meta.lastActiveMs);
+        m.put("modelCallsUsed", "RUNNING".equals(meta.status)
+                ? utils.SafeModel.MODEL_CALLS.get() - meta.modelCallsStart
+                : meta.modelCallsUsed);
+        return m;
     }
 
     /** HTTP GET 读 body（探活子Agent），失败返回 null */

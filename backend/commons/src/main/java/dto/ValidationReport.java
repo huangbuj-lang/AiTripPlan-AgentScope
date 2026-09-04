@@ -91,4 +91,13 @@ public class ValidationReport {
         }
         return sb.toString();
     }
+
+    /** 已执行/跳过检查计数简注（事件流展示用，如 "（已执行 6 项确定性检查，跳过 1 项）"） */
+    public String checksBrief() {
+        StringBuilder sb = new StringBuilder("（已执行 ").append(executedChecks.size()).append(" 项确定性检查");
+        if (!skippedChecks.isEmpty()) {
+            sb.append("，跳过 ").append(skippedChecks.size()).append(" 项");
+        }
+        return sb.append("）").toString();
+    }
 }

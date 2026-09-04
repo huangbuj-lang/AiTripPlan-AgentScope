@@ -105,6 +105,16 @@
                 <summary>调用链明细：<span id="traceSessionId">—</span><span class="fold-note">模型 / 子Agent / 工具 各层成败、耗时与失败原因 · 点击行展开</span></summary>
                 <div id="traceBody" style="margin-top:12px"><div class="empty" style="color:var(--faint);font-size:13px;padding:10px">在上方历史任务表中点击一行查看该任务的调用链</div></div>
             </details>
+
+            <details class="adv-fold" id="eventFold" style="margin-top:14px">
+                <summary>事件明细：<span id="eventSessionId">—</span><span class="fold-note">解析 / 候选 / 聚合 / 校验 / 评分 / 审查 / 修订 全阶段事件 · 点任务行「事件」查看 · 事件在进程内存，仅保留近期会话</span></summary>
+                <div id="eventBody" style="margin-top:12px"><div class="empty" style="color:var(--faint);font-size:13px;padding:10px">在任务表中点击「事件」按钮查看该任务的阶段事件</div></div>
+            </details>
+
+            <details class="adv-fold" id="reviseFold" style="margin-top:14px">
+                <summary>审查返工明细：<span id="reviseSessionId">—</span><span class="fold-note">REVISE 轮次 / 每轮驳回原因（issue 域·严重度） / 结局（通过 or 达上限交付） · 点任务行「返工」查看</span></summary>
+                <div id="reviseBody" style="margin-top:12px"><div class="empty" style="color:var(--faint);font-size:13px;padding:10px">在任务表中点击「返工」按钮查看该任务的审查返工结构化明细</div></div>
+            </details>
         </section>
 
         <!-- ================= Agent健康 ================= -->

@@ -102,7 +102,7 @@ public class TripOrchestrator {
             if (!vr.getSkippedChecks().isEmpty()) {
                 EventStore.add(sessionId, "校验", label + " 跳过检查: " + String.join("、", vr.getSkippedChecks()));
             }
-            EventStore.add(sessionId, "校验", label + " 校验结果 " + vr.summary());
+            EventStore.add(sessionId, "校验", label + " 校验结果 " + vr.summary() + vr.checksBrief());
             if (withScore) {
                 dto.ScoreResult sr = utils.PlanScorer.score(state.getRequest(), plan, vr,
                         state.getRouteResult() != null && !state.getRouteResult().isBlank(),
@@ -157,23 +157,33 @@ public class TripOrchestrator {
                 vr = utils.ConstraintEngine.validate(req, current, state.getCandidatesJson());
             } catch (Exception ignored) {
             }
+            if (vr != null) { // ★审查轮内校验也入事件流：看每轮重跑前后质量变化，不用翻日志
+                EventStore.add(sessionId, "校验", "第" + round + "轮审查前校验 " + vr.summary() + vr.checksBrief());
+            }
             ReviewVerdict v = reviewPlan(req, current, vr);
             if (v == null) {
                 EventStore.add(sessionId, "审查", "第" + round + "轮审查输出异常，按通过处理");
+                ReviseSummary.recordRound(sessionId, round, "PARSE_ERROR", -1, null, "accepted"); // 解析失败按通过收尾
+                ReviseSummary.finish(sessionId, "parse_error");
                 break;
             }
             if (!v.needsRevise()) {
                 EventStore.add(sessionId, "审查", "第" + round + "轮审查通过"
                         + (v.getScore() >= 0 ? "（质量分 " + v.getScore() + "）" : "")
                         + (v.getIssues().isEmpty() ? "" : "（" + v.getIssues().size() + " 条轻微建议已记录）"));
+                ReviseSummary.recordRound(sessionId, round, "PASS", v.getScore(), null, "accepted");
+                ReviseSummary.finish(sessionId, round == 1 ? "pass_first" : "pass_after_rework");
                 break;
             }
             EventStore.add(sessionId, "审查", "第" + round + "轮审查 REVISE"
                     + (v.getScore() >= 0 ? "（质量分 " + v.getScore() + "）" : "") + "：" + v.feedbackText());
             if (round == MAX_REVIEW_ROUNDS) {
                 EventStore.add(sessionId, "审查", "已达修正上限(" + MAX_REVIEW_ROUNDS + " 轮)，交付当前版本");
+                ReviseSummary.recordRound(sessionId, round, "REVISE", v.getScore(), snapshotIssues(v), "maxed_rework");
+                ReviseSummary.finish(sessionId, "maxed");
                 break;
             }
+            ReviseSummary.recordRound(sessionId, round, "REVISE", v.getScore(), snapshotIssues(v), "rework");
             EventStore.add(sessionId, "审查", "带审查反馈重跑聚合（第 " + round + " 次修正）...");
             TripPlanData fixed;
             try {
@@ -181,10 +191,12 @@ public class TripOrchestrator {
             } catch (Exception e) {
                 log.warn("Reviewer 修正重跑异常: {}", e.getMessage());
                 EventStore.add(sessionId, "审查", "修正重跑异常，交付当前版本");
+                ReviseSummary.finish(sessionId, "rework_failed");
                 break;
             }
             if (fixed == null || fixed.getSections() == null || fixed.getSections().isEmpty()) {
                 EventStore.add(sessionId, "审查", "修正重跑未产出更优结果，保留上一版");
+                ReviseSummary.finish(sessionId, "rework_no_improvement");
                 break;
             }
             fixed.setMarkdown(renderMarkdown(fixed));
@@ -364,8 +376,11 @@ public class TripOrchestrator {
                     state.setCandidatesJson(utils.JsonUtils.toJson(cands));
                     state.setPlanResult(utils.CandidateUtil.stripBlock(state.getPlanResult()));
                     String summary = utils.CandidateUtil.evidenceSummary(cands);
+                    String cluster = utils.CandidateUtil.clusterHintSummary(cands); // ★聚类生效可观测（管理端事件流）
                     EventStore.add(sessionId, "候选", "三域候选已入状态中心"
-                            + (summary.isBlank() ? "" : "：" + summary));
+                            + (summary.isBlank() ? "" : "：" + summary)
+                            + (cluster.isBlank() ? "" : "｜" + cluster));
+                    EventStore.putExtra(sessionId, "clusterStats", utils.CandidateUtil.clusterStats(cands)); // ★任务3：聚类效果结构化统计
                     state.addTrace("候选", "三域Top3候选(结构化)");
                 }
             }
@@ -851,6 +866,16 @@ public class TripOrchestrator {
         return "\n\n【三域候选（结构化，已按需求筛选，含置信度）】\n" + text
                 + (groupHint.isBlank() ? "" : "\n\n" + groupHint)
                 + "\n（候选来自真实查询，行程安排优先从中选取；⚠标记项在 note 注明\"建议出发前再次确认\"）";
+    }
+
+    /** ReviewVerdict issues → 观测快照（只取前 6 条，与 feedbackText 口径一致） */
+    private static java.util.List<Map<String, Object>> snapshotIssues(ReviewVerdict v) {
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        if (v == null || v.getIssues() == null) return out;
+        for (int i = 0; i < v.getIssues().size() && i < 6; i++) {
+            out.add(ReviseSummary.issueSnapshot(v.getIssues().get(i)));
+        }
+        return out;
     }
 
     /** 多方案风格定义（style key / 展示名 / 聚合风格约束文案）：aggregateMulti 与 Reviewer 重跑共用，保证重跑不丢风格 */

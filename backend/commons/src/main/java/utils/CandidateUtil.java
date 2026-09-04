@@ -363,6 +363,81 @@ public final class CandidateUtil {
         return sb.toString().trim();
     }
 
+    /**
+     * 候选分组提示生效摘要（管理端事件流/可观测用）：报告聚合提示实际注入的是哪种分组、覆盖多少候选。
+     * 坐标聚类生效报簇数与带坐标覆盖率；坐标不足回退区域文本分组；都不足报"无分组提示"。无景点候选返回空串。
+     * 不修改任何状态，可安全对 null/空 JSON 调用。
+     */
+    public static String clusterHintSummary(Map<String, Object> candidates) {
+        List<Map<String, Object>> spots = items(candidates, "attraction");
+        if (spots.size() < 2) return "";
+        int withCoord = 0;
+        for (Map<String, Object> it : spots) {
+            if (parseLocation(str(it.get("location"))) != null) withCoord++;
+        }
+        String coordHint = coordinateGroupHint(candidates);
+        if (!coordHint.isBlank()) {
+            return "坐标聚类分组已注入：" + countGroups(coordHint) + " 组（景点候选 " + withCoord + "/" + spots.size()
+                    + " 个带坐标，≤5km 成簇）";
+        }
+        String areaHint = areaGroupHint(candidates);
+        if (!areaHint.isBlank()) {
+            return "坐标不足(" + withCoord + "/" + spots.size() + ")，回退区域文本分组已注入：" + countGroups(areaHint) + " 组";
+        }
+        return "无分组提示（景点候选 " + spots.size() + " 个，坐标仅 " + withCoord + " 个，无法成簇）";
+    }
+
+    /** 数分组提示文本里的"组N（…）"行数 */
+    private static int countGroups(String hint) {
+        int n = 0;
+        for (String line : hint.split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("组") && t.contains("（")) n++;
+        }
+        return n;
+    }
+
+    /**
+     * 候选分组效果统计（任务3，结构化）：管理端判断"推荐乱 = 候选没坐标 还是 分组没生效"。
+     * 返回 attractionCount/withLocation/locationCoverage(0-100)/coordGroups/areaGroups/mode(coordinate|area|none)/groupSizes。
+     * 纯只读计算，可安全对 null/空 JSON 调用。
+     */
+    public static Map<String, Object> clusterStats(Map<String, Object> candidates) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        List<Map<String, Object>> spots = items(candidates, "attraction");
+        m.put("attractionCount", spots.size());
+        int withCoord = 0;
+        for (Map<String, Object> it : spots) {
+            if (parseLocation(str(it.get("location"))) != null) withCoord++;
+        }
+        m.put("withLocation", withCoord);
+        m.put("locationCoverage", spots.isEmpty() ? 0 : Math.round(withCoord * 1000.0 / spots.size()) / 10.0);
+        String coordHint = coordinateGroupHint(candidates);
+        int cg = coordHint.isBlank() ? 0 : countGroups(coordHint);
+        String areaHint = areaGroupHint(candidates);
+        int ag = areaHint.isBlank() ? 0 : countGroups(areaHint);
+        m.put("coordGroups", cg);
+        m.put("areaGroups", ag);
+        m.put("mode", cg > 0 ? "coordinate" : (ag > 0 ? "area" : "none"));
+        List<Integer> sizes = new ArrayList<>();
+        String hint = cg > 0 ? coordHint : areaHint;
+        if (!hint.isBlank()) {
+            for (String line : hint.split("\n")) {
+                String t = line.trim();
+                int colon = t.indexOf('：');
+                if (t.startsWith("组") && t.contains("（") && colon > 0) {
+                    int n = 0;
+                    for (String s : t.substring(colon + 1).split("、")) {
+                        if (!s.isBlank()) n++;
+                    }
+                    sizes.add(n);
+                }
+            }
+        }
+        m.put("groupSizes", sizes);
+        return m;
+    }
+
     /** 一簇的展示名：取组内面积众数行政区（·前缀），全无 area 时用坐标跨度描述 */
     private static String groupLabel(List<Map<String, Object>> g) {
         Map<String, Integer> freq = new LinkedHashMap<>();

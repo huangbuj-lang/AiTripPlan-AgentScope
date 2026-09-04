@@ -72,6 +72,13 @@ public class PlanReviser {
 
         // ② 受影响域定向重查已移除（直连候选重查路径下线）：局部重排直接基于上一版候选存档执行
         String candidatesJson = prev.getCandidatesJson() == null ? "" : prev.getCandidatesJson();
+        if (!candidatesJson.isBlank()) {
+            String cluster = utils.CandidateUtil.clusterHintSummary(CandidateUtil.parse(candidatesJson));
+            if (!cluster.isBlank()) {
+                EventStore.add(sessionId, "修订", "基于存档候选局部重排｜" + cluster);
+            }
+            EventStore.putExtra(sessionId, "clusterStats", utils.CandidateUtil.clusterStats(CandidateUtil.parse(candidatesJson)));
+        }
 
         // ③ 局部重聚合：只改受影响天，其余天逐字保留
         EventStore.add(sessionId, "修订", "局部重聚合：只重排 " + impact.daysText() + "，其余天保持不变...");

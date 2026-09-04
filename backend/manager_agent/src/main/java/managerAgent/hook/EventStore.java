@@ -23,6 +23,8 @@ public class EventStore {
         volatile boolean cancelRequested = false; // 中断请求标志
         volatile Runnable interruptCallback = null; // 取消时回调（用于中断A2A远程调用）
         volatile long lastAccessMs = System.currentTimeMillis(); // 最后访问时间（TTL清理用）
+        public final java.util.concurrent.ConcurrentHashMap<String, Object> extras =
+                new java.util.concurrent.ConcurrentHashMap<>(); // 结构化观测数据（REVISE汇总/聚类统计）
     }
 
     private static final ConcurrentHashMap<String, SessionState> SESSIONS = new ConcurrentHashMap<>(); // 会话隔离容器
@@ -39,6 +41,8 @@ public class EventStore {
         public volatile String currentStep = "排队中"; // 当前步骤（取最近一条事件的类型）
         public final long modelCallsStart = utils.SafeModel.MODEL_CALLS.get(); // 任务开始时的模型调用总数
         public volatile long modelCallsUsed = -1;  // 本任务消耗的模型调用轮数（结束时=结束值-开始值，-1=未统计）
+        public volatile int reviseRounds = 0;      // Reviewer 闭环实际返工轮数（0=首轮通过）
+        public volatile String reviseOutcome = ""; // pass/maxed/parse_error/rework_failed/rework_no_improvement
 
         TaskMeta(String sessionId) { this.sessionId = sessionId; }
     }
@@ -111,6 +115,17 @@ public class EventStore {
     /** 规范化会话键（空/未传 → default） */
     private static String key(String sessionId) {
         return (sessionId == null || sessionId.isBlank()) ? DEFAULT_SESSION : sessionId;
+    }
+
+    /** 写入会话级结构化观测数据（REVISE 汇总/聚类统计等，会话结束随 TTL 清理） */
+    public static void putExtra(String sessionId, String key, Object value) {
+        state(sessionId).extras.put(key, value);
+    }
+
+    /** 读取会话级结构化观测数据；无记录返回 null */
+    public static Object getExtra(String sessionId, String key) {
+        SessionState s = SESSIONS.get(key(sessionId));
+        return s == null ? null : s.extras.get(key);
     }
 
     /** 获取（不存在则创建）指定会话的状态 */
@@ -223,6 +238,14 @@ public class EventStore {
      */
     public static List<Map<String, String>> all(String sessionId) {
         return state(sessionId).events.stream().collect(Collectors.toList());
+    }
+
+    /**
+     * 只读查询事件（不创建会话）：会话不存在返回 null（管理端查询历史任务时避免凭空注册新会话）。
+     */
+    public static List<Map<String, String>> allQuiet(String sessionId) {
+        SessionState s = SESSIONS.get(key(sessionId));
+        return s == null ? null : s.events.stream().collect(Collectors.toList());
     }
 
     /**

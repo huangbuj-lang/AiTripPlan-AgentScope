@@ -247,4 +247,112 @@ class CandidateUtilTest {
         assertEquals("", CandidateUtil.areaGroupHint(CandidateUtil.parse("{\"attraction\":{\"candidates\":[]}}")));
         assertEquals("", CandidateUtil.areaGroupHint(null));
     }
+
+    // ==================== clusterHintSummary：聚类生效可观测摘要（管理端事件流） ====================
+
+    @Test
+    void clusterHintSummaryReportsCoordClustering() {
+        // 3/4 带坐标、成 2 簇（同 fixture 语义：开元寺与西街近邻一组，洛阳桥独立）
+        String json = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区·西街","location":"118.586,24.908","confidence":0.9},
+                  {"name":"西街","area":"鲤城区·钟楼","location":"118.581,24.909","confidence":0.85},
+                  {"name":"洛阳桥","area":"洛江区·桥南村","location":"118.684,24.963","confidence":0.85},
+                  {"name":"无坐标景点","area":"惠安县","confidence":0.8}]}}
+                """;
+        String s = CandidateUtil.clusterHintSummary(CandidateUtil.parse(json));
+        assertTrue(s.contains("坐标聚类分组已注入"), "坐标成簇应报坐标聚类生效: " + s);
+        assertTrue(s.contains("2 组"), "应报簇数: " + s);
+        assertTrue(s.contains("3/4"), "应报带坐标覆盖 3/4: " + s);
+    }
+
+    @Test
+    void clusterHintSummaryReportsAreaFallback() {
+        // 全无坐标但有区域 → 报回退文本分组（2 组：鲤城区 vs 洛江区）
+        String noLoc = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区·西街","confidence":0.9},
+                  {"name":"天后宫","area":"鲤城区·天后路","confidence":0.85},
+                  {"name":"洛阳桥","area":"洛江区·桥南村","confidence":0.85}]}}
+                """;
+        String s = CandidateUtil.clusterHintSummary(CandidateUtil.parse(noLoc));
+        assertTrue(s.contains("回退区域文本分组已注入"), "坐标不足应报回退: " + s);
+        assertTrue(s.contains("2 组"), "应报文本分组数: " + s);
+        assertTrue(s.contains("0/3"), "应报坐标覆盖 0/3: " + s);
+    }
+
+    @Test
+    void clusterHintSummaryReportsNoGrouping() {
+        // 无坐标且同区（分组无意义）→ 报无分组提示；全近邻一簇同理
+        String same = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区","confidence":0.9},
+                  {"name":"西街","area":"鲤城区","confidence":0.9}]}}
+                """;
+        assertTrue(CandidateUtil.clusterHintSummary(CandidateUtil.parse(same)).contains("无分组提示"));
+        String near = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","location":"118.586,24.908","confidence":0.9},
+                  {"name":"承天寺","location":"118.591,24.905","confidence":0.85},
+                  {"name":"清净寺","location":"118.588,24.902","confidence":0.85}]}}
+                """;
+        assertTrue(CandidateUtil.clusterHintSummary(CandidateUtil.parse(near)).contains("无分组提示"),
+                "全近邻一簇无分组价值也应如实报无分组: " + CandidateUtil.clusterHintSummary(CandidateUtil.parse(near)));
+        // 边界：null / 空 / 单景点 → 空串（调用方不记事件）
+        assertEquals("", CandidateUtil.clusterHintSummary(null));
+        assertEquals("", CandidateUtil.clusterHintSummary(CandidateUtil.parse("{}")));
+    }
+
+    // ==================== clusterStats：聚类效果结构化统计（任务3） ====================
+
+    @Test
+    void clusterStatsCoordMode() {
+        String json = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区·西街","location":"118.586,24.908","confidence":0.9},
+                  {"name":"西街","area":"鲤城区·钟楼","location":"118.581,24.909","confidence":0.85},
+                  {"name":"洛阳桥","area":"洛江区·桥南村","location":"118.684,24.963","confidence":0.85},
+                  {"name":"无坐标景点","area":"惠安县","confidence":0.8}]}}
+                """;
+        Map<String, Object> s = CandidateUtil.clusterStats(CandidateUtil.parse(json));
+        assertEquals(4, s.get("attractionCount"));
+        assertEquals(3, s.get("withLocation"));
+        assertEquals(75.0, s.get("locationCoverage"));
+        assertEquals(2, s.get("coordGroups"));
+        assertEquals("coordinate", s.get("mode"));
+        assertEquals(List.of(2, 1), s.get("groupSizes"), "组1=开元寺+西街，组2=洛阳桥");
+    }
+
+    @Test
+    void clusterStatsAreaFallbackAndNone() {
+        // 全无坐标 → area 回退模式
+        String noLoc = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区·西街","confidence":0.9},
+                  {"name":"天后宫","area":"鲤城区·天后路","confidence":0.85},
+                  {"name":"洛阳桥","area":"洛江区·桥南村","confidence":0.85}]}}
+                """;
+        Map<String, Object> s = CandidateUtil.clusterStats(CandidateUtil.parse(noLoc));
+        assertEquals(0, s.get("withLocation"));
+        assertEquals(0.0, s.get("locationCoverage"));
+        assertEquals(0, s.get("coordGroups"));
+        assertEquals(2, s.get("areaGroups"));
+        assertEquals("area", s.get("mode"));
+        assertEquals(List.of(2, 1), s.get("groupSizes"));
+
+        // 同区无坐标 → none 模式（未成组）
+        String same = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","area":"鲤城区","confidence":0.9},
+                  {"name":"西街","area":"鲤城区","confidence":0.9}]}}
+                """;
+        Map<String, Object> s2 = CandidateUtil.clusterStats(CandidateUtil.parse(same));
+        assertEquals("none", s2.get("mode"));
+        assertTrue(((List<?>) s2.get("groupSizes")).isEmpty());
+
+        // null / 空候选 → 全 0
+        Map<String, Object> s3 = CandidateUtil.clusterStats(null);
+        assertEquals(0, s3.get("attractionCount"));
+        assertEquals("none", s3.get("mode"));
+    }
 }

@@ -104,7 +104,7 @@ public final class PlanCache {
     /** 写缓存（含三域候选 JSON；命中缓存时不再重跑专家，候选直接复用） */
     public static void put(String dest, int days, String origin, String storedPrefs, String pref, String fingerprint,
                            String routeResult, String planResult, String candidatesJson) {
-        if (routeResult == null || planResult == null) return;
+        if (routeResult == null || routeResult.isBlank() || planResult == null || planResult.isBlank()) return; // ★失败产物不入缓存（防毒缓存）
         long ttlMs = TimeUnit.HOURS.toMillis(Config.getInt("PLAN_CACHE_TTL_HOURS", 12));
         CACHE.put(key(dest, days, origin, storedPrefs, pref, fingerprint),
                 new Entry(routeResult, planResult, candidatesJson, System.currentTimeMillis() + ttlMs));
