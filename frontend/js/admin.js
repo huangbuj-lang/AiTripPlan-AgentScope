@@ -580,14 +580,10 @@ function qualityNode(obs) {
                 + ' · ' + (r.issues || []).map(is => (is.severity || '?') + '/' + (DOMAIN_CN[is.domain] || is.domain || '?')
                     + (is.target && is.target !== 'overall' ? '@' + is.target : '')).join('、')
         }));
-        leaves.push({
-            layer: 'REVIEW', name: '结局', ts: null, costMs: -1,
-            success: ['pass_first', 'pass_after_rework'].includes(obs.reviseOutcome),
-            detail: outcomeTxt
-        });
+        // 结局并入分组标题（"审查返工（1/2 轮）· 首轮通过"），不再单独占一行
         groups.push({
-            label: '审查返工（' + Math.max.apply(null, rounds.map(r => r.round || 1)) + '/2 轮）',
-            desc: outcomeTxt, spans: leaves
+            label: '审查返工（' + Math.max.apply(null, rounds.map(r => r.round || 1)) + '/2 轮）· ' + outcomeTxt,
+            desc: '', spans: leaves
         });
     }
     const cs = obs.clusterStats;
