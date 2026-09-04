@@ -216,8 +216,7 @@ function loadTasks(btn) {
                 '<td class="num-cell">' + (x.modelCallsUsed != null && x.modelCallsUsed >= 0 ? x.modelCallsUsed : '—') + '</td>' +
                 '<td>' + esc(x.currentStep || '—') + '</td>' +
                 '<td>' + (x.reviseRounds > 0 ? '<span class="badge warn" title="结局: ' + esc(x.reviseOutcome || '?') + '">返工 ' + x.reviseRounds + '轮</span>' : '<span class="badge plain">—</span>') + '</td>' +
-                '<td><button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();showEvents(\'' + esc(x.sessionId) + '\')">事件</button> ' +
-                '<button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();showRevise(\'' + esc(x.sessionId) + '\')">返工</button></td></tr>').join('') +
+                '<td><button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();showEvents(\'' + esc(x.sessionId) + '\')">事件</button></td></tr>').join('') +
               '</tbody></table>'
             : '<div class="state-box"><div class="big">📭</div>暂无历史任务<br><span style="font-size:12px">任务结束后自动归档到这里</span></div>';
         // ★事件明细跟随刷新：事件面板打开时，随 3s 任务轮询静默更新其内容（不闪骨架）
@@ -660,78 +659,8 @@ function refreshEvents(sessionId, withSkeleton) {
     });
 }
 
-/* ============ 审查返工结构化明细（任务2）+ 聚类效果统计（任务3） ============ */
-const SEV_BADGE = { high: 'bad', medium: 'warn', low: 'plain' };
+/* ============ 审查返工/聚类：详情只在调用链「质量观测」节点展示（独立面板已按需求移除） ============ */
 const DOMAIN_CN = { attraction: '景点', hotel: '酒店', dining: '餐饮', transport: '交通', none: '—', '': '—' };
-const OUTCOME_TXT = {
-    pass_first: '<span class="badge ok">首轮通过</span>',
-    pass_after_rework: '<span class="badge ok">返工后通过</span>',
-    maxed: '<span class="badge bad">达上限交付</span>',
-    rework_failed: '<span class="badge bad">重跑异常·交付旧版</span>',
-    rework_no_improvement: '<span class="badge warn">重跑无改进·保留旧版</span>',
-    parse_error: '<span class="badge warn">审查输出异常·按通过</span>'
-};
-const MODE_TXT = { coordinate: '坐标聚类', area: '区域文本分组', none: '无分组' };
-
-/* REVISE 轮次结构化区块（/tasks/events 的 obs 数据；无数据返回提示文案） */
-function reviseBlockHtml(obs) {
-    if (!obs || !obs.reviseRounds || !obs.reviseRounds.length) {
-        return '<div style="color:var(--faint);font-size:13px;padding:10px">该任务没有 REVISE 记录（首轮即通过，或事件已随重启/过期清理）</div>';
-    }
-    const rounds = obs.reviseRounds;
-    const outcome = OUTCOME_TXT[obs.reviseOutcome] || '<span class="badge plain">' + esc(obs.reviseOutcome || '—') + '</span>';
-    let html = '<div style="font-size:12.5px;color:var(--muted);padding:0 0 8px">共返工 <b>' + (rounds.length ? Math.max.apply(null, rounds.map(r => r.round || 0)) : 0) + '</b>/2 轮 · 结局 ' + outcome + '</div>';
-    html += '<div class="table-wrap" style="max-height:380px;overflow:auto"><table class="trace-tbl"><thead><tr><th>轮次</th><th>裁定</th><th>质量分</th><th>驳回原因（域·严重度·定位）</th><th>处置</th></tr></thead><tbody>';
-    rounds.forEach(r => {
-        const verdictBadge = r.verdict === 'REVISE' ? '<span class="badge bad">REVISE</span>'
-            : (r.verdict === 'PASS' ? '<span class="badge ok">PASS</span>' : '<span class="badge warn">' + esc(r.verdict || '—') + '</span>');
-        const actionTxt = { rework: '<span class="badge warn">带反馈重跑</span>', maxed_rework: '<span class="badge bad">已达上限</span>', accepted: '<span class="badge ok">通过收尾</span>' }[r.action] || esc(r.action || '—');
-        let issueHtml = '—';
-        if (Array.isArray(r.issues) && r.issues.length) {
-            issueHtml = r.issues.map(is =>
-                '<div style="margin:1px 0"><span class="badge ' + (SEV_BADGE[is.severity] || 'plain') + '">' + esc(is.severity || '?') + '</span> ' +
-                '<b>' + esc(DOMAIN_CN[is.domain] || is.domain || '?') + '</b>' + (is.type ? '<span style="color:var(--faint)">/' + esc(is.type) + '</span>' : '') +
-                (is.target && is.target !== 'overall' ? ' @' + esc(is.target) : '') +
-                '<div style="color:var(--muted);font-size:12px">' + esc(is.reason || '') + '</div></div>').join('');
-        }
-        html += '<tr><td class="num-cell">第 ' + esc(r.round) + ' 轮</td><td>' + verdictBadge + '</td>' +
-            '<td class="num-cell">' + (r.qualityScore != null && r.qualityScore >= 0 ? r.qualityScore : '—') + '</td>' +
-            '<td style="max-width:420px">' + issueHtml + '</td><td>' + actionTxt + '</td></tr>';
-    });
-    html += '</tbody></table></div>';
-    return html;
-}
-
-/* 聚类效果统计区块（任务3）：覆盖率/分组数/各组规模 → 判断推荐乱因 */
-function clusterStatsHtml(cs) {
-    if (!cs || cs.attractionCount == null || cs.attractionCount < 1) return '';
-    const cov = cs.locationCoverage != null ? cs.locationCoverage : 0;
-    const covColor = cov >= 80 ? 'var(--ok)' : (cov >= 40 ? 'var(--amber)' : 'var(--bad)');
-    const sizes = Array.isArray(cs.groupSizes) ? cs.groupSizes.join('+') : '—';
-    return '<div class="card metric" style="margin-top:10px"><div class="label" style="margin-bottom:6px">聚类效果统计（景点候选 ' + cs.attractionCount +
-        ' 个 · 模式 ' + (MODE_TXT[cs.mode] || esc(cs.mode || '—')) + '）</div>' +
-        '<div style="font-size:12.5px">带坐标 <b style="color:' + covColor + '">' + cs.withLocation + '/' + cs.attractionCount +
-        '（' + cov + '%）</b> · 分组 <b>' + (cs.coordGroups > 0 ? cs.coordGroups + ' 组(坐标)' : (cs.areaGroups > 0 ? cs.areaGroups + ' 组(区域文本)' : '未成组')) +
-        '</b> · 各组规模 <b>' + esc(sizes) + '</b></div>' +
-        (cs.mode === 'none' ? '<div style="font-size:12px;color:var(--amber);margin-top:4px">⚠ 未注入分组提示：聚合无地理邻近约束，排天可能跨度大</div>' : '') +
-        (cs.mode === 'area' ? '<div style="font-size:12px;color:var(--amber);margin-top:4px">⚠ 坐标覆盖率低，回退区域文本分组（精度低于坐标聚类）</div>' : '') +
-        '</div>';
-}
-
-function showRevise(sessionId) {
-    const fold = document.getElementById('reviseFold');
-    if (fold) fold.open = true;
-    const sid = document.getElementById('reviseSessionId');
-    if (sid) sid.textContent = sessionId;
-    const b = document.getElementById('reviseBody');
-    if (!b) return;
-    b.innerHTML = skeleton(3);
-    fetchJson('/api/admin/tasks/events?sessionId=' + encodeURIComponent(sessionId)).then(d => {
-        b.innerHTML = reviseBlockHtml(d.obs) + clusterStatsHtml(d.obs && d.obs.clusterStats);
-    }).catch(() => {
-        b.innerHTML = '<div style="color:#C97A7C;font-size:13px;padding:10px">返工明细加载失败，请重试</div>';
-    });
-}
 
 /* ============ 数据管理 ============ */
 function loadData() { loadUsers(); loadPlans(); }
