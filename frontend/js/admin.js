@@ -394,7 +394,7 @@ function loadCosts() {
 }
 
 /* ============ 任务调用链明细（统一五列表格 + 层级展开） ============ */
-const TRACE_LAYER_ICON = { A2A: '🔗', MCP: '🗺️', LLM: '🧠', TOOL: '🛠️' };
+const TRACE_LAYER_ICON = { A2A: '🔗', MCP: '🗺️', LLM: '🧠', TOOL: '🛠️', REVIEW: '♻️', CLUSTER: '📍' };
 
 /* 三态结果徽标 */
 function traceBadge(stat) {
@@ -482,10 +482,15 @@ function showTrace(sessionId) {
     document.getElementById('traceSessionId').textContent = sessionId;
     const b = document.getElementById('traceBody');
     b.innerHTML = '<div class="sk-row w80"></div><div class="sk-row w60"></div>';
-    fetchJson('/api/admin/tasks/trace?sessionId=' + encodeURIComponent(sessionId)).then(d => {
+    // ★并行拉调用链 + 事件观测（REVISE 轮次/聚类统计），合并成一棵树
+    Promise.all([
+        fetchJson('/api/admin/tasks/trace?sessionId=' + encodeURIComponent(sessionId)),
+        fetchJson('/api/admin/tasks/events?sessionId=' + encodeURIComponent(sessionId)).catch(() => null)
+    ]).then(([d, ev]) => {
         const KEY_LAYERS = { LLM: 1, A2A: 1, TOOL: 1 };
         const spans = (d.spans || []).filter(s => KEY_LAYERS[s.layer]);
-        if (!spans.length) {
+        const obs = (ev && ev.obs) || null;
+        if (!spans.length && !obs) {
             b.innerHTML = '<div style="color:var(--faint);font-size:13px;padding:10px">该任务没有记录到调用明细（较早的任务或子进程未上报）</div>';
             return;
         }
@@ -522,6 +527,9 @@ function showTrace(sessionId) {
             if (lk.length) gs.push({ label: '知识库工具', desc: '知识库调用', spans: lk });
             if (gs.length) nodes.push({ label: ag + 'Agent', desc: gs.map(g => g.label).join('/'), groups: gs });
         });
+        // ★质量观测节点（任务1-3 合并进树）：REVISE 轮次 + 聚类统计，与 Agent 节点同级
+        const qNode = qualityNode(obs);
+        if (qNode) nodes.push(qNode);
         // 渲染统一五列表格
         let html = '<div class="trace-tree"><table class="trace-tbl"><thead><tr><th>时间</th><th>名称</th><th>结果</th><th>耗时</th><th>说明</th></tr></thead><tbody>';
         nodes.forEach((n, i) => { html += agentRow(n, i); });
@@ -550,6 +558,55 @@ function showTrace(sessionId) {
             });
         });
     }).catch(() => { b.innerHTML = '<div style="color:#C97A7C;font-size:13px;padding:10px">调用链加载失败，请重试</div>'; });
+}
+
+/* ★质量观测 → 树节点（与主管Agent/A2A 同级；无观测数据返回 null 不占位）。
+   组1=审查返工（每轮一行叶子）；组2=候选聚类（统计一行叶子） */
+function qualityNode(obs) {
+    if (!obs) return null;
+    const groups = [];
+    const rounds = obs.reviseRounds || [];
+    if (rounds.length) {
+        const outcomeTxt = { pass_first: '首轮通过', pass_after_rework: '返工后通过', maxed: '达上限交付',
+            rework_failed: '重跑异常·交付旧版', rework_no_improvement: '重跑无改进·保留旧版', parse_error: '审查输出异常' }[obs.reviseOutcome] || (obs.reviseOutcome || '—');
+        const leaves = rounds.map(r => ({
+            layer: 'REVIEW', name: '第' + r.round + '轮 ' + (r.verdict || '—'),
+            ts: null, costMs: -1,
+            success: r.verdict !== 'REVISE',
+            detail: '质量分 ' + (r.qualityScore != null && r.qualityScore >= 0 ? r.qualityScore : '—')
+                + ' · ' + (r.issues || []).map(is => (is.severity || '?') + '/' + (DOMAIN_CN[is.domain] || is.domain || '?')
+                    + (is.target && is.target !== 'overall' ? '@' + is.target : '')).join('、')
+        }));
+        leaves.push({
+            layer: 'REVIEW', name: '结局', ts: null, costMs: -1,
+            success: ['pass_first', 'pass_after_rework'].includes(obs.reviseOutcome),
+            detail: outcomeTxt
+        });
+        groups.push({
+            label: '审查返工（' + Math.max.apply(null, rounds.map(r => r.round || 1)) + '/2 轮）',
+            desc: outcomeTxt, spans: leaves
+        });
+    }
+    const cs = obs.clusterStats;
+    if (cs && cs.attractionCount != null && cs.attractionCount > 0) {
+        const cov = cs.locationCoverage != null ? cs.locationCoverage : 0;
+        const modeTxt = { coordinate: '坐标聚类', area: '区域文本分组', none: '无分组' }[cs.mode] || cs.mode;
+        const okMode = cs.mode === 'coordinate';
+        groups.push({
+            label: '候选聚类', desc: modeTxt,
+            spans: [{
+                layer: 'CLUSTER', name: '分组效果', ts: null, costMs: -1, success: okMode,
+                detail: '景点 ' + cs.attractionCount + ' 个 · 带坐标 ' + cs.withLocation + '/' + cs.attractionCount + '（' + cov + '%）'
+                    + ' · ' + (cs.coordGroups > 0 ? cs.coordGroups + ' 组(坐标)' : (cs.areaGroups > 0 ? cs.areaGroups + ' 组(区域文本)' : '未成组'))
+                    + ' · 各组 ' + (Array.isArray(cs.groupSizes) && cs.groupSizes.length ? cs.groupSizes.join('+') : '—')
+            }]
+        });
+    }
+    if (!groups.length) return null;
+    return {
+        label: '质量观测', desc: groups.map(g => g.label).join('/'),
+        groups: groups
+    };
 }
 
 /* ============ 任务阶段事件明细（管理端透明化：解析/聚合/校验/审查等全阶段时间线） ============ */
