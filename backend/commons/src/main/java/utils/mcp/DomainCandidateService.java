@@ -129,6 +129,9 @@ public class DomainCandidateService {
                         + (degradedDomains.isEmpty() ? "" : " · 降级:" + degradedDomains)
                         + " · 耗时" + (System.currentTimeMillis() - t0) + "ms",
                 degradedDomains.size() < toRun.size(), System.currentTimeMillis() - t0);
+        // ★观测代码化：候选 JSON 进程级存档（按 sessionId），主管收割在回复文本提取不到块时经
+        //   /candidate-block 端点代码回取——结构化候选传递不再依赖门面 LLM 把块原样抄进回复
+        utils.CandidateBlockStore.put(utils.SafeModel.lastTraceId(), json);
         return digest + "\n\n【域候选JSON】\n" + json + "\n【域候选JSON结束】";
     }
 

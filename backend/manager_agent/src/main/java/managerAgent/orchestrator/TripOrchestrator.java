@@ -366,10 +366,16 @@ public class TripOrchestrator {
     }
 
     /** 从行程专家回复中收割三域候选 JSON（结构化候选入状态中心；无块则保持空串，聚合按原文兜底）。
-     *  候选块随即从正文中剥离：聚合/缓存/降级渲染消费纯行程文本，不再夹带大段 JSON（防超长截断与解析劣化）。 */
+     *  候选块随即从正文中剥离：聚合/缓存/降级渲染消费纯行程文本，不再夹带大段 JSON（防超长截断与解析劣化）。
+     *  ★观测代码化：回复中无块（门面 LLM 未透传）时改由代码回取行程Agent进程内存档块，结构化候选不依赖 LLM 自觉。 */
     private void harvestCandidates(TravelState state) {
         try {
             String block = utils.CandidateUtil.extractBlock(state.getPlanResult());
+            boolean fetched = false;
+            if (block.isBlank()) {
+                block = fetchTripCandidateBlock(); // ★观测代码化：回复无块 → 代码回取子Agent存档块
+                fetched = !block.isBlank();
+            }
             if (!block.isBlank()) {
                 java.util.Map<String, Object> cands = utils.CandidateUtil.parse(block);
                 if (cands != null && !cands.isEmpty()) {
@@ -378,14 +384,36 @@ public class TripOrchestrator {
                     String summary = utils.CandidateUtil.evidenceSummary(cands);
                     String cluster = utils.CandidateUtil.clusterHintSummary(cands); // ★聚类生效可观测（管理端事件流）
                     EventStore.add(sessionId, "候选", "三域候选已入状态中心"
+                            + (fetched ? "（候选块由代码回取，行程Agent回复未透传）" : "")
                             + (summary.isBlank() ? "" : "：" + summary)
                             + (cluster.isBlank() ? "" : "｜" + cluster));
                     EventStore.putExtra(sessionId, "clusterStats", utils.CandidateUtil.clusterStats(cands)); // ★任务3：聚类效果结构化统计
-                    state.addTrace("候选", "三域Top3候选(结构化)");
+                    state.addTrace("候选", "三域Top3候选(结构化)"
+                            + (fetched ? "·代码回取" : ""));
                 }
             }
         } catch (Exception e) {
             log.warn("候选收割异常(忽略，走原文聚合): {}", e.getMessage());
+        }
+    }
+
+    /** ★观测代码化：行程门面 LLM 若未把工具返回的【域候选JSON】块透传（模型不可靠，只摘摘要丢块），
+     *  主管直连行程Agent /candidate-block 端点，取本进程内由 DomainCandidateService 代码存档的候选块。 */
+    private String fetchTripCandidateBlock() {
+        try {
+            String qs = "sessionId=" + java.net.URLEncoder.encode(sessionId, "UTF-8");
+            java.net.URL u = new java.net.URL("http://localhost:8085/candidate-block?" + qs);
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(3000);
+            String b = new String(c.getInputStream().readAllBytes(), "UTF-8");
+            java.util.Map<String, Object> root = utils.JsonUtils.parse(b, java.util.Map.class);
+            if (root == null) return "";
+            Object blk = root.get("block");
+            return blk instanceof String s ? s : "";
+        } catch (Exception e) {
+            log.debug("候选块回取失败(忽略，走原文聚合): {}", e.getMessage());
+            return "";
         }
     }
 

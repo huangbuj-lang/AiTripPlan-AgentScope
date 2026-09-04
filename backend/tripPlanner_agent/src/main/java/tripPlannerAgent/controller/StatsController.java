@@ -52,4 +52,15 @@ public class StatsController {
         return r;
     }
 
+    /** ★观测代码化：主管收割回取候选块——本进程产出的候选 JSON 由代码存档（DomainCandidateService.put），
+     *  不依赖门面 LLM 把工具返回的【域候选JSON】块抄进最终回复；主管在回复里提取不到时直连本端点取。 */
+    @GetMapping("/candidate-block")
+    public Map<String, Object> candidateBlock(@RequestParam("sessionId") String sessionId) {
+        Map<String, Object> r = new HashMap<>();
+        r.put("success", true);
+        r.put("sessionId", sessionId);
+        r.put("block", utils.CandidateBlockStore.get(sessionId));
+        return r;
+    }
+
 }
