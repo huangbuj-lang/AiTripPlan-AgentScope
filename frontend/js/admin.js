@@ -535,7 +535,28 @@ function showTrace(sessionId) {
         nodes.forEach((n, i) => { html += agentRow(n, i); });
         html += '</tbody></table></div>';
         b.innerHTML = html;
-        // ★按用户要求移除折叠/隐藏机制：调用链所有层级永久平铺展示，无点击收起
+        // ★标准树折叠：初始全部展开；点父行=收起整个子树；再点=展开下一层（子层重置为收起）
+        b.querySelectorAll('tr.trace-agent, tr.trace-group').forEach(tr => {
+            tr.classList.add('open'); // 初始展开态
+            tr.addEventListener('click', () => {
+                const d = parseInt(tr.dataset.d, 10);
+                const willCollapse = tr.classList.contains('open');
+                let cur = tr.nextElementSibling;
+                while (cur && parseInt(cur.dataset.d, 10) > d) {
+                    if (willCollapse) {
+                        cur.style.display = 'none'; // 收起：隐藏所有后代
+                    } else {
+                        const cd = parseInt(cur.dataset.d, 10);
+                        if (cd === d + 1) {
+                            cur.style.display = ''; // 展开：只显示直接子级
+                            cur.classList.remove('open'); // 子级重置为收起态
+                        }
+                    }
+                    cur = cur.nextElementSibling;
+                }
+                tr.classList.toggle('open', !willCollapse);
+            });
+        });
     }).catch(() => { b.innerHTML = '<div style="color:#C97A7C;font-size:13px;padding:10px">调用链加载失败，请重试</div>'; });
 }
 
