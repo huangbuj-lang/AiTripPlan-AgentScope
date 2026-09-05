@@ -35,28 +35,6 @@ public final class AgentPrompts {
                 "aggPref":"不适合二者、只影响整体编排的偏好(如放松休闲/性价比紧凑/节假日)；无则空"}
                 只输出 JSON 不要多余文字。
                 """);
-        DEFAULTS.put("tripAggregator", """
-                你是行程聚合器。根据需求与专家数据，输出一个结构化 JSON 对象，字段名固定如下：
-                {"title":"行程标题","destination":"目的地","days":天数,"date":"日期","weather":"天气",
-                "sections":[{"type":"timeline|transport|stay|tips","title":"区块标题","items":[{"time":"",
-                "activity":"","place":"","category":"","cost":"","note":"","from":"","to":"",
-                "way":"","duration":"","name":"","price":"","kind":"","text":""}]}]}
-                sections 按「每日行程(timeline)/交通(transport)/住宿餐饮(stay)/实用信息(tips)」组织，
-                每天的行程放在一个 type=timeline 的 section 里，title 用「第N天」。
-                内容必须具体（真实景点名/价格/餐厅酒店名）。除 JSON 外不要输出任何文字。
-                ★place硬规则：timeline 的 items 中 place 字段只填地点名称（如「星海广场」），括号内门牌号/地铁口/道路名等地址信息一律放 note 字段，禁止把地址当地名。
-                ★place具体化铁律：place 必须具体到可直接导航的子地点——在古镇/大景区/商圈内的一天的多项活动，每项 place 填该活动的具体位置（如「束河古镇·青龙桥」「束河古镇·茶马古道博物馆」「束河古镇·四方街咖啡馆」），禁止多项活动共用同一个大地名。
-                ★同天不重复铁律：同一天的 items 中 cat=景点的同一 place 只允许出现一次；傍晚/夜间重游已去过的景点时，用具体体验替代（如「古城夜游·酒吧街」），禁止景点 place 原样重复（交通/餐饮条目的到达地不受此限）。
-                ★区域分组铁律：用户消息附有【景点区域分组】时，同组的景点尽量安排在同一天（物理上邻近，减少跨区折返）；不同组的景点不混排同一天（除非当天组内景点不足或用户点名跨区）。组内先后顺序由你按体验优化（顺路/开门时间/体力分配）。
-                ★每天景点量铁律：每天安排 2~4 个景点（timeline 中 cat=景点的条目数），不得一天排 1 个景点糊弄，也不得超过 5 个赶场；用户在输入中明确要求多排/少排/特种兵/慢节奏时按用户要求优先。
-                ★sections 必须包含住宿餐饮(stay)区块（含酒店/餐厅推荐），不得省略。
-                """);
-        DEFAULTS.put("tripAggregatorParseRetry", """
-                你是行程聚合器。上次结构化 JSON 解析失败。请基于【用户需求】与【数据概要】只输出一份合法 JSON 行程（字段同前），重点是 sections 每天 timeline。数据较大已截断，可省次要 detail，保留每天真实安排。
-                """);
-        DEFAULTS.put("tripAggregatorGapRetry", """
-                你是行程聚合器。上次聚合结果缺失：{missing}。请重新整合【用户需求】与【数据】，补齐缺失内容，输出完整合法 JSON 行程（字段同前）。
-                """);
         DEFAULTS.put("moderation", """
                 你是内容审核员。判断文本是否违规，只输出一个 JSON 对象：
                 {"verdict":"pass|review|block","reason":"简短理由"}
@@ -183,9 +161,6 @@ public final class AgentPrompts {
 
         LABELS.put("requestParser", "需求解析提示词");
         LABELS.put("preferenceClassifier", "偏好分类提示词");
-        LABELS.put("tripAggregator", "行程聚合/输出格式");
-        LABELS.put("tripAggregatorParseRetry", "聚合解析重试");
-        LABELS.put("tripAggregatorGapRetry", "聚合补齐重试");
         LABELS.put("moderation", "内容审核提示词");
         LABELS.put("tripEditor", "行程编辑提示词");
         LABELS.put("tripReviewer", "行程审查提示词");
@@ -205,18 +180,6 @@ public final class AgentPrompts {
 
     public static String preferenceClassifier() {
         return AgentPromptStore.prompt("preferenceClassifier", DEFAULTS.get("preferenceClassifier"));
-    }
-
-    public static String tripAggregator() {
-        return AgentPromptStore.prompt("tripAggregator", DEFAULTS.get("tripAggregator"));
-    }
-
-    public static String tripAggregatorParseRetry() {
-        return AgentPromptStore.prompt("tripAggregatorParseRetry", DEFAULTS.get("tripAggregatorParseRetry"));
-    }
-
-    public static String tripAggregatorGapRetry() {
-        return AgentPromptStore.prompt("tripAggregatorGapRetry", DEFAULTS.get("tripAggregatorGapRetry"));
     }
 
     public static String moderation() {

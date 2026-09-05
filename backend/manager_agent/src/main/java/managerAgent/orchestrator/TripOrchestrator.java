@@ -76,14 +76,14 @@ public class TripOrchestrator {
         // ★输入侧缺失亮红灯：哪路专家数据为空，定稿前明确告知（避免静默产出半成品还显示成功）
         String missingInput = missingInputs(state.getRouteResult(), state.getPlanResult());
         if (!missingInput.isBlank()) {
-            EventStore.add(sessionId, "整合", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
+            EventStore.add(sessionId, "定稿", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
         }
         EventStore.add(sessionId, "思考", "行程Agent 正在基于全量信息编排最终行程...");
         // ★删聚合：行程Agent 回复中提取结构化终版【行程JSON】块 → TripPlanData；无块/解析失败降级原文兜底
         TripPlanData plan = parseTripPlan(state);
         if (plan == null || plan.getSections() == null || plan.getSections().isEmpty()) {
             plan = fallbackPlan(state.getRequest(), state.getRouteResult(), state.getPlanResult()); // 兜底已含完整 markdown 原文
-            EventStore.add(sessionId, "整合", "行程Agent未返回结构化终版JSON，降级为原文交付");
+            EventStore.add(sessionId, "定稿", "行程Agent未返回结构化终版JSON，降级为原文交付");
         } else {
             plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
             // ④ Reviewer 闭环：每轮审查前先跑确定性校验+六维评分（纯代码，作为审查依据）→ REVISE 定向重编（≤2轮）
@@ -290,10 +290,10 @@ public class TripOrchestrator {
         TravelState state = resolveAndFetch(userPrompt, null, false);
         String missingInput = missingInputs(state.getRouteResult(), ""); // 多方案仅路线前置必须齐全
         if (!missingInput.isBlank()) {
-            EventStore.add(sessionId, "整合", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
+            EventStore.add(sessionId, "定稿", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
         }
         EventStore.add(sessionId, "思考", "正在基于候选与衔接数据规划多套差异化方案...");
-        EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
+        EventStore.add(sessionId, "定稿", "正在生成 3 套差异化方案（美食向/出片向/省钱向）...");
         PlanSet set = aggregateMulti(state);
         // 每套方案补降级 markdown（前端打印/导出用）+ 逐套确定性校验与评分，择优 recommendedIndex
         if (set != null) {
@@ -756,7 +756,7 @@ public class TripOrchestrator {
         // 完整性缺口（原 aggregateGap 语义：sections空/timeline缺/stay缺 → 视为不可交付）
         String gap = aggregateGap(plan);
         if (!gap.isBlank()) {
-            EventStore.add(sessionId, "整合", "行程JSON缺关键内容(" + gap + ")，降级为原文兜底");
+            EventStore.add(sessionId, "定稿", "行程JSON缺关键内容(" + gap + ")，降级为原文兜底");
             return null;
         }
         normalizePlan(state, plan);
@@ -785,12 +785,12 @@ public class TripOrchestrator {
             String direct = fetchAmapWeather(req.getDestination(), Math.min(req.getDays(), 7));
             if (direct != null && !direct.isBlank()) {
                 weatherRaw = direct;
-                EventStore.add(sessionId, "整合", "天气直连高德预报：" + direct);
+                EventStore.add(sessionId, "定稿", "天气直连高德预报：" + direct);
             }
         }
         if (weatherRaw != null && !weatherRaw.isBlank()) {
             plan.setWeather(weatherRaw); // 覆盖行程Agent值（已清洗）
-            EventStore.add(sessionId, "整合", "天气透传：" + weatherRaw);
+            EventStore.add(sessionId, "定稿", "天气透传：" + weatherRaw);
         } else if (plan.getWeather() != null && !plan.getWeather().isBlank()) {
             plan.setWeather(cleanWeather(plan.getWeather()));
         }

@@ -215,7 +215,7 @@ function loadTasks(btn) {
                 '<td class="num-cell">' + fmtDur(x.durationMs) + '</td>' +
                 '<td class="num-cell">' + (x.modelCallsUsed != null && x.modelCallsUsed >= 0 ? x.modelCallsUsed : '—') + '</td>' +
                 '<td>' + esc(x.currentStep || '—') + '</td>' +
-                '<td>' + (x.reviseRounds > 0 ? '<span class="badge warn" title="结局: ' + esc(x.reviseOutcome || '?') + '">返工 ' + x.reviseRounds + '轮</span>' : '<span class="badge plain">—</span>') + '</td>' +
+                '<td>' + (x.reviseRounds > 0 ? '<span class="badge warn" title="' + esc(x.reviseOutcome || '?') + '">返工 ' + x.reviseRounds + '轮</span>' : '<span class="badge plain">—</span>') + '</td>' +
                 '<td><button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();showEvents(\'' + esc(x.sessionId) + '\')">事件</button></td></tr>').join('') +
               '</tbody></table>'
             : '<div class="state-box"><div class="big">📭</div>暂无历史任务<br><span style="font-size:12px">任务结束后自动归档到这里</span></div>';
@@ -409,7 +409,7 @@ function leafState(s) {
     return atts.some(a => !a.ok) ? 'bad' : 'ok';
 }
 
-/* 聚合状态：全成功绿 / 有失败有成功黄 / 全失败红 */
+/* 组状态汇总：全成功绿 / 有失败有成功黄 / 全失败红 */
 function aggState(items) {
     const st = items.map(i => i.stat);
     if (st.every(x => x === 'ok')) return 'ok';
@@ -607,9 +607,9 @@ function qualityNode(obs) {
     };
 }
 
-/* ============ 任务阶段事件明细（管理端透明化：解析/聚合/校验/审查等全阶段时间线） ============ */
+/* ============ 任务阶段事件明细（管理端透明化：解析/路线/候选/定稿/校验/审查等全阶段时间线） ============ */
 const EV_BADGE = { 解析: 'plain', 路线: 'plain', 行程: 'plain', 候选: 'plain', 调用工具: 'warn', Agent结果: 'warn',
-    思考: 'plain', 整合: 'plain', 修订: 'warn', 校验: 'warn', 评分: 'ok', 审查: 'warn', 证据链: 'plain', 完成: 'ok' };
+    思考: 'plain', 定稿: 'plain', 修订: 'warn', 校验: 'warn', 评分: 'ok', 审查: 'warn', 证据链: 'plain', 完成: 'ok' };
 
 function showEvents(sessionId) {
     const fold = document.getElementById('eventFold');
@@ -1409,9 +1409,6 @@ function promptLabel(key) {
     const labels = {
         requestParser: '需求解析提示词',
         preferenceClassifier: '偏好分类提示词',
-        tripAggregator: '行程聚合/输出格式',
-        tripAggregatorParseRetry: '聚合解析重试',
-        tripAggregatorGapRetry: '聚合补齐重试',
         moderation: '内容审核提示词',
         tripEditor: '行程编辑提示词',
         routeAgentSystem: '路线Agent系统提示词',
