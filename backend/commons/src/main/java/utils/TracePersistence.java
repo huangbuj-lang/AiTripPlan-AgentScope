@@ -127,6 +127,30 @@ public final class TracePersistence {
         return obs;
     }
 
+    /** ★列出所有含 reviseRounds 的已落库观测（revise-summary 面板重启后从库回退用；新的在前） */
+    public static List<Map<String, Object>> listObsWithRevise() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        try (Connection c = getConn()) {
+            String sql = "SELECT session_id, obs_json FROM task_obs WHERE obs_json LIKE '%reviseRounds%' "
+                    + "ORDER BY updated_ms DESC LIMIT 200";
+            try (Statement st = c.createStatement(); ResultSet rs = st.executeQuery(sql)) {
+                while (rs.next()) {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("sessionId", rs.getString("session_id"));
+                    String j = rs.getString("obs_json");
+                    if (j == null || j.isBlank()) continue;
+                    try {
+                        m.put("obs", new com.fasterxml.jackson.databind.ObjectMapper().readValue(j, Map.class));
+                    } catch (Exception ignored) { continue; }
+                    out.add(m);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[TracePersistence] listObsWithRevise 失败(忽略): " + e.getMessage());
+        }
+        return out;
+    }
+
     /** 读取某任务的历史 span（重启后内存丢失，从库恢复） */
     public static List<Map<String, Object>> loadSpans(String sessionId) {
         List<Map<String, Object>> out = new ArrayList<>();

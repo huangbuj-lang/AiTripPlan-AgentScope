@@ -266,12 +266,31 @@ public class AdminController {
         for (Map<String, Object> s : EventStore.listSessions()) {
             String sid = String.valueOf(s.get("sessionId"));
             seen.add(sid);
-            addReviseRow(rows, sid, "RUNNING");
+            // ★2026-09-05 修正 RUNNING 误标：listSessions 含已结束会话(running=false)，此前一律标 RUNNING
+            boolean running = Boolean.TRUE.equals(s.get("running"));
+            EventStore.TaskMeta smeta = EventStore.metaOf(sid);
+            String st = running ? "RUNNING" : (smeta != null && smeta.status != null ? smeta.status : "DONE");
+            addReviseRow(rows, sid, st);
         }
         // 历史任务（近200）
         for (EventStore.TaskMeta meta : EventStore.listHistory()) {
             if (!seen.add(meta.sessionId)) continue;
             addReviseRow(rows, meta.sessionId, meta.status);
+        }
+        // ★DB 回退（重启后内存空）：task_obs 里已落库的 REVISE 观测补进面板
+        for (Map<String, Object> obsRow : utils.TracePersistence.listObsWithRevise()) {
+            String sid = String.valueOf(obsRow.get("sessionId"));
+            if (!seen.add(sid)) continue;
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> obs = (Map<String, Object>) obsRow.get("obs");
+                Map<String, Object> m = new HashMap<>();
+                m.put("sessionId", sid);
+                m.put("status", "HISTORY"); // 内存已无该会话（重启后），仅能从库恢复观测
+                if (obs.get("reviseRounds") instanceof List<?> l && !l.isEmpty()) m.put("reviseRounds", l);
+                if (obs.get("reviseOutcome") != null) m.put("reviseOutcome", obs.get("reviseOutcome"));
+                rows.add(m);
+            } catch (Exception ignored) { }
         }
         rows.removeIf(m -> !m.containsKey("reviseRounds") && !m.containsKey("error")); // 只留有 REVISE 数据的
         r.put("rows", rows);
