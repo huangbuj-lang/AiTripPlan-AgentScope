@@ -400,8 +400,9 @@ public class TripOrchestrator {
             String waypoints = extractWaypoints(routeResult);
             state.setWaypoints(waypoints);
             state.addTrace("路线", "途经城市: " + (waypoints.isBlank() ? "未提取到" : waypoints));
+            String routeCandidates = extractRouteCandidates(routeResult); // 多条候选路线概要（供行程Agent择优）
             String planResult = await(PARALLEL_POOL.submit(() ->
-                    remoteTool.callTripPlannerAgent(planTask(req, waypoints))), "行程Agent");
+                    remoteTool.callTripPlannerAgent(planTask(req, waypoints, routeCandidates))), "行程Agent");
             state.setPlanResult(planResult);
             harvestCandidates(state);
             checkCancel();
@@ -584,16 +585,21 @@ public class TripOrchestrator {
             case "LOOP", "SELF_DRIVE" -> "（环线游：每日路线尽量不走回头路，环形串联）";
             default -> "";
         };
-        return brief + "请规划从 " + req.getOrigin() + " 到 " + dest + " 的自驾路线，"
-                + req.getDays() + " 天，包含每日行车路线、途经景点、驾驶时间与费用" + driveHint + "。\n"
+        return brief + "请规划从 " + req.getOrigin() + " 到 " + dest + " 的自驾方案，"
+                + req.getDays() + " 天" + driveHint + "。\n"
+                + "★请给出【2~3 条候选路线方案】（单条路线可能错过好景点，须供行程Agent择优选择）：\n"
+                + "每条方案用以下固定格式分条标注：\n"
+                + "★候选路线一：途经城市：城市A,城市B,城市C\n"
+                + "每日概要：第1天…；第2天…（逐日简述行车段与停留点）\n"
+                + "（候选路线二/三同格式；各方案走不同途经城市组合与节奏，不要雷同）\n"
                 + "★调用 query_route_unified，mode 参数driving" + (routePrefStr.isBlank() ? "" : "，routePref=" + routePrefStr)
-                + "（自驾路线与距离），查询各段自驾线路。\n"
-                + "★严格限制：总行程必须正好 " + req.getDays() + " 天，不得增加天数。\n"
-                + "如果 " + req.getDays() + " 天跑不完某条长线，请选择适合 " + req.getDays() + " 天的缩短路线（或减少景点），"
-                + "天数只允许少不允许多。";
+                + "（自驾路线与距离），查询每条候选方案各段自驾线路的真实里程/时长。\n"
+                + "★严格限制：每条候选路线的总天数必须正好 " + req.getDays() + " 天，不得增加；"
+                + "若某条长线 " + req.getDays() + " 天跑不完，则该方案应选择适合的缩短路线（或减少景点），天数只允许少不允许多。\n"
+                + "最终回复：完整列出各候选路线方案（含途经城市与逐日概要），不要只给单一定稿路线。";
     }
 
-    private String planTask(TripRequest req, String waypoints) {
+    private String planTask(TripRequest req, String waypoints, String routeCandidatesBrief) {
         // 行程偏好：LLM 分类出的 tripPref
         java.util.List<String> tripPrefs = new java.util.ArrayList<>();
         if (req.getTripPref() != null && !req.getTripPref().isBlank()) tripPrefs.add(req.getTripPref().trim());
@@ -604,11 +610,13 @@ public class TripOrchestrator {
             // 跨城：路线先行提取途经城市后，候选重点查终点城市 + 途经城市，不查起点
             return brief + "请规划从 " + req.getOrigin() + " 到 " + req.getDestination() + " 的" + req.getDays() + "天行程，"
                     + "重点规划【终点城市】与【途经城市】的景点。\n"
+                    + (routeCandidatesBrief == null || routeCandidatesBrief.isBlank() ? ""
+                            : "路线Agent给出多条候选路线方案，择一作为主线：\n" + routeCandidatesBrief + "\n")
                     + "★调用 query_trip_candidates 时，destination 固定传【" + req.getDestination() + "】，"
-                    + "把途经城市传 waypoints 参数（逗号分隔）：" + waypoints + "，"
+                    + "把【你选定的那条路线】的途经城市传 waypoints 参数（逗号分隔）：" + waypoints + "，"
                     + "查终点城市与途经城市的景点/美食；【不要查起点城市 " + req.getOrigin() + " 内部的景点】（起点只是出发地，不是游玩地）；"
                     + "brief 参数传任务开头的【TravelState 统一状态】块原文。\n"
-                    + "结合路线按 Day 每日给出行程与安排（前段可排途经城市，后段重点排终点城市）。"
+                    + "结合你选择的路线按 Day 每日给出行程与安排（前段可排途经城市，后段重点排终点城市）。"
                     + (prefStr.isBlank() ? "" : "★把行程偏好作为 preference 参数传入：" + prefStr + "。");
         }
         return brief + "请规划 " + req.getDestination() + " " + req.getDays() + " 日游的景点与每日行程，"
@@ -617,6 +625,10 @@ public class TripOrchestrator {
                 + "★调用 query_trip_candidates 时，把上述偏好作为 preference 参数传入，"
                 + "brief 参数传任务开头的【TravelState 统一状态】块原文，"
                 + "让三域专家按偏好与约束查询更贴合的数据(如'亲子景点'/'美食餐厅')，不要忽略偏好查通用清单。";
+    }
+
+    private String planTask(TripRequest req, String waypoints) {
+        return planTask(req, waypoints, "");
     }
 
     /** 从路线结果提取途经城市名（带市/区/县后缀，排除起终点，最多5个）。 */
@@ -632,6 +644,25 @@ public class TripOrchestrator {
         // 剔除起终点城市名本身
         seen.removeIf(n -> n.contains("起点") || n.contains("终点"));
         return String.join(",", seen);
+    }
+
+    /** 从路线结果提取多条候选路线概要（格式见 routeTask："★候选路线一：途经城市：A市,B市..."），
+     *  供行程Agent择优选择主线；提不到时返回空串（行程Agent按默认 waypoints 编排）。 */
+    private String extractRouteCandidates(String routeResult) {
+        if (routeResult == null || routeResult.isBlank()) return "";
+        StringBuilder sb = new StringBuilder();
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                "★?\\s*候选路线[一二三四1234]+[：:].*?途经城市[：:]\\s*([^\\n\\r]+)");
+        java.util.regex.Matcher m = p.matcher(routeResult);
+        int idx = 1;
+        while (m.find() && idx <= 3) {
+            String cities = m.group(1).trim();
+            if (!cities.isBlank()) {
+                sb.append("候选路线").append(idx).append("：途经城市 ").append(cities).append("\n");
+                idx++;
+            }
+        }
+        return sb.toString();
     }
 
     /** 从行程结果提取景点名（带景区/园/馆等后缀，最多5个）。 */
