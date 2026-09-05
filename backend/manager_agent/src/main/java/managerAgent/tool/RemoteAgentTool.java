@@ -73,8 +73,6 @@ public class RemoteAgentTool {
 
         Map<String, Object> orchestration = utils.NacosModelConfig.orchestrationConfig();
         RemoteTimeout.configure(orchestration);
-        long deadline = System.nanoTime() + RemoteTimeout.timeout().toNanos();
-
         A2aAgent agent = getAgent(name); // 复用缓存的A2A远程Agent代理
 
         log.info("============");
@@ -87,6 +85,8 @@ public class RemoteAgentTool {
         long callStartMs = System.currentTimeMillis(); // 健康统计：整次调用（含重试）计时
         utils.CallTrace.Span a2aSpan = utils.CallTrace.begin(sessionId, "A2A", name, ""); // ★调用链：每轮尝试记入 span.attempts
         for (int attempt = 1; attempt <= 2; attempt++) {
+            // ★2026-09-05 每 attempt 独立预算：deadline 在循环内重算——原 300s 总预算被 attempt1 耗尽后 attempt2 秒弃(0ms 直接失败)，超时重发形同虚设
+            long deadline = System.nanoTime() + RemoteTimeout.timeout().toNanos();
             // ★任务级调用链：会话标记随任务文本传给子Agent，子Agent进程的 LLM/工具 span 据此归位
             String taskToSend = "【trace:" + sessionId + "】" + task;
             if (attempt > 1) {
@@ -131,6 +131,10 @@ public class RemoteAgentTool {
                     throw new managerAgent.hook.CancelledException();
                 }
                 log.warn("{} A2A调用异常(attempt={}): {}", label, attempt, e.getMessage());
+                // ★2026-09-05 超时/传输异常后先中断远端任务：否则 8085 侧 attempt1 任务继续空跑，重发 attempt2 又开新任务，双任务叠加更慢
+                try {
+                    agent.interrupt();
+                } catch (Exception ignored) { }
                 String em = e.getMessage() == null ? "" : e.getMessage();
                 a2aSpan.addAttempt(attempt, false, System.currentTimeMillis() - callStartMs,
                         em.isBlank() ? "异常" : (em.length() > 120 ? em.substring(0, 120) : em));

@@ -1129,7 +1129,8 @@ public class TripOrchestrator {
             TripPlanData plan = null;
             try {
                 // ★中断感知：轮询等待，点中断立即生效（原 300s 一次性阻塞，中断要等跑完）
-                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(300);
+                // ★2026-09-05 上限=2次A2A尝试×单次预算（默认600s）：与 RemoteAgentTool 每attempt独立300s一致，否则future先超时把重试中的套放弃
+                long deadline = System.nanoTime() + managerAgent.tool.RemoteTimeout.timeout().toNanos() * 2;
                 while (true) {
                     checkCancel();
                     long remainMs = (deadline - System.nanoTime()) / 1_000_000L;
