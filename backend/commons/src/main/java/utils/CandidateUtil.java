@@ -401,20 +401,24 @@ public final class CandidateUtil {
         return n;
     }
 
-    /** 每域候选数量 = 天数（保底3、上限8）：天数多选材多，编排才有全局权衡空间。
-     *  调用方：域候选任务文本(DomainCandidateService)与聚合展示(TripOrchestrator)共用同一口径。 */
+    /** 每域候选数量 = 天数 × 2.5（四舍五入，保底3、上限18）。
+     *  依据：每天景点量 2~5（ConstraintEngine PACE），候选池必须覆盖天数×每日消耗，远大于单日需求——
+     *  5天行程需要至少10+个不重复景点，候选仅按天数(5个)会导致编排无米下锅。
+     *  封顶18防域专家JSON块过大撑爆聚合上下文。调用方：域候选任务文本(DomainCandidateService)与聚合展示(TripOrchestrator)共用同一口径。 */
     public static int candidateCountPerDomain(String days) {
         int n = 3;
         if (days != null) {
             try {
                 int d = Integer.parseInt(days.replaceAll("[^0-9]", ""));
-                if (d > 0) n = d;
+                if (d > 0) {
+                    n = (int) Math.round(d * 2.5);
+                }
             } catch (Exception ignored) { }
         }
-        return Math.max(3, Math.min(n, 8));
+        return Math.max(3, Math.min(n, 18));
     }
 
-     /** 候选分组效果统计（任务3，结构化）：管理端判断"推荐乱 = 候选没坐标 还是 分组没生效"。
+    /** 候选分组效果统计（任务3，结构化）：管理端判断"推荐乱 = 候选没坐标 还是 分组没生效"。
      * 返回 attractionCount/withLocation/locationCoverage(0-100)/coordGroups/areaGroups/mode(coordinate|area|none)/groupSizes。
      * 纯只读计算，可安全对 null/空 JSON 调用。
      */

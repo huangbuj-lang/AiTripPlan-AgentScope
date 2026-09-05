@@ -115,10 +115,10 @@ public final class AgentPrompts {
         DEFAULTS.put("toolRouteUnified", "路线统一查询工具：查两点间路线。mode=driving查自驾路线与距离；mode=urban查市内衔接(短距步行/长距公交)。可选routePref偏好(如公交/骑行/步行/不走高速)影响出行方式。跨城自驾用driving，市内景区串联用urban。");
         DEFAULTS.put("toolLocalKnowledge", "查询本地沉淀的景点/美食/酒店知识库（含评分、类型、档次、门票、时长、开放时间、游客提示）。与高德综合工具并行调用，作为高德实时数据的补充。传 city 城市名；preference 偏好可用自然语言（如 带娃/出片/吃得地道/性价比），会自动匹配标签。");
 
-        // ===== 三域候选专家（PDF §一/§五/§八：景点/酒店/餐饮并行取候选，数量随天数 3~8 个，供全局权衡） =====
+        // ===== 三域候选专家（PDF §一/§五/§八：景点/酒店/餐饮并行取候选，数量随天数放大 天数×2.5/域封顶18，供全局权衡） =====
         DEFAULTS.put("domainAttractionAgent", """
                 你是景点候选专家Agent（AttractionAgent），只负责【景点/活动】域，不做住宿/餐饮/路线规划。
-                任务：基于任务文本中的目的地/天数/偏好/途经城市（以【TravelState 统一状态】为权威快照），调用工具查询真实数据，按任务开头【本域任务】指定的候选数量(通常3~8个)输出候选，不要少于任务数量。
+                任务：基于任务文本中的目的地/天数/偏好/途经城市（以【TravelState 统一状态】为权威快照），调用工具查询真实数据，按任务开头【本域任务】指定的候选数量（随行程天数放大，约天数×2.5个/域、封顶18）输出候选，不要少于任务数量。
                 工具：query_places(高德地点搜索)、query_place_detail(详情：评分/门票/开放时间)、query_local_knowledge(本地知识库，preference 传与景点相关的偏好)。
                 要求：
                 1.至少调用 query_places 与 query_local_knowledge 各一次；跨城途经场景对每个途经城市分别查询。
@@ -129,7 +129,7 @@ public final class AgentPrompts {
                 """);
         DEFAULTS.put("domainHotelAgent", """
                 你是住宿候选专家Agent（HotelAgent），只负责【酒店/住宿】域，不做景点/餐饮/路线规划。
-                任务：基于任务文本中的目的地/天数/预算/酒店偏好（以【TravelState 统一状态】为权威快照），调用工具查询真实数据，按任务开头【本域任务】指定的候选数量(通常3~8个)输出候选，不要少于任务数量。
+                任务：基于任务文本中的目的地/天数/预算/酒店偏好（以【TravelState 统一状态】为权威快照），调用工具查询真实数据，按任务开头【本域任务】指定的候选数量（随行程天数放大，约天数×2.5个/域、封顶18）输出候选，不要少于任务数量。
                 工具：query_places(高德地点搜索，关键词如"酒店")、query_local_knowledge(本地知识库，preference 传住宿相关偏好)。
                 要求：
                 1.至少调用 query_places 与 query_local_knowledge 各一次；优先查询目的地城市住宿区（跨城游以终点城市为主）。
@@ -140,7 +140,7 @@ public final class AgentPrompts {
                 """);
         DEFAULTS.put("domainDiningAgent", """
                 你是餐饮候选专家Agent（DiningAgent），只负责【餐厅/美食】域，不做景点/住宿/路线规划。
-                任务：基于任务文本中的目的地/偏好/途经城市（以【TravelState 统一状态】为权威快照），调用工具查询真实数据，按任务开头【本域任务】指定的候选数量(通常3~8个)输出候选，不要少于任务数量。
+                任务：基于任务文本中的目的地/偏好/途经城市（以【TravelState 统一状态】为权威快照），调用工具查询真实数据，按任务开头【本域任务】指定的候选数量（随行程天数放大，约天数×2.5个/域、封顶18）输出候选，不要少于任务数量。
                 工具：query_places(高德地点搜索，关键词如"美食/餐厅")、query_local_knowledge(本地知识库，preference 传美食相关偏好)。
                 要求：
                 1.至少调用 query_places 与 query_local_knowledge 各一次；跨城途经场景对每个途经城市分别查询。
@@ -149,7 +149,7 @@ public final class AgentPrompts {
                 4.只输出 JSON：{"domain":"dining","city":"目的地","degraded":false,"candidates":[{"name":"","reason":"推荐理由(特色/贴合偏好)","price":"人均","rating":"","openTime":"营业时间","area":"所在区域","location":"经度,纬度(高德location原样抄录,如118.58,24.91;缺失填空串)","confidence":0.9}]}
                 5.工具全部失败时 degraded=true、candidates 留空并给 reason 说明，禁止编造。★degraded 判定铁律：degraded=true 仅当 query_places(高德)也失败时才允许；本地知识库失败/无数据【不算】工具失败——高德成功时必须基于高德数据按任务指定数量输出候选（confidence 如实 0.70~0.85），禁止因本地库失败而 degraded。★输出纪律：最终回复必须以 { 开头、以 } 结尾的纯 JSON（一个对象），【绝对禁止】输出思考过程/分析文字/计划说明——先想清楚再一次性输出最终 JSON。
                 """);
-        DEFAULTS.put("toolQueryCandidates", "三域候选一站式工具：一次调用即在服务内部并行调度 景点/酒店/餐饮 三个域专家Agent（各自查真实数据），返回结构化候选 JSON（每域数量随行程天数 3~8 个，含天气与置信度）。destination 必填（目的地城市名）。");
+        DEFAULTS.put("toolQueryCandidates", "三域候选一站式工具：一次调用即在服务内部并行调度 景点/酒店/餐饮 三个域专家Agent（各自查真实数据），返回结构化候选 JSON（每域数量随行程天数自动放大，约天数×2.5个/域、封顶18，含天气与置信度）。destination 必填（目的地城市名）。");
 
         // ===== 会话式增量修正（PDF §十三：影响分析 → 只重跑受影响部分） =====
         DEFAULTS.put("reviseImpactAnalyzer", """

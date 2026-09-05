@@ -23,7 +23,7 @@ public class CandidatesTool {
 
     @Tool(name = "query_trip_candidates",
             description = "三域候选一站式工具：一次调用即在服务内部并行调度 景点/酒店/餐饮 三个域专家Agent（各自查真实数据），"
-                    + "返回结构化候选 JSON（每域数量随行程天数 3~8 个，含天气与置信度）。destination 必填（目的地城市名，如：成都）。")
+                    + "返回结构化候选 JSON（每域数量随行程天数自动放大，约天数×2.5个/域、封顶18，含天气与置信度）。destination 必填（目的地城市名，如：成都）。")
     public String queryTripCandidates(
             @ToolParam(name = "destination", description = "目的地城市名，必填，如：成都") String destination,
             @ToolParam(name = "days", description = "行程天数（仅提示）") String days,
