@@ -401,8 +401,20 @@ public final class CandidateUtil {
         return n;
     }
 
-    /**
-     * 候选分组效果统计（任务3，结构化）：管理端判断"推荐乱 = 候选没坐标 还是 分组没生效"。
+    /** 每域候选数量 = 天数（保底3、上限8）：天数多选材多，编排才有全局权衡空间。
+     *  调用方：域候选任务文本(DomainCandidateService)与聚合展示(TripOrchestrator)共用同一口径。 */
+    public static int candidateCountPerDomain(String days) {
+        int n = 3;
+        if (days != null) {
+            try {
+                int d = Integer.parseInt(days.replaceAll("[^0-9]", ""));
+                if (d > 0) n = d;
+            } catch (Exception ignored) { }
+        }
+        return Math.max(3, Math.min(n, 8));
+    }
+
+     /** 候选分组效果统计（任务3，结构化）：管理端判断"推荐乱 = 候选没坐标 还是 分组没生效"。
      * 返回 attractionCount/withLocation/locationCoverage(0-100)/coordGroups/areaGroups/mode(coordinate|area|none)/groupSizes。
      * 纯只读计算，可安全对 null/空 JSON 调用。
      */

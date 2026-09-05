@@ -160,7 +160,7 @@ public class DomainCandidateService {
             ReActAgent agent = AgentUtils.getReActAgentBuilder(name, domain + " 域候选专家")
                     .sysPrompt(prompt)
                     .toolkit(toolkit)
-                    .maxIters(6) // 域专家任务单一：查数→选Top3，不需要长链路
+                    .maxIters(6) // 域专家任务单一：查数→按任务指定数量选候选，不需要长链路
                     .build();
             long agentStart = System.currentTimeMillis();
             Msg resp = agent.call(
@@ -188,7 +188,8 @@ public class DomainCandidateService {
         if (brief != null && !brief.isBlank()) {
             sb.append(brief.trim()).append("\n\n");
         }
-        sb.append("【本域任务】查询 ").append(domainLabel(domain)).append("域 Top3 候选。\n");
+        sb.append("【本域任务】查询 ").append(domainLabel(domain)).append("域 Top")
+          .append(utils.CandidateUtil.candidateCountPerDomain(days)).append(" 候选。\n");
         sb.append("目的地: ").append(destination == null || destination.isBlank() ? "未提供" : destination).append("\n");
         if (days != null && !days.isBlank()) sb.append("天数: ").append(days).append("\n");
         if (preference != null && !preference.isBlank()) sb.append("行程偏好: ").append(preference).append("\n");

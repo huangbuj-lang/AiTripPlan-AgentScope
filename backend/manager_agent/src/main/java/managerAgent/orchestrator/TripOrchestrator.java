@@ -388,7 +388,7 @@ public class TripOrchestrator {
                             + (summary.isBlank() ? "" : "：" + summary)
                             + (cluster.isBlank() ? "" : "｜" + cluster));
                     EventStore.putExtra(sessionId, "clusterStats", utils.CandidateUtil.clusterStats(cands)); // ★任务3：聚类效果结构化统计
-                    state.addTrace("候选", "三域Top3候选(结构化)"
+                    state.addTrace("候选", "三域候选(结构化,每域随天数)"
                             + (fetched ? "·代码回取" : ""));
                 }
             }
@@ -887,7 +887,9 @@ public class TripOrchestrator {
     private String buildCandidatesSection(TravelState state) {
         if (state == null || state.getCandidatesJson().isBlank()) return "";
         Map<String, Object> cands = utils.CandidateUtil.parse(state.getCandidatesJson());
-        String text = utils.CandidateUtil.toPromptText(cands, 3);
+        int perDomain = utils.CandidateUtil.candidateCountPerDomain(
+                state.getRequest() == null ? null : String.valueOf(state.getRequest().getDays()));
+        String text = utils.CandidateUtil.toPromptText(cands, perDomain);
         if (text.isBlank()) return "";
         String groupHint = utils.CandidateUtil.coordinateGroupHint(cands); // ★坐标聚类（P1b：真实坐标邻近分组）
         if (groupHint.isBlank()) groupHint = utils.CandidateUtil.areaGroupHint(cands); // 坐标缺失回退文本分组
