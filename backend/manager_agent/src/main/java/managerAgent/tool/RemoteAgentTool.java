@@ -30,8 +30,8 @@ public class RemoteAgentTool {
         this.sessionId = sessionId;
     }
 
-    // 远程Agent代理缓存：按 name 复用 A2aAgent（避免反复重建 Nacos 连接）
-    private static final ConcurrentHashMap<String, A2aAgent> AGENT_CACHE = new ConcurrentHashMap<>();
+    // ★2026-09-05 删缓存：同一 A2aAgent 实例并发 call 会抛 "Agent is still running"（多方案3套并行定稿=2/3套降级兜底的根因）。
+    //   A2aAgent 为协议层轻对象（Nacos 连接池在 NacosUtil 单例共享），每次调用新建独立实例成本可接受，换来并发安全。
     private static final Duration REMOTE_TIMEOUT = Duration.ofSeconds(300); // ★2026-08-24 云端240s→300s: 路线Agent多轮工具调用常超240s
 
     // ==================== 子Agent健康统计（管理端展示） ====================
@@ -49,16 +49,12 @@ public class RemoteAgentTool {
         AGENT_COST_MS.computeIfAbsent(name, k -> new java.util.concurrent.atomic.AtomicLong()).addAndGet(costMs);
     }
 
-    /** 按 name 获取（缓存复用）A2A 远程Agent代理 */
+    /** 按 name 新建 A2A 代理（★不缓存复用：并发安全，见 AGENT_CACHE 删除注释） */
     private A2aAgent getAgent(String name) throws NacosException {
-        A2aAgent agent = AGENT_CACHE.get(name);
-        if (agent != null) return agent;
-        A2aAgent created = A2aAgent.builder()
+        return A2aAgent.builder()
                 .name(name)
                 .agentCardResolver(new NacosAgentCardResolver(NacosUtil.getNacosClient()))
                 .build();
-        A2aAgent existing = AGENT_CACHE.putIfAbsent(name, created); // 并发下只保留第一个
-        return existing != null ? existing : created;
     }
 
     /** 通用远程Agent调用：查名片 → 发消息 → 阻塞取回复 → 记录事件 */
