@@ -185,6 +185,11 @@ public class TripOrchestrator {
             }
             ReviseSummary.recordRound(sessionId, round, "REVISE", v.getScore(), snapshotIssues(v), "rework");
             EventStore.add(sessionId, "审查", "带审查反馈重跑聚合（第 " + round + " 次修正）...");
+            // ★审查补查：问题涉及交通/衔接(domain=transport 或 type=route)时，先按当前方案景点补查真实路线，
+            //   回填 routeResult 再重跑聚合——聚合改完行程后衔接数据不过期、不靠模型脑补
+            if (needRouteRefetch(v)) {
+                refetchRouteForIssues(state, current);
+            }
             TripPlanData fixed;
             try {
                 fixed = aggregateCore(state, style, v.feedbackText());
@@ -203,6 +208,65 @@ public class TripOrchestrator {
             current = fixed;
         }
         return current;
+    }
+
+    /** 审查问题是否涉及交通/衔接（domain=transport 或 type=route 或 type=schedule 中提及衔接）→ 需要补查真实路线 */
+    private boolean needRouteRefetch(ReviewVerdict v) {
+        if (v == null || v.getIssues() == null || v.getIssues().isEmpty()) return false;
+        for (ReviewVerdict.Issue is : v.getIssues()) {
+            if (is == null) continue;
+            String dom = is.domain == null ? "" : is.domain.trim().toLowerCase();
+            String typ = is.type == null ? "" : is.type.trim().toLowerCase();
+            String reason = is.reason == null ? "" : is.reason;
+            if ("transport".equals(dom) || "route".equals(typ) || "route".equals(dom)) return true;
+            // reason 明确提及衔接/交通/绕路时也触发（审查器未标 domain 的兜底）
+            if (reason.contains("衔接") || reason.contains("交通") || reason.contains("绕路")
+                    || reason.contains("步行") || reason.contains("公交")) return true;
+        }
+        return false;
+    }
+
+    /** ★审查补查：按当前方案从结构化行程提取景点清单 → 重调路线Agent查真实衔接 → 回填 routeResult。
+     *  仅市内（sights 非空走 urban 衔接模式）；跨城审查补查保持原样（城市序列不变时无需重查）。 */
+    private void refetchRouteForIssues(TravelState state, TripPlanData plan) {
+        try {
+            TripRequest req = state.getRequest();
+            if (req == null || plan == null) return;
+            boolean crossCity = req.getOrigin() != null && !req.getOrigin().isBlank()
+                    && req.getDestination() != null && !req.getDestination().isBlank()
+                    && !req.getOrigin().trim().equals(req.getDestination().trim());
+            if (crossCity) return; // 跨城：路线决定途经城市，聚合若改城市属结构性变化，走缓存键失效重建，不在此补查
+            String sights = sightsFromPlan(plan);
+            if (sights.isBlank()) return; // 结构化行程无景点 → 无清单可查
+            EventStore.add(sessionId, "路线", "审查发现交通/衔接问题，按当前方案景点补查真实路线...");
+            String freshRoute = await(PARALLEL_POOL.submit(() ->
+                    remoteTool.callRouteMakingAgent(routeTask(req, sights))), "路线Agent·审查补查");
+            if (freshRoute != null && !freshRoute.isBlank()) {
+                state.setRouteResult(freshRoute); // 回填：后续 aggregateCore 用新衔接数据重跑
+                state.addTrace("路线", "审查补查: 已按当前方案重查衔接");
+                EventStore.add(sessionId, "路线", "路线补查完成(衔接数据已更新)");
+            } else {
+                EventStore.add(sessionId, "路线", "路线补查失败(沿用原衔接数据)");
+            }
+        } catch (Exception e) {
+            log.warn("审查补查路线异常(忽略，沿用原衔接): {}", e.getMessage());
+        }
+    }
+
+    /** 从结构化行程提取景点清单（timeline 区块的 place，去重，最多 5 个） */
+    private String sightsFromPlan(TripPlanData plan) {
+        if (plan == null || plan.getSections() == null) return "";
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        for (dto.Section sec : plan.getSections()) {
+            if (sec == null || sec.getItems() == null) continue;
+            for (dto.SectionItem it : sec.getItems()) {
+                if (it == null || it.getPlace() == null || it.getPlace().isBlank()) continue;
+                seen.add(it.getPlace().trim());
+                if (seen.size() >= 5) break;
+            }
+            if (seen.size() >= 5) break;
+        }
+        return String.join(",", seen);
     }
 
     /** 多方案编排：并行聚合出美食向/出片向/省钱向 3 套方案供前端对比。 */
