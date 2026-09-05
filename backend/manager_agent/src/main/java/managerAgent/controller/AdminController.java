@@ -247,6 +247,10 @@ public class AdminController {
         if (outcome != null) obs.put("reviseOutcome", outcome);
         Object cluster = EventStore.getExtra(sessionId, "clusterStats");
         if (cluster != null) obs.put("clusterStats", cluster);
+        if (obs.isEmpty()) { // ★重启后内存 extras 丢失：从 task_obs 库恢复
+            java.util.Map<String, Object> dbObs = utils.TracePersistence.loadObs(sessionId);
+            if (!dbObs.isEmpty()) obs.putAll(dbObs);
+        }
         if (!obs.isEmpty()) r.put("obs", obs);
         r.put("success", true);
         return r;

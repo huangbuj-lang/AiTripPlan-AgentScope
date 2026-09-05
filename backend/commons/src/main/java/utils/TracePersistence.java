@@ -86,6 +86,47 @@ public final class TracePersistence {
         }
     }
 
+    /** ★任务级结构化观测落库（reviseRounds/reviseOutcome/clusterStats）：任务终态 upsert，
+     *  进程重启后 events 面板的质量观测从库恢复（内存 extras 会丢，库是兜底）。 */
+    public static void saveObs(String sessionId, Map<String, Object> obs) {
+        if (obs == null || obs.isEmpty()) return;
+        try (Connection c = getConn()) {
+            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(obs);
+            String sql = "INSERT INTO task_obs(session_id,obs_json,updated_ms) VALUES(?,?,?) "
+                    + "ON DUPLICATE KEY UPDATE obs_json=VALUES(obs_json),updated_ms=VALUES(updated_ms)";
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.setString(1, sessionId);
+                ps.setString(2, json);
+                ps.setLong(3, System.currentTimeMillis());
+                ps.executeUpdate();
+            }
+        } catch (Exception e) {
+            System.err.println("[TracePersistence] saveObs 失败(忽略): " + e.getMessage());
+        }
+    }
+
+    /** 读取某任务的结构化观测（task_obs；无记录返回空 map） */
+    public static Map<String, Object> loadObs(String sessionId) {
+        Map<String, Object> obs = new HashMap<>();
+        try (Connection c = getConn()) {
+            String sql = "SELECT obs_json FROM task_obs WHERE session_id=?";
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.setString(1, sessionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        String j = rs.getString("obs_json");
+                        if (j != null && !j.isBlank()) {
+                            obs = new com.fasterxml.jackson.databind.ObjectMapper().readValue(j, Map.class);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[TracePersistence] loadObs 失败(忽略): " + e.getMessage());
+        }
+        return obs;
+    }
+
     /** 读取某任务的历史 span（重启后内存丢失，从库恢复） */
     public static List<Map<String, Object>> loadSpans(String sessionId) {
         List<Map<String, Object>> out = new ArrayList<>();

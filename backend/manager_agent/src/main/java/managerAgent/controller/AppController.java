@@ -263,6 +263,15 @@ public class AppController {
                     ((Number) a.getOrDefault("ts", 0L)).longValue(),
                     ((Number) b.getOrDefault("ts", 0L)).longValue()));
             utils.TracePersistence.saveSpans(sessionId, spans);
+            // ★结构化观测落库（task_obs）：reviseRounds/reviseOutcome/clusterStats——进程重启后 events 质量观测从库恢复
+            java.util.Map<String, Object> obs = new java.util.HashMap<>();
+            Object rounds = managerAgent.hook.EventStore.getExtra(sessionId, "reviseRounds");
+            Object outcome = managerAgent.hook.EventStore.getExtra(sessionId, "reviseOutcome");
+            Object cluster = managerAgent.hook.EventStore.getExtra(sessionId, "clusterStats");
+            if (rounds != null) obs.put("reviseRounds", rounds);
+            if (outcome != null) obs.put("reviseOutcome", outcome);
+            if (cluster != null) obs.put("clusterStats", cluster);
+            utils.TracePersistence.saveObs(sessionId, obs);
         } catch (Exception e) {
             System.err.println("[persistObservation] 落库失败(忽略): " + e.getMessage());
         }
