@@ -228,6 +228,9 @@ public class AdminController {
         Map<String, Object> r = new HashMap<>();
         r.put("sessionId", sessionId);
         List<Map<String, String>> events = EventStore.allQuiet(sessionId);
+        if (events == null) { // ★重启后内存无该会话：事件流从 task_events 库恢复（终态落库）
+            events = utils.TracePersistence.loadEvents(sessionId);
+        }
         r.put("events", events == null ? List.of() : events);
         Map<String, Object> meta = null;
         EventStore.TaskMeta live = EventStore.metaOf(sessionId);

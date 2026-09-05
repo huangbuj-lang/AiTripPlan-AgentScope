@@ -215,10 +215,12 @@ public class EventStore {
      */
     public static void add(String sessionId, String type, String content) {
         SessionState s = state(sessionId);
+        long nowMs = System.currentTimeMillis();
         Map<String, String> event = Map.of(
                 "time", LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")),
                 "type", type,
-                "content", content == null ? "" : content
+                "content", content == null ? "" : content,
+                "ts", String.valueOf(nowMs) // ★2026-09-05 供终态落库 task_events（重启后历史事件流从库恢复）
         );
         s.events.add(event);
         while (s.events.size() > MAX_EVENTS) { // 超出上限丢弃最旧事件

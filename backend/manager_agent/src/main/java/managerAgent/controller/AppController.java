@@ -272,6 +272,9 @@ public class AppController {
             if (outcome != null) obs.put("reviseOutcome", outcome);
             if (cluster != null) obs.put("clusterStats", cluster);
             utils.TracePersistence.saveObs(sessionId, obs);
+            // ★事件流落库（task_events）：终态把内存事件批量写入——重启后历史任务的事件明细从库恢复
+            java.util.List<Map<String, String>> events = managerAgent.hook.EventStore.allQuiet(sessionId);
+            if (events != null) utils.TracePersistence.saveEvents(sessionId, events);
         } catch (Exception e) {
             System.err.println("[persistObservation] 落库失败(忽略): " + e.getMessage());
         }

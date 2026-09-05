@@ -127,6 +127,63 @@ public final class TracePersistence {
         return obs;
     }
 
+    /** ★任务事件流落库（task_events）：任务终态把 EventStore 事件批量写入（先删后插，防 sessionId 复用累积旧事件）；
+     *  进程重启后管理端事件明细从库恢复（内存事件会丢）。 */
+    public static void saveEvents(String sessionId, List<Map<String, String>> events) {
+        if (events == null || events.isEmpty()) return;
+        try (Connection c = getConn()) {
+            try (PreparedStatement del = c.prepareStatement("DELETE FROM task_events WHERE session_id=?")) {
+                del.setString(1, sessionId);
+                del.executeUpdate();
+            }
+            String sql = "INSERT INTO task_events(session_id,ts,type,content) VALUES(?,?,?,?)";
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                for (Map<String, String> e : events) {
+                    String ts = e.get("ts");
+                    if (ts == null || ts.isBlank()) continue;
+                    ps.setString(1, sessionId);
+                    try {
+                        ps.setLong(2, Long.parseLong(ts));
+                    } catch (NumberFormatException ex) {
+                        continue;
+                    }
+                    ps.setString(3, e.getOrDefault("type", ""));
+                    ps.setString(4, e.getOrDefault("content", ""));
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        } catch (Exception e) {
+            System.err.println("[TracePersistence] saveEvents 失败(忽略): " + e.getMessage());
+        }
+    }
+
+    /** 读取某任务的历史事件流（task_events；无记录返回空 list），恢复成前端口径 {time,type,content} */
+    public static List<Map<String, String>> loadEvents(String sessionId) {
+        List<Map<String, String>> out = new ArrayList<>();
+        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss");
+        try (Connection c = getConn()) {
+            String sql = "SELECT ts,type,content FROM task_events WHERE session_id=? ORDER BY id ASC";
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.setString(1, sessionId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        Map<String, String> m = new HashMap<>();
+                        String time = java.time.Instant.ofEpochMilli(rs.getLong("ts"))
+                                .atZone(java.time.ZoneId.systemDefault()).format(fmt);
+                        m.put("time", time);
+                        m.put("type", rs.getString("type") == null ? "" : rs.getString("type"));
+                        m.put("content", rs.getString("content") == null ? "" : rs.getString("content"));
+                        out.add(m);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[TracePersistence] loadEvents 失败(忽略): " + e.getMessage());
+        }
+        return out;
+    }
+
     /** ★列出所有含 reviseRounds 的已落库观测（revise-summary 面板重启后从库回退用；新的在前） */
     public static List<Map<String, Object>> listObsWithRevise() {
         List<Map<String, Object>> out = new ArrayList<>();
