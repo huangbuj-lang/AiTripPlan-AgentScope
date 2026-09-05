@@ -355,4 +355,79 @@ class CandidateUtilTest {
         assertEquals(0, s3.get("attractionCount"));
         assertEquals("none", s3.get("mode"));
     }
+
+    // ==================== ★删聚合：行程JSON块 提取/剥离 ====================
+
+    @Test
+    void extractsPlanBlockFromReply() {
+        String planJson = "{\"title\":\"成都3日游\",\"days\":3,\"sections\":[]}";
+        String reply = "可读行程文本……\n\n【行程JSON】\n" + planJson + "\n【行程JSON结束】\n（结尾附注）";
+        assertEquals(planJson, CandidateUtil.extractPlanBlock(reply));
+        assertEquals("", CandidateUtil.extractPlanBlock("没有JSON块的纯文本"));
+        assertEquals("", CandidateUtil.extractPlanBlock(null));
+        assertEquals("", CandidateUtil.extractPlanBlock(""));
+        // 无结束标记 → 取到末尾
+        String openOnly = "文本【行程JSON】{\"title\":\"x\"}";
+        assertTrue(CandidateUtil.extractPlanBlock(openOnly).contains("\"title\""));
+        // 域候选块与行程块互不干扰
+        String both = "文本【域候选JSON】{c:1}【域候选JSON结束】\n【行程JSON】{\"days\":2}【行程JSON结束】";
+        assertEquals("{\"days\":2}", CandidateUtil.extractPlanBlock(both));
+    }
+
+    @Test
+    void stripsPlanBlockFromReply() {
+        String reply = "可读行程\n【行程JSON】\n{\"x\":1}\n【行程JSON结束】\n尾注";
+        String stripped = CandidateUtil.stripPlanBlock(reply);
+        assertFalse(stripped.contains("行程JSON"));
+        assertTrue(stripped.startsWith("可读行程"));
+        assertTrue(stripped.endsWith("尾注"));
+        assertEquals("原样文本", CandidateUtil.stripPlanBlock("原样文本"));
+        assertEquals("", CandidateUtil.stripPlanBlock(null));
+    }
+
+    // ==================== ★删聚合：簇代表景点清单（市内路线按簇查衔接） ====================
+
+    @Test
+    void clusterRepSightsPerCluster() {
+        // 泉州：开元寺+西街 近(≤5km)一簇；洛阳桥 远一簇；清净寺 近开元寺但按贪心序并入第一簇
+        String json = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","location":"118.586,24.908","confidence":0.9},
+                  {"name":"西街","location":"118.581,24.909","confidence":0.85},
+                  {"name":"洛阳桥","location":"118.684,24.963","confidence":0.85},
+                  {"name":"清净寺","location":"118.588,24.902","confidence":0.85}]}}
+                """;
+        // 开元寺(首)为第一簇代表；洛阳桥单独成簇（相距>5km）→ 代表=开元寺,洛阳桥
+        String reps = CandidateUtil.clusterRepSights(CandidateUtil.parse(json), 8);
+        assertTrue(reps.startsWith("开元寺"), "首簇代表应为开元寺: " + reps);
+        assertTrue(reps.contains("洛阳桥"), "远簇代表应为洛阳桥: " + reps);
+        assertFalse(reps.contains("西街"), "同簇成员不作为代表: " + reps);
+        // 上限语义：cap 保底3 仅当簇数足够；本例仅2簇 → 如实返回2个代表（保底不无中生有）
+        String capped = CandidateUtil.clusterRepSights(CandidateUtil.parse(json), 1);
+        assertEquals("开元寺,洛阳桥", capped, "max<簇数时按实际簇数返回: " + capped);
+    }
+
+    @Test
+    void clusterRepSightsFallbacks() {
+        // 无坐标 → 按候选顺序取前N
+        String noLoc = """
+                {"attraction":{"city":"泉州","degraded":false,"candidates":[
+                  {"name":"开元寺","confidence":0.9},
+                  {"name":"西街","confidence":0.85},
+                  {"name":"洛阳桥","confidence":0.85},
+                  {"name":"清净寺","confidence":0.85},
+                  {"name":"天后宫","confidence":0.8}]}}
+                """;
+        assertEquals("开元寺,西街,洛阳桥,清净寺,天后宫",
+                CandidateUtil.clusterRepSights(CandidateUtil.parse(noLoc), 8));
+        assertEquals("开元寺,西街,洛阳桥",
+                CandidateUtil.clusterRepSights(CandidateUtil.parse(noLoc), 3));
+        // 空/单景点/null → 空串或单点
+        assertEquals("", CandidateUtil.clusterRepSights(null, 8));
+        assertEquals("", CandidateUtil.clusterRepSights(CandidateUtil.parse("{}"), 8));
+        String single = """
+                {"attraction":{"candidates":[{"name":"开元寺","location":"118.586,24.908"}]}}
+                """;
+        assertEquals("开元寺", CandidateUtil.clusterRepSights(CandidateUtil.parse(single), 8));
+    }
 }

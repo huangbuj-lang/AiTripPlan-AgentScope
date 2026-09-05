@@ -21,6 +21,9 @@ public final class CandidateUtil {
 
     private static final String BLOCK_BEGIN = "【域候选JSON】";
     private static final String BLOCK_END = "【域候选JSON结束】";
+    /** ★删聚合后行程Agent直接输出结构化终版：块标记与域候选块同机制（正文= TripPlanData JSON，供主管解析） */
+    private static final String PLAN_BLOCK_BEGIN = "【行程JSON】";
+    private static final String PLAN_BLOCK_END = "【行程JSON结束】";
     private static final Pattern CONF = Pattern.compile("\"confidence\"\\s*:\\s*(0?(?:\\.\\d+)|1(?:\\.0+)?)");
 
     /** 域中文名 */
@@ -52,6 +55,27 @@ public final class CandidateUtil {
         int e = reply.indexOf(BLOCK_END, b);
         if (e < 0) return reply.substring(0, b).trim();
         return (reply.substring(0, b) + reply.substring(e + BLOCK_END.length())).trim();
+    }
+
+    /** 从子 Agent 完整回复中提取 【行程JSON】...【行程JSON结束】 块正文（无块返回空串）。★删聚合：行程Agent结构化终版块 */
+    public static String extractPlanBlock(String reply) {
+        if (reply == null) return "";
+        int b = reply.indexOf(PLAN_BLOCK_BEGIN);
+        if (b < 0) return "";
+        int s = b + PLAN_BLOCK_BEGIN.length();
+        int e = reply.indexOf(PLAN_BLOCK_END, s);
+        if (e < 0) e = reply.length();
+        return reply.substring(s, e).trim();
+    }
+
+    /** 从回复正文剥离行程 JSON 块（终版已入 TripPlanData，正文只留可读文本供降级 markdown） */
+    public static String stripPlanBlock(String reply) {
+        if (reply == null) return "";
+        int b = reply.indexOf(PLAN_BLOCK_BEGIN);
+        if (b < 0) return reply;
+        int e = reply.indexOf(PLAN_BLOCK_END, b);
+        if (e < 0) return reply.substring(0, b).trim();
+        return (reply.substring(0, b) + reply.substring(e + PLAN_BLOCK_END.length())).trim();
     }
 
     /** 解析候选 JSON（容忍围栏/前后缀）；解析失败或非对象返回 null。 */
@@ -313,6 +337,56 @@ public final class CandidateUtil {
               .append(String.join("、", en.getValue())).append("\n");
         }
         return sb.toString().trim();
+    }
+
+    /**
+     * ★删聚合·市内路线按簇查：从景点候选提取"每簇代表景点"清单（坐标贪心成簇同 coordinateGroupHint），
+     * 供路线Agent只查簇与簇之间的真实衔接（不是候选全量两两查，平方级成本）；单簇只取首个带坐标候选。
+     * 坐标不足 2 个时回退按候选顺序取前 N 个景点名；返回逗号分隔清单，无景点返回空串。
+     */
+    public static String clusterRepSights(Map<String, Object> candidates, int maxSights) {
+        List<Map<String, Object>> spots = items(candidates, "attraction");
+        if (spots.isEmpty()) return "";
+        int cap = Math.max(3, Math.min(maxSights <= 0 ? 8 : maxSights, 8));
+        List<String> reps = new ArrayList<>();
+        List<Map<String, Object>> coord = new ArrayList<>();
+        for (Map<String, Object> it : spots) {
+            if (parseLocation(str(it.get("location"))) != null) coord.add(it);
+        }
+        if (coord.size() < 2) { // 坐标不足：直接按候选顺序取前 cap 个
+            for (Map<String, Object> it : spots) {
+                String nm = str(it.get("name")).trim();
+                if (nm.isBlank()) continue;
+                reps.add(nm);
+                if (reps.size() >= cap) break;
+            }
+            return String.join(",", reps);
+        }
+        // 贪心成簇，每簇取首个成员为代表
+        List<double[]> centroids = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (Map<String, Object> it : coord) {
+            double[] p = parseLocation(str(it.get("location")));
+            String nm = str(it.get("name")).trim();
+            if (nm.isBlank()) continue;
+            boolean joined = false;
+            for (int g = 0; g < centroids.size(); g++) {
+                double[] c = centroids.get(g);
+                double d = haversineKm(c[1], c[0], p[1], p[0]);
+                if (d <= CLUSTER_KM) { // 并入既有簇：簇代表点(质心)不变，仅计数影响后续距离判定
+                    joined = true;
+                    break;
+                }
+            }
+            if (!joined) {
+                if (seen.add(nm)) { // 新簇：该候选即为簇代表
+                    reps.add(nm);
+                    centroids.add(new double[]{p[0], p[1]});
+                    if (reps.size() >= cap) break;
+                }
+            }
+        }
+        return String.join(",", reps);
     }
 
     /**

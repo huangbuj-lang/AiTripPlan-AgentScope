@@ -63,4 +63,36 @@ public class StatsController {
         return r;
     }
 
+    /** ★删聚合·候选前置查询（主管直连触发）：在本进程内并行调度三域专家查候选（域间3线程），
+     *  返回 digest + 【域候选JSON】块文本（主管解析后注入行程Agent任务，供其带全量信息一次定稿）。
+     *  与行程Agent ReAct 内调 query_trip_candidates 完全等价——同一 DomainCandidateService，只是触发方从门面LLM变为主管代码。 */
+    @GetMapping("/trip/candidates")
+    public Map<String, Object> tripCandidates(
+            @RequestParam("destination") String destination,
+            @RequestParam(value = "days", required = false, defaultValue = "") String days,
+            @RequestParam(value = "preference", required = false, defaultValue = "") String preference,
+            @RequestParam(value = "waypoints", required = false, defaultValue = "") String waypoints,
+            @RequestParam(value = "brief", required = false, defaultValue = "") String brief,
+            @RequestParam(value = "sessionId", required = false, defaultValue = "") String sessionId) {
+        Map<String, Object> r = new HashMap<>();
+        try {
+            if (sessionId != null && !sessionId.isBlank()) {
+                utils.SafeModel.setSessionId(sessionId); // 域专家 span 归位到本会话
+            }
+            String reply = utils.mcp.DomainCandidateService.run(
+                    destination == null ? "" : destination,
+                    days == null ? "" : days,
+                    preference == null ? "" : preference,
+                    waypoints == null ? "" : waypoints,
+                    brief == null ? "" : brief);
+            r.put("success", !reply.isBlank());
+            r.put("sessionId", sessionId);
+            r.put("reply", reply); // digest + 【域候选JSON】块（主管 extractBlock 取正文）
+        } catch (Exception e) {
+            r.put("success", false);
+            r.put("error", String.valueOf(e.getMessage()));
+        }
+        return r;
+    }
+
 }
