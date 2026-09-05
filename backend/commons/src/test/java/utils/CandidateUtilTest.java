@@ -430,4 +430,25 @@ class CandidateUtilTest {
                 """;
         assertEquals("开元寺", CandidateUtil.clusterRepSights(CandidateUtil.parse(single), 8));
     }
+
+    @Test
+    void clusterRepSightsSingleClusterBackfill() {
+        // 全部候选挤在一簇（市中心 5km 内）→ 贪心只有 1 个代表 → 补足到 3 个（路线Agent 才有衔接可查）
+        String json = """
+                {"attraction":{"city":"重庆","degraded":false,"candidates":[
+                  {"name":"洪崖洞民俗风貌区","location":"106.584,29.562","confidence":0.9},
+                  {"name":"解放碑步行街","location":"106.577,29.556","confidence":0.85},
+                  {"name":"长江索道","location":"106.586,29.558","confidence":0.85},
+                  {"name":"山城步道","location":"106.565,29.550","confidence":0.85}]}}
+                """;
+        String reps = CandidateUtil.clusterRepSights(CandidateUtil.parse(json), 8);
+        String[] parts = reps.split(",");
+        assertTrue(parts.length >= 2, "单簇也要补足≥2个代表供查衔接: " + reps);
+        assertTrue(parts[0].contains("洪崖洞"), "首个代表应为首个候选: " + reps);
+        // 无坐标兜底同样保证 ≥2（单景点除外）
+        String noLocSingle = """
+                {"attraction":{"candidates":[{"name":"只有一个景点","confidence":0.9}]}}
+                """;
+        assertEquals("只有一个景点", CandidateUtil.clusterRepSights(CandidateUtil.parse(noLocSingle), 8));
+    }
 }

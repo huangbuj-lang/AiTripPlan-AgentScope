@@ -431,8 +431,11 @@ public class TripOrchestrator {
                 // ④ 收割兜底：行程Agent若因候选不足补查过（回复带新候选块）→ 并入状态；正常情况候选已前置注入
                 harvestCandidates(state);
                 checkCancel();
-                utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
-                        req.getPreference(), cacheFingerprint, state.getRouteResult(), state.getPlanResult(), state.getCandidatesJson());
+                // ★失败不缓存：行程Agent未返回(空)时写缓存会污染后续命中(拿到空planResult直接降级)——宁可下次重跑
+                if (state.getPlanResult() != null && !state.getPlanResult().isBlank()) {
+                    utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
+                            req.getPreference(), cacheFingerprint, state.getRouteResult(), state.getPlanResult(), state.getCandidatesJson());
+                }
             }
             return state;
         }
@@ -462,8 +465,11 @@ public class TripOrchestrator {
             state.setPlanResult(planFirst);
             harvestCandidates(state);
             checkCancel();
-            utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
-                    req.getPreference(), cacheFingerprint, state.getRouteResult(), state.getPlanResult(), state.getCandidatesJson());
+            // ★失败不缓存：行程Agent未返回(空)时写缓存会污染后续命中(拿到空planResult直接降级)——宁可下次重跑
+            if (state.getPlanResult() != null && !state.getPlanResult().isBlank()) {
+                utils.cache.PlanCache.put(req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs,
+                        req.getPreference(), cacheFingerprint, state.getRouteResult(), state.getPlanResult(), state.getCandidatesJson());
+            }
         }
         return state;
     }
@@ -771,8 +777,10 @@ public class TripOrchestrator {
         }
         String routeResult = state.getRouteResult();
         String planResult = state.getPlanResult();
+        // ★天气提取前必须剥离【行程JSON】块：否则正则会把块内 JSON 字段("weather":"...","place":...)当天气抓到 weather 字段
+        String planText = planResult == null ? "" : utils.CandidateUtil.stripPlanBlock(planResult);
         String weatherRaw = cleanWeather(extractWeatherRaw((routeResult == null ? "" : routeResult)
-                + "\n" + (planResult == null ? "" : planResult)));
+                + "\n" + planText));
         if (weatherRaw == null || weatherRaw.isBlank()) {
             String direct = fetchAmapWeather(req.getDestination(), Math.min(req.getDays(), 7));
             if (direct != null && !direct.isBlank()) {
@@ -807,15 +815,34 @@ public class TripOrchestrator {
         return plan;
     }
 
-    /** 从路线结果提取途经城市名（带市/区/县后缀，排除起终点，最多5个）。 */
+    /** 从路线结果提取途经城市名（带市/区/县/镇/州后缀，排除起终点，最多5个）。
+     *  ★2026-09-05 收紧：优先只取 routeTask 约定的"途经城市："行（候选路线固定格式，逗号分隔干净城市名），
+     *  不再全文正则扫描——否则每日概要里的"下午抵惠城区/含部分景区"等噪音会进 waypoints 污染候选查询与行程任务。 */
     private String extractWaypoints(String routeResult) {
         if (routeResult == null || routeResult.isBlank()) return "";
         java.util.Set<String> seen = new java.util.LinkedHashSet<>();
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("[\\u4e00-\\u9fa5]{2,6}?(?:市|区|县|镇|州)")
+        // ① 优先：固定格式行（可多行=多条候选路线，合并去重）
+        java.util.regex.Matcher line = java.util.regex.Pattern
+                .compile("途经城市[：:]\\s*([^\\n\\r]{0,120})")
                 .matcher(routeResult);
-        while (m.find() && seen.size() < 5) {
-            seen.add(m.group());
+        while (line.find() && seen.size() < 5) {
+            for (String tok : line.group(1).split("[,，、;；\\s]+")) {
+                String t = tok.trim();
+                if (t.isBlank()) continue;
+                if (t.length() <= 6 && t.matches(".*(?:市|区|县|镇|州)$")) {
+                    seen.add(t);
+                    if (seen.size() >= 5) break;
+                }
+            }
+        }
+        // ② 兜底：无"途经城市："行时退回旧全文正则（老格式/自由文本路线）
+        if (seen.isEmpty()) {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("[\\u4e00-\\u9fa5]{2,6}?(?:市|区|县|镇|州)")
+                    .matcher(routeResult);
+            while (m.find() && seen.size() < 5) {
+                seen.add(m.group());
+            }
         }
         // 剔除起终点城市名本身
         seen.removeIf(n -> n.contains("起点") || n.contains("终点"));

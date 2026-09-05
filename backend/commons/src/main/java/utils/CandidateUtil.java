@@ -386,6 +386,16 @@ public final class CandidateUtil {
                 }
             }
         }
+        // ★边界：全部候选挤在一簇（≤5km 全并入）时只有 1 个代表 → 路线Agent 无点对可查衔接。
+        // 补足同簇内候选（按原始顺序）到至少 2 个点（≤cap），让市内衔接查询仍有对象。
+        if (reps.size() < 2) {
+            for (Map<String, Object> it : spots) {
+                String nm = str(it.get("name")).trim();
+                if (nm.isBlank() || seen.contains(nm)) continue;
+                reps.add(nm);
+                if (reps.size() >= Math.max(2, Math.min(cap, 3))) break;
+            }
+        }
         return String.join(",", reps);
     }
 
