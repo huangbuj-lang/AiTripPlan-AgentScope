@@ -79,40 +79,65 @@ function updateGenProgress(pct, label) {
 
 // ★页面重载后恢复进行中的任务：localStorage 标记 + /result 探测
 // 修复竞态：任务恰在页面跳转时完成时，标记可能已被旧页面清除 → 只要有 sessionId 就探测 /result
+// ★2026-09-06 修复"切页后任务消失"：newSession() 生成的新 sid 从不同步 localStorage 的 atp_session_id，
+//   旧逻辑遇 sid 不匹配即清标记 → 提交后刷新/切页必然恢复失败，任务在跑却无界面。
+//   现改为：优先探测标记里的 sid（真正提交过任务的会话），命中则在跑/已完成 → 把会话切过去并同步 localStorage。
 function tryRestoreRunning() {
     const mark = localStorage.getItem('atp_gen_running');
     let m = null;
     try { m = mark ? JSON.parse(mark) : null; } catch (e) { localStorage.removeItem('atp_gen_running'); m = null; }
-    if (m && m.sid !== sessionId) { localStorage.removeItem('atp_gen_running'); m = null; }
-    fetch('/result?sessionId=' + encodeURIComponent(sessionId))
+    const probe = (m && m.sid) ? m.sid : sessionId;
+    probeRunning(probe, probe !== sessionId);
+}
+
+/** 探测 sid 的任务状态；fallback=true 表示探测的是标记 sid，失效时回退探测当前会话一次 */
+function probeRunning(probeSid, fallback) {
+    fetch('/result?sessionId=' + encodeURIComponent(probeSid))
         .then(r => r.text())
         .then(text => {
-            if (text.includes('任务不存在')) {
-                // ★任务已失效（服务重启/从未提交）：清理本地标记，恢复默认界面，不再卡进度条
+            if (text.includes('任务不存在') || text.includes('中断') || text.includes('已由用户')) {
+                // 标记任务已失效/被取消：清标记；若探测的是标记 sid 且与当前会话不同 → 回退探测当前会话一次
                 localStorage.removeItem('atp_gen_running');
-                document.getElementById('resultBody').innerHTML = '';
-                document.getElementById('sendBtn').disabled = false;
-                document.getElementById('cancelBtn').style.display = 'none';
+                if (fallback) { probeRunning(sessionId, false); return; }
+                resetGenUI();
                 return;
+            }
+            // ★采用标记任务的会话（与当前不一致时切换并同步，使后续轮询/事件流/取结果指向真实任务）
+            if (probeSid !== sessionId) {
+                sessionId = probeSid;
+                localStorage.setItem('atp_session_id', probeSid);
             }
             if (!text.includes('还在执行中')) {
-                // ★任务已完成：直接渲染最终结果（不丢进度条/结果）
-                // ★页面刷新恢复时跳过「中断」结果：中断提示只在当前页面会话显示，刷新后恢复干净首页（生成中仍会实时显示中断提示）
-                if (text.includes('中断') || text.includes('已由用户')) {
-                    localStorage.removeItem('atp_gen_running');
-                    document.getElementById('resultBody').innerHTML = '';
-                    document.getElementById('sendBtn').disabled = false;
-                    document.getElementById('cancelBtn').style.display = 'none';
-                    return;
-                }
+                // 任务已完成：直接渲染最终结果（不丢进度条/结果）
                 if (text && text.trim()) { fetchResult(); return; }
+                resetGenUI();
                 return;
             }
-            // 任务仍在跑：恢复进度条 + 重连事件流 + 结果轮询（仅标记存在时，避免误恢复）
-            if (!m) return;
-            document.getElementById('resultBody').innerHTML = genProgressHTML(30, '任务进行中，正在恢复进度...');
-            document.getElementById('sendBtn').disabled = true;
-            document.getElementById('cancelBtn').style.display = 'inline-block';
+            restoreRunningUI();
+        })
+        .catch(() => {
+            localStorage.removeItem('atp_gen_running');
+            if (fallback) probeRunning(sessionId, false);
+        });
+}
+
+/** 任务仍在跑：恢复进度条 + 历史事件回填思考日志 + 重连事件流 + 结果轮询（标记保留，完成时由 fetchResult 清除） */
+function restoreRunningUI() {
+    document.getElementById('resultBody').innerHTML = genProgressHTML(30, '任务进行中，正在恢复进度...');
+    document.getElementById('sendBtn').disabled = true;
+    document.getElementById('cancelBtn').style.display = 'inline-block';
+    // 先拉历史事件补思考日志（切页前的阶段展示不丢），按最后阶段事件校准进度，再连 SSE 续传
+    fetch('/events?sessionId=' + encodeURIComponent(sessionId))
+        .then(r => r.json())
+        .then(evts => {
+            const body = document.getElementById('thinkBody');
+            if (body) body.innerHTML = '';
+            const list = evts || [];
+            list.forEach(appendThinkItem);
+            const last = list[list.length - 1];
+            const st = last && GEN_STAGES[last.type];
+            if (st && last.type !== '完成') updateGenProgress(st.pct, null);
+            lastEventCount = list.length;
             if (eventSource) eventSource.close();
             eventSource = new EventSource('/events/stream?sessionId=' + encodeURIComponent(sessionId));
             eventSource.addEventListener('event', function (e) {
@@ -122,7 +147,23 @@ function tryRestoreRunning() {
             resultTimer = setInterval(fetchResult, 2000);
             // ★标记保留（任务仍在跑）：任务完成时由 fetchResult 清除；这里删会导致再次返回首页无法恢复
         })
-        .catch(() => localStorage.removeItem('atp_gen_running'));
+        .catch(() => {
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource('/events/stream?sessionId=' + encodeURIComponent(sessionId));
+            eventSource.addEventListener('event', function (e) {
+                try { appendThinkItem(JSON.parse(e.data)); } catch (err) { /* 忽略非法数据 */ }
+            });
+            if (resultTimer) clearInterval(resultTimer);
+            resultTimer = setInterval(fetchResult, 2000);
+        });
+}
+
+/** 无进行中任务/已失效：恢复默认可提交界面 */
+function resetGenUI() {
+    document.getElementById('resultBody').innerHTML = '';
+    document.getElementById('sendBtn').disabled = false;
+    document.getElementById('cancelBtn').style.display = 'none';
+    localStorage.removeItem('atp_gen_running');
 }
 
 function checkLogin() {
@@ -1354,7 +1395,7 @@ function renderStructuredPlan(plan) {
 
     // ===== 轨迹时间轴（第 1 天） =====
     const day0 = days[0];
-    const d0Items = (day0.items || []).filter(it => it && (it.time || it.place || it.activity));
+    const d0Items = (day0.items || []).filter(it => it && (it.time || it.place || it.activity) && !isWeatherItem(it));
     html += '<div class="route-line">'
         + '<svg class="bg" viewBox="0 0 1050 100" preserveAspectRatio="none" fill="none">'
         + '<path d="' + routePath(d0Items.length) + '" stroke="rgba(31,174,143,.55)" stroke-width="2.4" stroke-dasharray="6 8"/></svg>'
@@ -1373,10 +1414,19 @@ function renderStructuredPlan(plan) {
     // ===== 天卡片(概览=每天2-4个景点/途经点：纯移动行与同地点变体已在 dayOverviewItems 过滤合并) =====
     html += '<div class="days">';
     days.forEach((day, di) => {
-        const items = dayOverviewItems((day.items || []).filter(it => it && (it.time || it.place || it.activity || it.from || it.way)));
+        const rawItems = (day.items || []).filter(it => it && (it.time || it.place || it.activity || it.from || it.way));
+        // 天气行：从景点流剔除，改放卡片右上角（纯文本不可跳转；详情页铅笔仍完整展示）
+        const wIt = rawItems.find(isWeatherItem);
+        let wText = '';
+        if (wIt) {
+            wText = String(wIt.activity || wIt.place || '')
+                .replace(/^\s*天气\s*[:：]?\s*/, '').trim();
+        }
+        const items = dayOverviewItems(rawItems.filter(it => !isWeatherItem(it)));
         html += '<div class="day-card' + (di === 0 ? ' active' : '') + '" onclick="selectDay(' + di + ')">'
             + '<div class="day-top">'
             + '<span class="n">DAY ' + String(di + 1).padStart(2, '0') + '</span>'
+            + (wText ? '<span class="day-wx" title="当天天气（以出行前实时预报为准）">' + escapeHtml(wText) + '</span>' : '')
             + '<button class="expand" id="dayMapBtn_' + di + '" title="查看当天高德路线图" onclick="event.stopPropagation();openDayMap(' + di + ')"><i class="fa-solid fa-map-location-dot"></i></button>'
             + '<button class="expand" title="查看当日详细规划" onclick="event.stopPropagation();openDayModal(' + di + ')"><i class="fa-solid fa-pen"></i></button>'
             + '</div>'
@@ -1425,6 +1475,19 @@ function placeCore(p) {
 /** 纯移动行（A→B 无地点字段）：概览不占行，详情(铅笔)才显示 */
 function isPureMove(it) {
     return !!(it.from && it.to) && !(it.place || '').trim();
+}
+
+/** 天气条目识别：cat 标天气，或（无 place 的纯文本行以"天气"开头 / 含"月日+天气词"）——
+ *  概览将其提升到卡片右上角纯文本展示，不当作可跳转景点 */
+function isWeatherItem(it) {
+    if (!it) return false;
+    const cat = (it.category || '').trim();
+    if (cat && (cat.indexOf('天气') >= 0 || cat.toLowerCase() === 'weather')) return true;
+    if ((it.place || '').trim()) return false; // 有地名的景点/餐饮不误伤
+    const a = (it.activity || '').trim();
+    if (!a) return false;
+    return /^天气\s*[:：]?/.test(a)
+        || (/\d{1,2}月\d{1,2}日/.test(a) && /℃|°|晴|雨|雪|多云|阴|风/.test(a));
 }
 
 /** 概览只保留「景点轴」条目：餐饮/住宿/交通/购物等非游览类不进概览（详情页完整展示）。
@@ -2132,6 +2195,7 @@ function renderInsightModalBody(bodyEl, data) {
 function newSession() {
     // 重置为全新会话：清掉旧 sessionId 关联的事件/结果，防上次任务残留
     sessionId = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    localStorage.setItem('atp_session_id', sessionId); // ★同步持久化：切页/刷新后 sessionId 与提交标记一致，恢复逻辑才能命中
     return sessionId;
 }
 

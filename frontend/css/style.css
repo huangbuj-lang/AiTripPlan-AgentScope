@@ -410,6 +410,10 @@ footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line
 .day-card .item .act { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .day-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .day-top b { font-family: var(--serif); font-size: 16.5px; color: var(--forest-900); }
+/* 当天天气：卡片头右侧纯文本（非链接不可跳转），给右侧按钮留位 */
+.day-top .day-wx { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 55%; padding-right: 70px; }
+.day-top .day-wx::before { content: '🌤 '; font-size: 10px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green-600); display: inline-block; margin-right: 8px; }
 .route-line { position: relative; }
 .stops { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
