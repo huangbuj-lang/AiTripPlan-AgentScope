@@ -749,6 +749,12 @@ public class TripOrchestrator {
         if (feedback != null && !feedback.isBlank()) {
             sb.append("\n【审查反馈】上一版行程经独立审查发现问题：").append(feedback)
                     .append("\n本次只修复上述问题；未涉及的天与区块保持原样（增量修正铁律，禁止无中生有全盘重排）。\n");
+            if (req != null && req.getDays() > 0) {
+                sb.append("★总天数铁律：行程总天数必须保持用户要求的 ")
+                        .append(req.getDays())
+                        .append(" 天（timeline 区块数 = ").append(req.getDays())
+                        .append("），禁止增减天数——返程/晚间/收尾一律写进最后一天内部，不得为此新开一天。\n");
+            }
         }
         if (prevPlanJson != null && !prevPlanJson.isBlank()) {
             sb.append("上一版行程JSON（修改基准，仅修订反馈涉及部分）：\n")
@@ -1010,6 +1016,21 @@ public class TripOrchestrator {
             EventStore.add(sessionId, "行程原文", "（REVISE重编·JSON块解析失败，块原文）\n" + block);
             EventStore.add(sessionId, "审查", "重编未产出结构化终版JSON，保留上一版");
             return null;
+        }
+        // ★天数硬校验（2026-09-06）：整单重编模型可能把"补最后一天返程/收尾"误解成加天数（实测 3 日游被扩成 5 天）——
+        //   天数必须与用户要求一致，不符即作废保留上一版，绝不交付错误天数的行程
+        TripRequest req0 = state == null ? null : state.getRequest();
+        int expectDays = req0 == null ? 0 : req0.getDays();
+        if (expectDays > 0) {
+            int got = 0;
+            for (Section s : plan.getSections()) {
+                if (s != null && "timeline".equals(s.getType())) got++;
+            }
+            if (got != expectDays) {
+                EventStore.add(sessionId, "审查", "整单重编天数不符（应为 " + expectDays
+                        + " 天，模型输出 " + got + " 天），作废保留上一版");
+                return null;
+            }
         }
         normalizePlan(state, plan);
         return plan;
