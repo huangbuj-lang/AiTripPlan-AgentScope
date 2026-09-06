@@ -214,10 +214,11 @@ public class TripOrchestrator {
             }
             TripPlanData fixed;
             try {
-                // ★天级重编（2026-09-06）：天骨架模式且反馈只涉唯一一天、非交通补查类 → 只重编该天（短任务），
-                //   避免整单长输出截断；否则回退整单重编（trimReviseBaseline 已按天裁剪输入）
+                // ★天级重编（2026-09-06）：天骨架模式且反馈只涉唯一一天 → 只重编该天（短任务），
+                //   交通类同样走天级（needRouteRefetch 补查已在上方更新 routeResult，天级任务注入整段路线数据）；
+                //   仅当反馈涉及多天/整体（skeletonDayNo=0）才回退整单重编
                 int dayNo = skeletonDayNo(state, v.feedbackText());
-                if (dayNo > 0 && !needRouteRefetch(v)) {
+                if (dayNo > 0) {
                     fixed = repairDayByAgent(state, style, v.feedbackText(), dayNo);
                 } else {
                     fixed = repairPlanByAgent(state, style, v.feedbackText(), current);
@@ -730,39 +731,47 @@ public class TripOrchestrator {
 
     /** ★候选前置查询（删聚合配套）：主管直连 8085 域专家并行查三域候选（域间3线程），
      *  结果写入 state.candidatesJson（结构化，含证据/置信度），供路线按簇查衔接与行程Agent定稿共用。
+     *  ★2026-09-06 分域补查：全域主查后检测缺失域（域专家偶发中断/降级致 candidates 空），只对缺失域
+     *  （domains 参数）补查一次并合并——比整包重查省时（补查只跑 1 域 ≈20s vs 整包 70s）且再失败概率低。
      *  失败不阻断：state.candidatesJson 保持空，路线按无清单自拟、行程Agent 自行补查兜底。 */
     private void fetchCandidatesPreflight(TravelState state, String waypoints, TripRequest req) {
         String pref = req.getTripPref() == null ? "" : req.getTripPref();
         String n = String.valueOf(utils.CandidateUtil.candidateCountPerDomain(String.valueOf(req.getDays())));
         EventStore.add(sessionId, "候选", "候选前置查询(域专家三线程并行，每域" + n + "个)"
                 + (waypoints == null || waypoints.isBlank() ? "" : " · 途经:" + waypoints) + " ...");
-        // ★2026-09-06：景点域偶发失败（域专家中断/降级致 candidates 空）会让骨架/行程失去景点依据——失败自动重查一次
         try {
-            for (int attempt = 1; attempt <= 2; attempt++) {
-                String qs = "destination=" + java.net.URLEncoder.encode(
-                        req.getDestination() == null ? "" : req.getDestination(), "UTF-8")
-                        + "&days=" + req.getDays()
-                        + "&preference=" + java.net.URLEncoder.encode(pref, "UTF-8")
-                        + "&waypoints=" + java.net.URLEncoder.encode(waypoints == null ? "" : waypoints, "UTF-8")
-                        + "&brief=" + java.net.URLEncoder.encode(req.toStateBrief(), "UTF-8")
-                        + "&sessionId=" + java.net.URLEncoder.encode(sessionId, "UTF-8");
-                java.net.URL u = new java.net.URL("http://localhost:8085/trip/candidates?" + qs);
-                java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
-                c.setConnectTimeout(10000);
-                c.setReadTimeout(300000); // 域专家并行最长120s + 置信度重试
-                String body = new String(c.getInputStream().readAllBytes(), "UTF-8");
-                java.util.Map<String, Object> root = utils.JsonUtils.parse(body, java.util.Map.class);
-                String reply = root == null ? null : str(root.get("reply"));
-                String block = reply == null ? "" : utils.CandidateUtil.extractBlock(reply);
-                java.util.Map<String, Object> cands = block.isBlank() ? null : utils.CandidateUtil.parse(block);
-                boolean hasAttr = cands != null && !candDomainList(cands, "attraction").isEmpty();
-                if (cands != null && !cands.isEmpty() && hasAttr) {
-                    // ★坐标补齐（2026-09-06）：域专家景点候选 location 覆盖率不稳定（0%~100%），
-                    //  坐标不足会令路线按簇查/天骨架成簇失效——主管用高德按名补查缺失坐标
-                    int fixed = enrichSightLocations(cands, req.getDestination());
-                    if (fixed > 0) {
-                        EventStore.add(sessionId, "候选", "景点坐标补齐：" + fixed + " 个（高德按名补查）");
+            // ① 全域主查
+            java.util.Map<String, Object> cands = queryCandidatesOnce(req, waypoints, pref, null);
+            if (cands == null || cands.isEmpty()) {
+                // 整包失败：等 3s 后整包再查一次（极端情况，如 8085 瞬时不可用）
+                EventStore.add(sessionId, "候选", "候选前置查询失败/无结构化结果，3 秒后整包重查一次...");
+                try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                cands = queryCandidatesOnce(req, waypoints, pref, null);
+            }
+            if (cands != null && !cands.isEmpty()) {
+                // ② 分域补查：缺失域只补缺失（domains=xxx）
+                java.util.List<String> missing = missingDomains(cands);
+                if (!missing.isEmpty()) {
+                    EventStore.add(sessionId, "候选", "候选域缺失（" + String.join("、", missing)
+                            + "），3 秒后分域补查一次...");
+                    try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    java.util.Map<String, Object> cands2 = queryCandidatesOnce(req, waypoints, pref,
+                            String.join(",", missing));
+                    if (cands2 != null) {
+                        for (String d : missing) {
+                            if (!candDomainList(cands2, d).isEmpty()) {
+                                cands.put(d, cands2.get(d)); // 只合并补到的域
+                            }
+                        }
                     }
+                }
+                // ③ 坐标补齐（域专家 location 覆盖率不稳 → 高德按名补查，保证骨架成簇可用）
+                int fixed = enrichSightLocations(cands, req.getDestination());
+                if (fixed > 0) {
+                    EventStore.add(sessionId, "候选", "景点坐标补齐：" + fixed + " 个（高德按名补查）");
+                }
+                boolean hasAttr = !candDomainList(cands, "attraction").isEmpty();
+                if (hasAttr) {
                     state.setCandidatesJson(utils.JsonUtils.toJson(cands));
                     String summary = utils.CandidateUtil.evidenceSummary(cands);
                     String cluster = utils.CandidateUtil.clusterHintSummary(cands);
@@ -773,17 +782,56 @@ public class TripOrchestrator {
                     state.addTrace("候选", "三域候选(结构化,前置查询,每域" + n + ")");
                     return;
                 }
-                if (attempt == 1) {
-                    EventStore.add(sessionId, "候选", cands == null || cands.isEmpty()
-                            ? "候选前置查询失败/无结构化结果，自动重查一次..."
-                            : "景点域候选缺失（域专家降级），自动重查一次...");
-                }
             }
             EventStore.add(sessionId, "候选", "候选前置查询重查后仍失败/缺景点域，行程Agent将自行补查兜底");
         } catch (Exception e) {
             log.warn("候选前置查询异常(行程Agent自行补查兜底): {}", e.getMessage());
             EventStore.add(sessionId, "候选", "候选前置查询异常(" + e.getMessage() + ")，行程Agent将自行补查兜底");
         }
+    }
+
+    /** 单次候选查询（domains 为 null=全域；非空=只查指定域，逗号分隔）。异常/无块返回 null。 */
+    private java.util.Map<String, Object> queryCandidatesOnce(TripRequest req, String waypoints,
+                                                              String pref, String domains) {
+        try {
+            StringBuilder qs = new StringBuilder("destination=")
+                    .append(java.net.URLEncoder.encode(req.getDestination() == null ? "" : req.getDestination(), "UTF-8"))
+                    .append("&days=").append(req.getDays())
+                    .append("&preference=").append(java.net.URLEncoder.encode(pref, "UTF-8"))
+                    .append("&waypoints=").append(java.net.URLEncoder.encode(waypoints == null ? "" : waypoints, "UTF-8"))
+                    .append("&brief=").append(java.net.URLEncoder.encode(req.toStateBrief(), "UTF-8"));
+            if (domains != null && !domains.isBlank()) {
+                qs.append("&domains=").append(java.net.URLEncoder.encode(domains, "UTF-8"));
+            }
+            qs.append("&sessionId=").append(java.net.URLEncoder.encode(sessionId, "UTF-8"));
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(
+                    "http://localhost:8085/trip/candidates?" + qs).openConnection();
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(300000); // 域专家并行最长120s + 置信度重试
+            String body = new String(c.getInputStream().readAllBytes(), "UTF-8");
+            java.util.Map<String, Object> root = utils.JsonUtils.parse(body, java.util.Map.class);
+            String reply = root == null ? null : str(root.get("reply"));
+            String block = reply == null ? "" : utils.CandidateUtil.extractBlock(reply);
+            return block.isBlank() ? null : utils.CandidateUtil.parse(block);
+        } catch (Exception e) {
+            log.warn("候选查询请求异常: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 缺失域列表：attraction/hotel/dining 中无有效 candidates 的域（degraded 节点也算缺失）。 */
+    private static java.util.List<String> missingDomains(java.util.Map<String, Object> cands) {
+        java.util.List<String> missing = new java.util.ArrayList<>();
+        if (cands == null) {
+            missing.add("attraction");
+            missing.add("hotel");
+            missing.add("dining");
+            return missing;
+        }
+        for (String d : utils.CandidateUtil.DOMAINS) {
+            if (candDomainList(cands, d).isEmpty()) missing.add(d);
+        }
+        return missing;
     }
 
     /** ★删聚合·解析行程Agent终版：【行程JSON】块 → TripPlanData；补齐标题/目的地/天数/天气；完整性缺口返回 null（外层降级原文）。 */
@@ -873,6 +921,17 @@ public class TripOrchestrator {
         sb.append("【审查反馈】").append(feedback).append("\n\n");
         sb.append("【上一版第").append(dayNo).append("天JSON（修改基准：只修订反馈指出的问题，未涉及的安排保持原样，")
                 .append("禁止无中生有全盘重排）】\n【行程JSON】\n").append(oldJson).append("\n【行程JSON结束】\n");
+        // ★路线衔接数据（交通类 REVISE 补查后更新；整段注入不按天匹配——路线数据格式不稳定，模型自行找相关行）
+        String route = state.getRouteResult();
+        if (route != null && !route.isBlank()) {
+            sb.append("\n【真实路线衔接数据（主管已查/补查，供参考移动方式/车程/途经；只采用与当天相关的行，")
+                    .append("其余天数据忽略）】\n").append(clip(route, 3000)).append("\n");
+        }
+        sb.append("\n【跨天连续铁律】今天的出发地与住宿地以上一版为准（上版开头的出发地与末尾住宿 = 真实链条）：\n")
+                .append("① 不得把今天出发点改到上版之外的城镇（防\"昨天在城北、今天起点在城南\"）；\n")
+                .append("② 住宿地尽量保持上版不变；确因反馈必须更换住宿区域时，只能换到当天景点所在城镇内，")
+                .append("并在当天末尾注明\"次日将从 <新住宿地> 出发\"；\n")
+                .append("③ 长途移动（车程超 3 小时）必须在时间线中写明出发时间与车程，不得与景点时间矛盾。\n");
         sb.append("\n输出要求：按系统规则输出【行程JSON】块，sections 只含第 " + dayNo
                 + " 天的 timeline 与 stay 区块（title 用「第" + dayNo + "天」），禁止输出其它天；"
                 + "当天所有条目 place 文本不得重复，cat=景点的条目不超过5个，概要不超过60字，JSON 完整优先、宁短勿长。");

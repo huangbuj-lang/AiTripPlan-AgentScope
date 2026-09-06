@@ -53,10 +53,21 @@ public class DomainCandidateService {
      */
     public static String run(String destination, String days, String preference,
                              String waypoints, String brief) {
+        return run(destination, days, preference, waypoints, brief, null);
+    }
+
+    /** 分域版本（2026-09-06）：onlyDomains 非空时只跑指定域（主管补查失败域用，省时且降低再失败概率）。 */
+    public static String run(String destination, String days, String preference,
+                             String waypoints, String brief, java.util.List<String> onlyDomains) {
         long t0 = System.currentTimeMillis();
         List<String> toRun = new ArrayList<>();
         Map<String, Object> merged = new LinkedHashMap<>();
-        for (String d : CandidateUtil.DOMAINS) toRun.add(d);
+        for (String d : CandidateUtil.DOMAINS) {
+            if (onlyDomains == null || onlyDomains.isEmpty() || onlyDomains.contains(d)) toRun.add(d);
+        }
+        if (toRun.isEmpty()) {
+            for (String d : CandidateUtil.DOMAINS) toRun.add(d); // 防御：请求域全非法时回退全域
+        }
 
         // 三域并行提交
         // ★span 归位修复：setSessionId 是 ThreadLocal，不跨 DOMAIN_POOL 线程——

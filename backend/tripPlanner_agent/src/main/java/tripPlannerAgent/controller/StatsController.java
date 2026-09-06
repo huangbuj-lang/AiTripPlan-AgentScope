@@ -73,18 +73,27 @@ public class StatsController {
             @RequestParam(value = "preference", required = false, defaultValue = "") String preference,
             @RequestParam(value = "waypoints", required = false, defaultValue = "") String waypoints,
             @RequestParam(value = "brief", required = false, defaultValue = "") String brief,
+            @RequestParam(value = "domains", required = false, defaultValue = "") String domains,
             @RequestParam(value = "sessionId", required = false, defaultValue = "") String sessionId) {
         Map<String, Object> r = new HashMap<>();
         try {
             if (sessionId != null && !sessionId.isBlank()) {
                 utils.SafeModel.setSessionId(sessionId); // 域专家 span 归位到本会话
             }
+            java.util.List<String> only = new java.util.ArrayList<>();
+            if (domains != null && !domains.isBlank()) {
+                for (String d : domains.split("[,，]")) {
+                    String t = d.trim();
+                    if (!t.isBlank()) only.add(t);
+                }
+            }
             String reply = utils.mcp.DomainCandidateService.run(
                     destination == null ? "" : destination,
                     days == null ? "" : days,
                     preference == null ? "" : preference,
                     waypoints == null ? "" : waypoints,
-                    brief == null ? "" : brief);
+                    brief == null ? "" : brief,
+                    only.isEmpty() ? null : only);
             r.put("success", !reply.isBlank());
             r.put("sessionId", sessionId);
             r.put("reply", reply); // digest + 【域候选JSON】块（主管 extractBlock 取正文）
