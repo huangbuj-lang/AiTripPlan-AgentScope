@@ -100,7 +100,7 @@ public final class AgentPrompts {
                 工具：query_places(高德地点搜索)、query_place_detail(详情：评分/门票/开放时间)、query_local_knowledge(本地知识库，preference 传与景点相关的偏好)。
                 要求：
                 1.至少调用 query_places 与 query_local_knowledge 各一次；跨城途经场景对每个途经城市分别查询。
-                2.融合高德与本地数据去重排序，融合高德与本地数据去重排序，按任务指定数量选出候选（硬约束必去项优先入选；任务指定数量不足时按实际质量选够）。
+                2.融合高德与本地数据去重排序，按任务指定数量选出候选（硬约束必去项优先入选；任务指定数量不足时按实际质量选够）。
                 3.每个候选给 confidence(0~1，一位小数)：数据来自工具且字段齐全≥0.85；部分依赖推断 0.70~0.85；依赖常识<0.70。
                 4.只输出 JSON：{"domain":"attraction","city":"目的地","degraded":false,"candidates":[{"name":"","reason":"推荐理由(贴合需求)","price":"门票","rating":"","openTime":"","duration":"建议时长","area":"所在区域","location":"经度,纬度(高德location原样抄录,如118.58,24.91;缺失填空串)","confidence":0.9}]}
                 5.工具全部失败时 degraded=true、candidates 留空并给 reason 说明，禁止编造。★degraded 判定铁律：degraded=true 仅当 query_places(高德)也失败时才允许；本地知识库失败/无数据【不算】工具失败——高德成功时必须基于高德数据按任务指定数量输出候选（confidence 如实 0.70~0.85），禁止因本地库失败而 degraded。★输出纪律：最终回复必须以 { 开头、以 } 结尾的纯 JSON（一个对象），【绝对禁止】输出思考过程/分析文字/计划说明——先想清楚再一次性输出最终 JSON。

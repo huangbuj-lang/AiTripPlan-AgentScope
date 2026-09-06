@@ -37,7 +37,7 @@ public class RouteMakingAgent {
     public ReActAgent getRouteMakingAgent() {
 
         // ★高德MCP：只暴露路线综合工具
-        // 跨城自驾 query_route_all/query_route/query_distance + 市内游衔接 query_urban_route（步行/公交）
+        // 综合工具 query_route_unified（mode=driving 跨城自驾 / mode=urban 市内衔接）
         Toolkit toolkit = new Toolkit();
         AmapEnhancedToolFactory.register(toolkit, AgentType.ROUTE);
 
