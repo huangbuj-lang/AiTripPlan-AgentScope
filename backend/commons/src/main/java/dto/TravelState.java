@@ -37,6 +37,20 @@ public class TravelState {
     /** 专家产物是否命中结果缓存 */
     private boolean fromCache = false;
 
+    /** ★天骨架模式（2026-09-06）：每天生成的结构化 JSON（拼装前按天存储，REVISE 时只重编涉及天）。
+     *  非骨架模式为空列表。 */
+    private List<String> dayPlanJson = new ArrayList<>();
+
+    public List<String> getDayPlanJson() {
+        return dayPlanJson;
+    }
+
+    public void addDayPlanJson(String dayJson) {
+        if (dayJson != null && !dayJson.isBlank()) {
+            dayPlanJson.add(dayJson);
+        }
+    }
+
     /** 编排过程摘要（阶段→说明，追溯用） */
     private List<String> trace = new ArrayList<>();
 

@@ -214,7 +214,14 @@ public class TripOrchestrator {
             }
             TripPlanData fixed;
             try {
-                fixed = repairPlanByAgent(state, style, v.feedbackText(), current);
+                // ★天级重编（2026-09-06）：天骨架模式且反馈只涉唯一一天、非交通补查类 → 只重编该天（短任务），
+                //   避免整单长输出截断；否则回退整单重编（trimReviseBaseline 已按天裁剪输入）
+                int dayNo = skeletonDayNo(state, v.feedbackText());
+                if (dayNo > 0 && !needRouteRefetch(v)) {
+                    fixed = repairDayByAgent(state, style, v.feedbackText(), dayNo);
+                } else {
+                    fixed = repairPlanByAgent(state, style, v.feedbackText(), current);
+                }
             } catch (Exception e) {
                 log.warn("Reviewer 修正重编异常: {}", e.getMessage());
                 EventStore.add(sessionId, "审查", "修正重编异常，交付当前版本");
@@ -717,7 +724,7 @@ public class TripOrchestrator {
             sb.append("上一版行程JSON（修改基准，仅修订反馈涉及部分）：\n")
                     .append("【行程JSON】\n").append(prevPlanJson).append("\n【行程JSON结束】\n");
         }
-        sb.append("\n最终回复：简短概要（每天一句话，总长≤300字——完整可读文本由主管从你的JSON生成，概要只作兜底），末尾【必须】原样附完整【行程JSON】结构化块（格式见系统规则）。输出预算优先保证 JSON 块完整，宁可概要更短也不可截断 JSON；若单次输出放不下，JSON 块中删减 note/次要字段，禁止丢弃整个块。");
+        sb.append("\n最终回复：简短概要（每天一句话，总长不超过300字——完整可读文本由主管从你的JSON生成，概要只作兜底），末尾【必须】原样附完整【行程JSON】结构化块（格式见系统规则）。输出预算优先保证 JSON 块完整，宁可概要更短也不可截断 JSON；若单次输出放不下，JSON 块中删减 note/次要字段，禁止丢弃整个块。");
         return sb.toString().trim();
     }
 
@@ -828,6 +835,71 @@ public class TripOrchestrator {
         } else if (plan.getWeather() != null && !plan.getWeather().isBlank()) {
             plan.setWeather(cleanWeather(plan.getWeather()));
         }
+    }
+
+    /** ★REVISE 天级判定：天骨架模式（state.dayPlanJson 完整）且反馈只指向唯一一天时返回该天号（1-based），
+     *  否则返回 0（走整单重编）。反馈可能含 [dayN]/第N天/多条天号（整体问题）。 */
+    private int skeletonDayNo(TravelState state, String feedback) {
+        java.util.List<String> dj = state.getDayPlanJson();
+        if (dj == null || dj.isEmpty() || feedback == null) return 0;
+        TripRequest req = state.getRequest();
+        int days = req == null ? 0 : req.getDays();
+        if (days < 1 || dj.size() != days) return 0; // 非骨架模式/段数不完整
+        java.util.Set<Integer> hit = new java.util.TreeSet<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("第\\s*(\\d+)\\s*天|day\\s*(\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(feedback);
+        while (m.find()) {
+            String g = m.group(1) != null ? m.group(1) : m.group(2);
+            if (g == null) continue;
+            try {
+                int n = Integer.parseInt(g);
+                if (n >= 1 && n <= days) hit.add(n);
+            } catch (NumberFormatException ignored) { }
+        }
+        return hit.size() == 1 ? hit.iterator().next() : 0;
+    }
+
+    /** ★REVISE 天级重编：只重编第 dayNo 天（上版该天 JSON 为基准+审查反馈，短输出 240s 预算必按时返回）。
+     *  成功后替换 state.dayPlanJson 对应段并重拼整单、回填 planResult；失败返回 null（调用方保留上一版）。 */
+    private dto.TripPlanData repairDayByAgent(TravelState state, String style, String feedback, int dayNo) {
+        java.util.List<String> dj = state.getDayPlanJson();
+        if (dj == null || dayNo < 1 || dayNo > dj.size()) return null;
+        TripRequest req = state.getRequest();
+        String oldJson = dj.get(dayNo - 1);
+        StringBuilder sb = new StringBuilder();
+        sb.append("你是行程定稿Agent。上一版第 ").append(dayNo).append(" 天行程经独立审查发现问题，本次【只修正第 ")
+                .append(dayNo).append(" 天】（共 ").append(req == null ? "" : req.getDays()).append(" 天），禁止动其它天。\n\n");
+        sb.append("【审查反馈】").append(feedback).append("\n\n");
+        sb.append("【上一版第").append(dayNo).append("天JSON（修改基准：只修订反馈指出的问题，未涉及的安排保持原样，")
+                .append("禁止无中生有全盘重排）】\n【行程JSON】\n").append(oldJson).append("\n【行程JSON结束】\n");
+        sb.append("\n输出要求：按系统规则输出【行程JSON】块，sections 只含第 " + dayNo
+                + " 天的 timeline 与 stay 区块（title 用「第" + dayNo + "天」），禁止输出其它天；"
+                + "当天所有条目 place 文本不得重复，cat=景点的条目不超过5个，概要不超过60字，JSON 完整优先、宁短勿长。");
+        EventStore.add(sessionId, "审查", "第" + dayNo + "天按天重编（单天短任务，防整单长输出截断）...");
+        String reply = waitBudget(PARALLEL_POOL.submit(() ->
+                remoteTool.callTripPlannerAgent(sb.toString().trim())), "行程Agent·第" + dayNo + "天(天级重编)", 240);
+        dto.TripPlanData dp = parseDayReply(reply, dayNo, "天级重编");
+        if (dp == null) return null;
+        // 校验该天只含第 dayNo 天 timeline（防越权）
+        boolean hasOther = false;
+        for (dto.Section s : dp.getSections()) {
+            String type = s.getType() == null ? "" : s.getType();
+            String title = s.getTitle() == null ? "" : s.getTitle();
+            if ("timeline".equals(type) && !title.contains("第" + dayNo + "天")) hasOther = true;
+        }
+        if (hasOther) {
+            EventStore.add(sessionId, "审查", "天级重编越权输出其它天，丢弃重编结果");
+            return null;
+        }
+        dj.set(dayNo - 1, utils.JsonUtils.toJson(dp));
+        String text = assembleDayPlanText(state, req);
+        if (text == null || text.isBlank()) return null;
+        state.setPlanResult(text);
+        dto.TripPlanData whole = utils.JsonUtils.extractAndParse(
+                utils.CandidateUtil.extractPlanBlock(text), dto.TripPlanData.class);
+        EventStore.add(sessionId, "审查", "第" + dayNo + "天天级重编完成，整单已重拼");
+        return whole;
     }
 
     /** ★删聚合·REVISE 重编：带审查反馈重调行程Agent（上版JSON为局部修改基准，候选仍前置注入）→ 提取新终版。失败返回 null（调用方保留上版）。 */
@@ -1401,6 +1473,8 @@ public class TripOrchestrator {
         int day;
         String fromTown = "";
         String endTown = "";
+        double[] center = null;   // 当天候选质心 [lng,lat]
+        double moveKm = -1;       // 昨天末簇质心 → 今天质心的直线距离（-1=无前序/不可算）
         final java.util.List<java.util.Map<String, Object>> members = new java.util.ArrayList<>();
         final java.util.List<double[]> locs = new java.util.ArrayList<>();
     }
@@ -1419,7 +1493,7 @@ public class TripOrchestrator {
         if (days == null || days.size() != req.getDays()) return null;
         EventStore.add(sessionId, "定稿", "天骨架并行定稿：候选按坐标成" + clusters.size() + "簇→地理链切"
                 + days.size() + "天，逐日短任务并行生成后拼装（防单次长输出超时）");
-        // regeo 城镇链：每天末簇反查住宿城镇；第1天出发=origin，其后出发=昨天住宿城镇
+        // regeo 城镇链：每天质心反查住宿城镇；第1天出发=origin，其后出发=昨天住宿城镇
         for (int i = 0; i < days.size(); i++) {
             DaySkel sk = days.get(i);
             sk.day = i + 1;
@@ -1427,12 +1501,22 @@ public class TripOrchestrator {
                 // 住宿城镇取当天全部候选的质心反查（比"最后成员"更代表当日活动区域）
                 double sx = 0, sy = 0;
                 for (double[] p : sk.locs) { sx += p[0]; sy += p[1]; }
-                sk.endTown = townNear(sx / sk.locs.size(), sy / sk.locs.size());
+                sk.center = new double[]{sx / sk.locs.size(), sy / sk.locs.size()};
+                sk.endTown = townNear(sk.center[0], sk.center[1]);
                 if (sk.endTown == null) sk.endTown = "";
             }
             sk.fromTown = i == 0
                     ? (req.getOrigin() == null || req.getOrigin().isBlank() ? "" : req.getOrigin())
                     : days.get(i - 1).endTown;
+        }
+        // ★长途移动显式化（设计③）：昨天质心 → 今天质心的直线距离（山区实际车程≈直线×1.8-2.5），
+        //   超阈值时在当天任务注入"长途移动日"模板——模型按真实移动写早出发/途中休整/到后轻量，不假装瞬移
+        for (int i = 1; i < days.size(); i++) {
+            DaySkel prev = days.get(i - 1);
+            DaySkel cur = days.get(i);
+            if (prev.center != null && cur.center != null) {
+                cur.moveKm = havKm(prev.center[1], prev.center[0], cur.center[1], cur.center[0]);
+            }
         }
         // 分批并行执行每天任务（8085 并发能力有限：实测 4+ 并发 A2A 时后提交任务失败——每批最多 3 个，
         // 批内并行、批间串行）；单天失败自动重试 1 次（每段独立 240s 预算，短输出必按时返回）
@@ -1481,12 +1565,27 @@ public class TripOrchestrator {
         }
         if (!failed.isEmpty()) {
             EventStore.add(sessionId, "定稿", "天骨架生成不完整（失败天：" + String.join("、", failed) + "），回退整单生成");
+            state.getDayPlanJson().clear();
             return null;
         }
-        // 拼装标准整单：只收与当天匹配的 timeline + 全部 stay
+        // 天级 JSON 存档（★REVISE 只重编涉及天）→ 统一拼装
+        for (dto.TripPlanData dp : dayPlans) {
+            state.addDayPlanJson(utils.JsonUtils.toJson(dp));
+        }
+        state.addTrace("定稿", "天骨架并行生成完成(" + days.size() + "天，簇链切分)");
+        return assembleDayPlanText(state, req);
+    }
+
+    /** 天骨架拼装：把 state.dayPlanJson（每天一段 TripPlanData JSON，顺序=第1..N天）拼成标准整单
+     *  （可读概要 + 【行程JSON】块）。下游 parse/审查/缓存链路与整单模式一致。失败返回 null。 */
+    private String assembleDayPlanText(TravelState state, TripRequest req) {
+        java.util.List<String> dj = state.getDayPlanJson();
+        if (dj == null || dj.isEmpty() || req == null) return null;
         java.util.List<Object> allSecs = new java.util.ArrayList<>();
-        for (int i = 0; i < dayPlans.size(); i++) {
-            dto.TripPlanData dp = dayPlans.get(i);
+        java.util.List<String> summaries = new java.util.ArrayList<>();
+        for (int i = 0; i < dj.size(); i++) {
+            dto.TripPlanData dp = utils.JsonUtils.extractAndParse(dj.get(i), dto.TripPlanData.class);
+            if (dp == null || dp.getSections() == null || dp.getSections().isEmpty()) return null;
             String dayTag = "第" + (i + 1) + "天";
             for (dto.Section s : dp.getSections()) {
                 String type = s.getType() == null ? "" : s.getType();
@@ -1494,6 +1593,7 @@ public class TripOrchestrator {
                 if ("timeline".equals(type) && !title.contains(dayTag)) continue; // 防模型越权输出其它天
                 allSecs.add(s);
             }
+            summaries.add(oneLineDay(dp, i + 1));
         }
         java.util.Map<String, Object> root = new java.util.LinkedHashMap<>();
         root.put("title", (req.getDestination() == null ? "" : req.getDestination()) + req.getDays() + "日游");
@@ -1503,9 +1603,7 @@ public class TripOrchestrator {
         root.put("sections", allSecs);
         String planJson = utils.JsonUtils.toJson(root);
         if (planJson == null || planJson.isBlank()) return null;
-        String brief = String.join("\n", summaries);
-        state.addTrace("定稿", "天骨架并行生成完成(" + days.size() + "天，簇链切分)");
-        return brief + "\n\n【行程JSON】\n" + planJson + "\n【行程JSON结束】";
+        return String.join("\n", summaries) + "\n\n【行程JSON】\n" + planJson + "\n【行程JSON结束】";
     }
 
     /** 单天任务文本：只编第 day 天；候选仅该天簇成员；给出出发地/住宿区域，输出标准【行程JSON】块（仅当天区块）。 */
@@ -1530,6 +1628,18 @@ public class TripOrchestrator {
                 .append("\n");
         sb.append("【今日住宿区域】").append(sk.endTown.isBlank() ? "今日游玩区域就近" : sk.endTown)
                 .append("（选择该区域真实酒店）\n");
+        // ★长途移动日模板（设计③）：昨天末点→今天首点的直线距离超阈值时显式点名赶路，防"瞬移式"行程
+        if (sk.moveKm > 150) {
+            int est = (int) Math.round(sk.moveKm * (sk.moveKm > 300 ? 2.2 : 1.8)); // 山区系数粗估车程
+            sb.append("【长途移动日】今天需从昨天行程末点（直线约 ").append((int) Math.round(sk.moveKm))
+                    .append(" km，山区实际车程约 ").append(est).append(" 分钟）赶赴今日主景区。时间线必须按真实移动编排：")
+                    .append("① 早出发（6:00-8:00，视车程定）；② 途中给 1-2 个真实途经休整/观景短停（写明地点，宁少勿编）；")
+                    .append("③ 主景区游玩安排在到达后并给足时间；④ 若到达已过 15:00，今日只安排抵达+入住+轻量活动（如街区漫步/晚餐），")
+                    .append("主景区改次日——禁止把长途车程写成一笔带过或让景点时间与车程矛盾。\n");
+        } else if (sk.moveKm > 80) {
+            sb.append("【车程较长】今天从昨天行程末点赴今日景区直线约 ").append((int) Math.round(sk.moveKm))
+                    .append(" km，请给出合理出发时间与车程，避免景点时间与移动时长矛盾。\n");
+        }
         sb.append("【今日可安排景点候选（物理邻近组，可全选或选部分，最多5个）】\n");
         for (java.util.Map<String, Object> it : sk.members) {
             String nm = str(it.get("name"));
