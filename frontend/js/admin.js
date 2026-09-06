@@ -25,6 +25,25 @@ function toast(msg, isErr) {
     t.className = 'toast show' + (isErr ? ' err' : '');
     setTimeout(() => { t.className = 'toast'; }, 2600);
 }
+
+/* 指标卡溢出跑马灯：数据左靠齐单行不换行，内容装不下时注入右→左无缝循环动画（两段等宽副本 -50% 位移） */
+function applyCardMarquee(root) {
+    if (!root) return;
+    root.querySelectorAll('.metric .num, .metric .label').forEach(el => {
+        if (el.dataset.mqDone || el.scrollWidth <= el.clientWidth + 1) return;
+        el.dataset.mqDone = '1';
+        const t = el.textContent;
+        el.textContent = '';
+        const tr = document.createElement('div');
+        tr.className = 'mq-track';
+        [0, 1].forEach(() => {
+            const s = document.createElement('span');
+            s.textContent = t;
+            tr.appendChild(s);
+        });
+        el.appendChild(tr);
+    });
+}
 function fmtDur(ms) {
     if (ms == null || ms < 0) return '—';
     if (ms < 1000) return ms + 'ms';
@@ -140,6 +159,7 @@ function loadStatus(btn) {
         done();
         const b = document.getElementById('statusBody');
         if (!d.success) { b.innerHTML = '<div class="state-box">加载失败</div>'; return; }
+        if (btn) toast('系统状态已刷新');
         renderPulseFromStatus(d);
         const nacosBadge = d.nacos.connected ? '<span class="badge ok">已连接</span>' : '<span class="badge bad">未连接</span>';
         let agentsHtml = d.agents.map(a => {
@@ -182,6 +202,7 @@ function loadTasks(btn) {
             '<div class="card metric"><div class="num teal">' + (d.countDone || 0) + '</div><div class="label">已完成（本次进程运行）</div></div>' +
             '<div class="card metric"><div class="num' + ((d.countFailed || 0) > 0 ? ' red' : '') + '">' + (d.countFailed || 0) + '</div><div class="label">失败次数</div></div>' +
             '<div class="card metric"><div class="num' + ((d.failRate || 0) > 20 ? ' red' : ' teal') + '">' + (d.failRate || 0) + '%</div><div class="label">失败率</div></div>';
+        applyCardMarquee(s);
 
         // 运行中任务表（当前步骤列是核心：回答"它卡在哪了"）
         const b = document.getElementById('taskBody');
@@ -190,12 +211,11 @@ function loadTasks(btn) {
         if (runCnt) runCnt.textContent = running.length ? running.length + ' 个' : '';
         b.innerHTML = running.length
             ? '<div class="table-wrap"><table><thead><tr><th>会话ID</th><th>当前步骤</th><th>LLM轮数</th><th>提交时间</th><th>操作</th></tr></thead><tbody>' +
-              running.map(x => '<tr><td class="mono">' + esc(x.sessionId) + '</td>' +
+              running.map(x => '<tr style="cursor:pointer" onclick="showTrace(\'' + esc(x.sessionId) + '\')"><td class="mono">' + esc(x.sessionId) + '</td>' +
                 '<td><b>' + esc(x.currentStep || '—') + '</b></td>' +
                 '<td class="num-cell">' + (x.modelCallsUsed != null && x.modelCallsUsed >= 0 ? x.modelCallsUsed : '—') + '</td>' +
                 '<td class="num-cell">' + fmtTime(x.submitMs) + '</td>' +
-                '<td><button class="btn btn-ghost btn-xs" onclick="showEvents(\'' + esc(x.sessionId) + '\')">事件</button> ' +
-                '<button class="btn btn-danger-o btn-xs" onclick="forceCancel(\'' + esc(x.sessionId) + '\')">强制中断</button></td></tr>').join('') +
+                '<td><button class="btn btn-danger-o btn-xs" onclick="event.stopPropagation();forceCancel(\'' + esc(x.sessionId) + '\')">强制中断</button></td></tr>').join('') +
               '</tbody></table></div>'
             : '<div class="state-box"><div class="big">🌙</div>暂无运行中任务<br><span style="font-size:12px">用户从前台提交规划后会出现在这里，每 3 秒自动更新步骤</span></div>';
         // 页签圆点：有运行中任务或高失败率时提示
@@ -206,7 +226,7 @@ function loadTasks(btn) {
         const h = document.getElementById('taskHistoryBody');
         const hist = d.history || [];
         h.innerHTML = hist.length
-            ? '<table><thead><tr><th>提交时间</th><th>会话ID</th><th>用户</th><th>状态</th><th>耗时</th><th title="本任务消耗的模型调用次数（每次ReAct思考轮=1次）">LLM轮数</th><th>最后步骤</th><th title="Reviewer 闭环返工轮数（上限2轮）">返工</th><th>操作</th></tr></thead><tbody>' +
+            ? '<table><thead><tr><th>提交时间</th><th>会话ID</th><th>用户</th><th>状态</th><th>耗时</th><th title="本任务消耗的模型调用次数（每次ReAct思考轮=1次）">LLM轮数</th><th>最后步骤</th><th title="Reviewer 闭环返工轮数（上限2轮）">返工</th></tr></thead><tbody>' +
               hist.map(x => '<tr style="cursor:pointer" onclick="showTrace(\'' + esc(x.sessionId) + '\')">' +
                 '<td class="num-cell">' + fmtTime(x.submitMs) + '</td>' +
                 '<td class="mono">' + esc(x.sessionId) + '</td>' +
@@ -215,8 +235,7 @@ function loadTasks(btn) {
                 '<td class="num-cell">' + fmtDur(x.durationMs) + '</td>' +
                 '<td class="num-cell">' + (x.modelCallsUsed != null && x.modelCallsUsed >= 0 ? x.modelCallsUsed : '—') + '</td>' +
                 '<td>' + esc(x.currentStep || '—') + '</td>' +
-                '<td>' + (x.reviseRounds > 0 ? '<span class="badge warn" title="' + esc(x.reviseOutcome || '?') + '">返工 ' + x.reviseRounds + '轮</span>' : '<span class="badge plain">—</span>') + '</td>' +
-                '<td><button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();showEvents(\'' + esc(x.sessionId) + '\')">事件</button></td></tr>').join('') +
+                '<td>' + (x.reviseRounds > 0 ? '<span class="badge warn" title="' + esc(x.reviseOutcome || '?') + '">返工 ' + x.reviseRounds + '轮</span>' : '<span class="badge plain">—</span>') + '</td></tr>').join('') +
               '</tbody></table>'
             : '<div class="state-box"><div class="big">📭</div>暂无历史任务<br><span style="font-size:12px">任务结束后自动归档到这里</span></div>';
         // ★事件明细跟随刷新：事件面板打开时，随 3s 任务轮询静默更新其内容（不闪骨架）
@@ -225,7 +244,8 @@ function loadTasks(btn) {
         if (evFold && evFold.open && evSid && evSid.textContent && evSid.textContent !== '—') {
             refreshEvents(evSid.textContent, false);
         }
-    }).catch(() => { if (btn) btn.disabled = false; errBox('taskHistoryBody', '任务监控加载失败', 'loadTasks'); });
+        if (btn) toast('任务监控已刷新');
+    }).catch(() => { done(); errBox('taskHistoryBody', '任务监控加载失败', 'loadTasks'); });
 }
 
 function forceCancel(sessionId) {
@@ -240,8 +260,14 @@ function forceCancel(sessionId) {
 
 /* ============ 子Agent健康 ============ */
 function loadAgentsHealth(btn) {
-    const done = btnBusy(btn, '检测中...');
-    fetchJson('/api/admin/agents/health').then(d => {
+    const done = btnBusy(btn, '刷新中...');
+    // ★两请求并行：健康状态 + 工具统计一次拿齐后同帧渲染（原 tools 二次插入导致刷新时卡片先矮后高、页面抖动）
+    //   另并行取 /costs 的缓存命中统计（主管进程 PlanCache）→ 并进主管卡展示
+    Promise.all([
+        fetchJson('/api/admin/agents/health'),
+        fetchJson('/api/admin/tools').catch(() => null),
+        fetchJson('/api/admin/costs').catch(() => null)
+    ]).then(([d, td, cd]) => {
         done();
         const b = document.getElementById('agentsHealthBody');
         const el = document.getElementById('agentsRefreshTime');
@@ -267,12 +293,13 @@ function loadAgentsHealth(btn) {
                   '<div class="kv"><span>在途并发</span><b class="num-cell">' + a.inflightActive + '/' + a.maxInflight + '</b></div>' +
                   '<div class="kv"><span>熔断器</span><b style="color:' + (a.breakerOpen ? '#F87171' : 'var(--ok)') + '">' + (a.breakerOpen ? '已熔断' : '正常') + '</b></div>' +
                   '<div class="kv"><span>QPS 限速</span><b class="num-cell">' + a.qps + '/s</b></div>' +
-                  '<div class="kv"><span>Token 消耗</span><b class="num-cell">入' + (a.tokensIn / 10000).toFixed(1) + '万 · 出' + (a.tokensOut / 10000).toFixed(1) + '万</b></div>'
+                  '<div class="kv"><span>Token 消耗</span><b class="num-cell">入' + (a.tokensIn / 10000).toFixed(1) + '万 · 出' + (a.tokensOut / 10000).toFixed(1) + '万</b></div>' +
+                  (cd && cd.cache ? '<div class="kv"><span>结果缓存命中率</span><b style="color:var(--teal)" title="命中 ' + (cd.cache.hits || 0) + ' 次 · 未中 ' + (cd.cache.misses || 0) + ' 次 · 存量 ' + (cd.cache.size || 0) + ' 条（进程内存，重启清零）">' + (cd.cache.hitRate != null ? cd.cache.hitRate : 0) + '%</b></div>' : '')
                 : '<div class="kv"><span>模型调用次数</span><b class="num-cell">' + (a.modelCalls >= 0 ? a.modelCalls : '—') + '</b></div>') +
             (!isMgr(a) ? lkBlock(a) : '') + '</div>'
         ).join('');
-        // ★工具层细粒度成功率（/api/admin/tools）：折叠块注入各健康卡片
-        fetchJson('/api/admin/tools').then(td => {
+        // ★工具层细粒度成功率：td 已与主数据并行取回，同步注入（同帧渲染）
+        if (td) {
             (td.agents || []).forEach(ta => {
                 if (!ta.alive) return;
                 const card = b.querySelector('[data-agent="' + CSS.escape(ta.label) + '"]');
@@ -289,11 +316,12 @@ function loadAgentsHealth(btn) {
                 html += '</table>';
                 card.insertAdjacentHTML('beforeend', html);
             });
-        }).catch(() => {});
+        }
         // 页签圆点：有不健康 Agent 时提示
         const dotEl = document.getElementById('dot-agents');
         if (dotEl) dotEl.classList.toggle('on', d.agents.some(a => !a.alive || a.light === 'yellow'));
-    }).catch(() => { if (btn) btn.disabled = false; errBox('agentsHealthBody', '健康检测失败', 'loadAgentsHealth'); });
+        if (btn) toast('Agent健康已刷新');
+    }).catch(() => { done(); errBox('agentsHealthBody', '健康检测失败', 'loadAgentsHealth'); });
 }
 
 
@@ -316,7 +344,8 @@ function lkBlock(a) {
 }
 
 /* ============ 模型监控 ============ */
-function loadBreaker() {
+function loadBreaker(btn) {
+    const done = btnBusy(btn, '刷新中...');
     const b = document.getElementById('breakerBody');
     fetchJson('/api/admin/breaker').then(d => {
         loadModelConfig();
@@ -333,7 +362,7 @@ function loadBreaker() {
         const stateCn = { CLOSED: '正常（CLOSED）', OPEN: '熔断中（OPEN）', HALF_OPEN: '半开试探（HALF_OPEN）' }[d.state] || d.state;
         b.innerHTML =
             '<div class="breaker-banner ' + d.state + '">熔断器状态：<b>' + stateCn + '</b></div>' +
-            '<div class="card-grid cols-metric">' +
+            '<div class="card-grid cols-3">' +
             '<div class="card metric"><div class="num' + (d.consecutiveFailures > 0 ? ' red' : ' teal') + '">' + d.consecutiveFailures + '</div><div class="label">窗口内失败次数</div></div>' +
             '<div class="card metric"><div class="num">' + d.maxQps + '</div><div class="label">限速 QPS</div></div>' +
             '<div class="card metric"><div class="num' + (d.inflightActive >= d.maxInflight ? ' red' : '') + '">' + d.inflightActive + '/' + d.maxInflight + '</div><div class="label">模型在途/上限</div></div>' +
@@ -342,7 +371,10 @@ function loadBreaker() {
             '<div class="card metric"><div class="num model-name">' + esc(d.fallbackModel) + '</div><div class="label">备用模型（熔断降级）</div></div>' +            '</div>';
         const dotEl = document.getElementById('dot-breaker');
         if (dotEl) dotEl.classList.toggle('on', d.state !== 'CLOSED');
-    }).catch(() => errBox('breakerBody', '熔断器状态加载失败', 'loadBreaker'));
+        applyCardMarquee(b);
+        done();
+        if (btn) toast('模型配置已刷新');
+    }).catch(() => { done(); errBox('breakerBody', '熔断器状态加载失败', 'loadBreaker'); });
 }
 
 /* ============ LLM 成本观测 ============ */
@@ -354,17 +386,9 @@ function fmtTok(n) {
 }
 function loadCosts() {
     fetchJson('/api/admin/costs').then(d => {
+        // ★结果缓存命中率已并入「Agent健康-主管Agent卡」（进程级指标），模型监控不再单独设卡
         const sum = document.getElementById('costsSummary');
-        const t = d.total || {};
-        const c = d.cache || {};
-        const hitRate = (c.hitRate != null ? c.hitRate : 0) + '%';
-        sum.innerHTML =
-            '<div class="card metric"><div class="num teal">' + (t.calls || 0) + '</div><div class="label">主管模型调用次数</div></div>' +
-            '<div class="card metric"><div class="num">' + fmtTok(t.inputTokens) + '</div><div class="label">输入 tokens</div></div>' +
-            '<div class="card metric"><div class="num">' + fmtTok(t.outputTokens) + '</div><div class="label">输出 tokens</div></div>' +
-            '<div class="card metric"><div class="num teal">' + (d.calls_RouteMakingAgent != null && d.calls_RouteMakingAgent >= 0 ? d.calls_RouteMakingAgent : '—') + '</div><div class="label">路线Agent调用次数</div></div>' +
-            '<div class="card metric"><div class="num teal">' + (d.calls_TripPlannerAgent != null && d.calls_TripPlannerAgent >= 0 ? d.calls_TripPlannerAgent : '—') + '</div><div class="label">行程Agent调用次数</div></div>' +
-            '<div class="card metric" title="结果缓存：命中 ' + (c.hits || 0) + ' 次 / 未中 ' + (c.misses || 0) + ' 次，当前存量 ' + (c.size || 0) + ' 条（重启清零）"><div class="num teal">' + hitRate + '</div><div class="label">结果缓存命中率</div><div class="sub">命中 ' + (c.hits || 0) + ' · 未中 ' + (c.misses || 0) + ' · 存量 ' + (c.size || 0) + '</div></div>';
+        if (sum) sum.innerHTML = '';
         // ★维度表固定显示全部已知维度（任务/管线/论坛AI + 后端实际返回的子Agent行），无数据补 0，不再空缺
         // ★数据管线是py侧独立模型处理，不经主管，不在本表展示
         const FIXED_DIMS = [['任务(用户行程)', 'task'], ['论坛AI答主', 'forum']];
@@ -479,6 +503,12 @@ function showTrace(sessionId) {
     const fold = document.getElementById('traceFold');
     fold.open = true;
     document.getElementById('traceSessionId').textContent = sessionId;
+    // ★事件面板随调用链一起打开（去掉独立「事件」按钮：点任务行即同时展示调用链+事件）
+    const evFold = document.getElementById('eventFold');
+    if (evFold) { evFold.open = true; }
+    const evSid = document.getElementById('eventSessionId');
+    if (evSid) evSid.textContent = sessionId;
+    refreshEvents(sessionId, false);
     const b = document.getElementById('traceBody');
     b.innerHTML = '<div class="sk-row w80"></div><div class="sk-row w60"></div>';
     // ★并行拉调用链 + 事件观测（REVISE 轮次/聚类统计），合并成一棵树
@@ -584,18 +614,30 @@ function qualityNode(obs) {
             label: '审查返工（' + Math.max.apply(null, rounds.map(r => r.round || 1)) + '/2 轮）· ' + outcomeTxt,
             desc: '', spans: leaves
         });
+    } else if (obs.reviseSkipped) {
+        // ★降级任务（无结构化方案）：审查闭环客观未执行——显式展示"未审查"而非静默缺失，
+        //   让用户能区分"审了通过"与"根本没审"（用户要求：没有返工也要展示分支）
+        groups.push({
+            label: '审查返工（未执行）· ' + (obs.reviseSkipReason || '任务降级为原文交付'),
+            desc: '', spans: [{
+                layer: 'REVIEW', name: '未审查', ts: null, costMs: -1, success: false,
+                detail: obs.reviseSkipReason || '无结构化方案，审查闭环跳过（仅做确定性校验+评分）'
+            }]
+        });
     }
     const cs = obs.clusterStats;
     if (cs && cs.attractionCount != null && cs.attractionCount > 0) {
         const cov = cs.locationCoverage != null ? cs.locationCoverage : 0;
         const modeTxt = { coordinate: '坐标聚类', area: '区域文本分组', none: '无分组' }[cs.mode] || cs.mode;
-        const okMode = cs.mode === 'coordinate';
+        // ★分组成功态修正：坐标聚类不成组时回退区域文本分组是设计内兜底（正常，非故障）——
+        //   只有"完全没分出组"(none/0组)才算失败，否则误标红色误导排查（obsverify-001 实证）
+        const grouped = (cs.coordGroups || 0) > 0 || (cs.areaGroups || 0) > 0;
         groups.push({
             label: '候选聚类', desc: modeTxt,
             spans: [{
-                layer: 'CLUSTER', name: '分组效果', ts: null, costMs: -1, success: okMode,
+                layer: 'CLUSTER', name: '分组效果', ts: null, costMs: -1, success: grouped,
                 detail: '景点 ' + cs.attractionCount + ' 个 · 带坐标 ' + cs.withLocation + '/' + cs.attractionCount + '（' + cov + '%）'
-                    + ' · ' + (cs.coordGroups > 0 ? cs.coordGroups + ' 组(坐标)' : (cs.areaGroups > 0 ? cs.areaGroups + ' 组(区域文本)' : '未成组'))
+                    + ' · ' + (cs.coordGroups > 0 ? cs.coordGroups + ' 组(坐标)' : (cs.areaGroups > 0 ? cs.areaGroups + ' 组(文本兜底)' : '未成组'))
                     + ' · 各组 ' + (Array.isArray(cs.groupSizes) && cs.groupSizes.length ? cs.groupSizes.join('+') : '—')
             }]
         });
@@ -611,15 +653,8 @@ function qualityNode(obs) {
 const EV_BADGE = { 解析: 'plain', 路线: 'plain', 行程: 'plain', 候选: 'plain', 调用工具: 'warn', Agent结果: 'warn',
     思考: 'plain', 定稿: 'plain', 修订: 'warn', 校验: 'warn', 评分: 'ok', 审查: 'warn', 证据链: 'plain', 完成: 'ok' };
 
-function showEvents(sessionId) {
-    const fold = document.getElementById('eventFold');
-    if (fold) fold.open = true;
-    const sid = document.getElementById('eventSessionId');
-    if (sid) sid.textContent = sessionId;
-    refreshEvents(sessionId, true);
-}
-
 /* 拉取并渲染单任务事件时间线；withSkeleton=false 用于 3s 定时静默刷新（不闪骨架）。
+   ★事件面板无独立按钮：随 showTrace（点任务行）一并打开；运行中任务由 loadTasks 轮询静默刷新。
    ★静默刷新时：内容无变化直接跳过重渲染（滚动位置自然保留）；内容有变化也恢复原滚动位置——不弹回顶部 */
 function refreshEvents(sessionId, withSkeleton) {
     const b = document.getElementById('eventBody');
@@ -663,10 +698,13 @@ function refreshEvents(sessionId, withSkeleton) {
 const DOMAIN_CN = { attraction: '景点', hotel: '酒店', dining: '餐饮', transport: '交通', none: '—', '': '—' };
 
 /* ============ 数据管理 ============ */
-function loadData() { loadUsers(); loadPlans(); }
+function loadData(btn) {
+    const done = btnBusy(btn, '刷新中...');
+    Promise.allSettled([loadUsers(), loadPlans()]).then(() => { done(); if (btn) toast('数据管理已刷新'); });
+}
 
 function loadUsers() {
-    fetchJson('/api/admin/users').then(d => {
+    return fetchJson('/api/admin/users').then(d => {
         const b = document.getElementById('usersBody');
         if (!d.users.length) { b.innerHTML = '<div class="state-box"><div class="big">👤</div>暂无用户</div>'; return; }
         const rows = d.users.map(u => {
@@ -679,7 +717,7 @@ function loadUsers() {
 }
 
 function loadPlans() {
-    fetchJson('/api/admin/plans').then(d => {
+    return fetchJson('/api/admin/plans').then(d => {
         const b = document.getElementById('plansBody');
         if (!d.plans.length) { b.innerHTML = '<div class="state-box"><div class="big">🗺️</div>暂无行程</div>'; return; }
         const rows = d.plans.map(p =>
@@ -705,9 +743,11 @@ function deletePlan(id) {
 }
 
 /* ============ 内容审核 ============ */
-function loadModeration() {
+function loadModeration(btn) {
+    const done = btnBusy(btn, '刷新中...');
     const b = document.getElementById('moderationBody');
     fetchJson('/api/admin/moderation/queue').then(d => {
+        done();
         if (!d.success) { b.innerHTML = '<div class="state-box">加载失败</div>'; return; }
         const typeCn = t => t === 1 ? '帖子' : '评论';
         const reportsHtml = (d.reports || []).map(x =>
@@ -742,7 +782,8 @@ function loadModeration() {
                 : '<div class="state-box">无被隐藏帖子</div>') +
             (hiddenCommentsHtml
                 ? '<div class="table-wrap" style="margin-top:10px"><table><tbody>' + hiddenCommentsHtml + '</tbody></table></div>' : '');
-    }).catch(() => errBox('moderationBody', '审核队列加载失败', 'loadModeration'));
+        if (btn) toast('内容审核已刷新');
+    }).catch(() => { done(); errBox('moderationBody', '审核队列加载失败', 'loadModeration'); });
 }
 
 function resolveReport(id) {
@@ -760,14 +801,16 @@ function modAction(type, id, action) {
 }
 
 /* ============ 业务看板 ============ */
-function loadBusiness() {
+function loadBusiness(btn) {
+    const done = btnBusy(btn, '刷新中...');
     fetchJson('/api/admin/stats/business').then(d => {
+        done();
         const b = document.getElementById('businessBody');
         if (!d.success) { b.innerHTML = '<div class="state-box">加载失败</div>'; return; }
         const hot = (d.hotDestinations || []).map((x, i) =>
             '<tr><td>' + (i < 3 ? '<b style="color:var(--teal)">#' + (i + 1) + '</b>&nbsp;&nbsp;' : '') + esc(x.destination) + '</td><td class="num-cell">' + x.cnt + '</td></tr>').join('');
         b.innerHTML =
-            '<div class="card-grid cols-metric">' +
+            '<div class="card-grid cols-3">' +
             '<div class="card metric"><div class="num teal">' + d.totalUsers + '</div><div class="label">总用户</div></div>' +
             '<div class="card metric"><div class="num">' + d.dau + '</div><div class="label">今日活跃（DAU）</div></div>' +
             '<div class="card metric"><div class="num">' + d.totalPlans + '</div><div class="label">累计行程</div></div>' +
@@ -779,7 +822,9 @@ function loadBusiness() {
             (hot
                 ? '<div class="table-wrap"><table><thead><tr><th>目的地</th><th>生成次数</th></tr></thead><tbody>' + hot + '</tbody></table></div>'
                 : '<div class="state-box"><div class="big">🏔️</div>暂无数据</div>');
-    }).catch(() => errBox('businessBody', '业务看板加载失败', 'loadBusiness'));
+        applyCardMarquee(b);
+        if (btn) toast('业务看板已刷新');
+    }).catch(() => { done(); errBox('businessBody', '业务看板加载失败', 'loadBusiness'); });
 }
 
 /* ============ 公告发布 ============ */
@@ -813,15 +858,27 @@ function publishAnnouncement(btn) {
 /* ============ 数据中心 ============ */
 /** 只跑 pricing.py（秒级），完成后刷新定价表（点击逻辑：按钮忙碌→完成恢复） */
 function runPricing() {
-    const restore = btnBusy(document.getElementById('pricingRunBtn'), '定价更新中...');
+    const restore = btnBusy(document.getElementById('pricingRunBtn'), '更新中...');
     fetchJson('/api/admin/pricing/run', { method: 'POST' }).then(d => {
-        toast(d.message || (d.success ? '定价已更新' : '更新失败'), !d.success);
+        toast(d.success ? '定价已更新' : (d.message || '更新失败'), !d.success);
         restore();
         if (d.success) loadDataCenter();
     }).catch(() => { restore(); toast('请求失败', true); });
 }
 
-function loadDataCenter() {
+/* 客流预测专用：只跑本地统计（forecast.py 读 trip_plans 生成 forecast_output），不碰采集/定价管线。
+   成功弹窗只提示已完成（不展示脚本明细输出）；失败才显示后端具体原因 */
+function runForecastLocal(btn) {
+    const restore = btnBusy(document.getElementById('forecastRunBtn'), '统计中...');
+    fetchJson('/api/admin/forecast/run', { method: 'POST' }).then(d => {
+        toast(d.success ? '客流预测已完成' : (d.message || '重算失败'), !d.success);
+        restore();
+        if (d.success) loadDataCenter();
+    }).catch(() => { restore(); toast('请求失败', true); });
+}
+
+function loadDataCenter(btn) {
+    const done = btnBusy(btn, '刷新中...');
     // 统计卡片（可点击 → 明细弹窗）
     fetchJson('/api/admin/data-stats').then(d => {
         const s = document.getElementById('centerStats');
@@ -833,6 +890,7 @@ function loadDataCenter() {
         s.innerHTML = cards.map(c =>
             '<div class="card metric clickable" title="点击查看明细" onclick="showDataDetail(\'' + c[2] + '\')">' +
             '<div class="num teal">' + c[1] + '</div><div class="label">' + c[0] + '</div></div>').join('');
+        applyCardMarquee(s);
     }).catch(() => errBox('centerStats', '统计加载失败', 'loadDataCenter'));
 
     // 定价表
@@ -866,7 +924,9 @@ function loadDataCenter() {
     fetchJson('/api/admin/forecast').then(d => {
         window._fcRows = d.rows || [];
         renderFcTable();
-    }).catch(() => {});
+        done();
+        if (btn) toast('数据中心已刷新');
+    }).catch(() => { done(); });
 
     let _fcChart = null;
     function renderFcTable() {

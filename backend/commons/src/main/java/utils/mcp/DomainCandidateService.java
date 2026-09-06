@@ -59,12 +59,19 @@ public class DomainCandidateService {
         for (String d : CandidateUtil.DOMAINS) toRun.add(d);
 
         // 三域并行提交
+        // ★span 归位修复：setSessionId 是 ThreadLocal，不跨 DOMAIN_POOL 线程——
+        //   必须把 sessionId 捕获进 lambda，在各域专家线程内重新设置，
+        //   否则域专家的全部 LLM/MCP span 的 sessionId 为空、调用链整体丢失（stage-test-001 实证）
+        String sid = utils.SafeModel.currentSessionId();
         Map<String, Future<String>> futures = new LinkedHashMap<>();
         Map<String, String> tasks = new LinkedHashMap<>();
         for (String domain : toRun) {
             String task = buildDomainTask(domain, destination, days, preference, waypoints, brief);
             tasks.put(domain, task);
-            futures.put(domain, DOMAIN_POOL.submit(() -> runDomainAgent(domain, task)));
+            futures.put(domain, DOMAIN_POOL.submit(() -> {
+                utils.SafeModel.setSessionId(sid); // ★域专家线程内归位会话
+                return runDomainAgent(domain, task);
+            }));
         }
 
         // 收集结果（超时/异常 → 域降级标记）

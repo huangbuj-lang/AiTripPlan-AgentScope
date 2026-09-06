@@ -11,8 +11,12 @@ public final class JsonUtils {
     private JsonUtils() {
     }
 
-    /** 复用单例 ObjectMapper（性能：避免反复 new） */
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    /** 复用单例 ObjectMapper（性能：避免反复 new）；★容忍 LLM 输出的未知字段——
+     *  实证教训（stage-test-001）：行程Agent 在 section 里多写了 "weather" 字段，
+     *  Jackson 默认 FAIL_ON_UNKNOWN_PROPERTIES=true 使整个终版解析抛 UnrecognizedPropertyException → 降级原文兜底。
+     *  契约外字段应该被忽略而不是让整份行程作废。 */
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     /**
      * 从自由文本中提取首个完整 JSON 对象（容忍 ``` 围栏与前后缀）。

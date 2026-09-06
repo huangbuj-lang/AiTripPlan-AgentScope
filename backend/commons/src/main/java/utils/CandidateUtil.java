@@ -57,25 +57,45 @@ public final class CandidateUtil {
         return (reply.substring(0, b) + reply.substring(e + BLOCK_END.length())).trim();
     }
 
-    /** 从子 Agent 完整回复中提取 【行程JSON】...【行程JSON结束】 块正文（无块返回空串）。★删聚合：行程Agent结构化终版块 */
     public static String extractPlanBlock(String reply) {
         if (reply == null) return "";
         int b = reply.indexOf(PLAN_BLOCK_BEGIN);
-        if (b < 0) return "";
-        int s = b + PLAN_BLOCK_BEGIN.length();
-        int e = reply.indexOf(PLAN_BLOCK_END, s);
-        if (e < 0) e = reply.length();
-        return reply.substring(s, e).trim();
+        if (b >= 0) {
+            int s = b + PLAN_BLOCK_BEGIN.length();
+            int e = reply.indexOf(PLAN_BLOCK_END, s);
+            if (e < 0) e = reply.length();
+            return reply.substring(s, e).trim();
+        }
+        // ★兜底（2026-09-06）：模型可能用 markdown ```json 代码块围栏包 JSON 而不带【行程JSON】标记
+        int cb = reply.indexOf("```json");
+        if (cb < 0) cb = reply.indexOf("```JSON");
+        if (cb >= 0) {
+            int s = cb + 7; // 跳过 ```json
+            int e = reply.indexOf("```", s);
+            return (e < 0 ? reply.substring(s) : reply.substring(s, e)).trim();
+        }
+        return "";
     }
 
     /** 从回复正文剥离行程 JSON 块（终版已入 TripPlanData，正文只留可读文本供降级 markdown） */
     public static String stripPlanBlock(String reply) {
         if (reply == null) return "";
         int b = reply.indexOf(PLAN_BLOCK_BEGIN);
-        if (b < 0) return reply;
-        int e = reply.indexOf(PLAN_BLOCK_END, b);
-        if (e < 0) return reply.substring(0, b).trim();
-        return (reply.substring(0, b) + reply.substring(e + PLAN_BLOCK_END.length())).trim();
+        int e = -1;
+        if (b >= 0) e = reply.indexOf(PLAN_BLOCK_END, b);
+        if (b >= 0 && e >= 0) {
+            return (reply.substring(0, b) + reply.substring(e + PLAN_BLOCK_END.length())).trim();
+        }
+        // ★兜底：markdown ```json 围栏同样剥离
+        int cb = reply.indexOf("```json");
+        if (cb < 0) cb = reply.indexOf("```JSON");
+        if (cb >= 0) {
+            int ce = reply.indexOf("```", cb + 7);
+            if (ce < 0) return reply.substring(0, cb).trim();
+            return (reply.substring(0, cb) + reply.substring(ce + 3)).trim();
+        }
+        if (b >= 0) return reply.substring(0, b).trim();
+        return reply;
     }
 
     /** 解析候选 JSON（容忍围栏/前后缀）；解析失败或非对象返回 null。 */

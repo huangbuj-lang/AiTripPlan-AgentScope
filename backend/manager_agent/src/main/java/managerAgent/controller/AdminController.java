@@ -1557,21 +1557,43 @@ public class AdminController {
     /** 定价专用刷新：只跑 pricing.py（秒级），不碰采集管线 */
     @PostMapping("/pricing/run")
     public Map<String, Object> runPricing() {
+        return runPythonScript("data-pipeline/pricing.py", 120, "定价已更新", "定价更新超时", "定价脚本退出码 ");
+    }
+
+    /** 客流预测专用刷新：只跑 forecast.py（本地统计 trip_plans 生成 forecast_output，秒级，不调高德/采集管线） */
+    @PostMapping("/forecast/run")
+    public Map<String, Object> runForecast() {
+        return runPythonScript("data-pipeline/forecast.py", 180, "客流预测已重算（基于全部已保存行程的本地统计）", "客流预测超时", "预测脚本退出码 ");
+    }
+
+    /** Python 子进程并发锁：定价/客流重算互斥，防重复点击双跑 */
+    private static final java.util.concurrent.atomic.AtomicBoolean PYTHON_RUN_LOCK = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /** Python 子进程通用执行：继承 8081 启动环境（.env 已含 MYSQL_BIN/RDS_*），防并发重入 */
+    private Map<String, Object> runPythonScript(String scriptPath, int timeoutSec, String okMsg, String timeoutMsg, String failPrefix) {
         Map<String, Object> r = new HashMap<>();
+        if (!PYTHON_RUN_LOCK.compareAndSet(false, true)) {
+            r.put("success", false); r.put("message", "脚本已在执行中，请稍候"); return r;
+        }
         try {
-            java.io.File script = new java.io.File(projectRoot(), "data-pipeline/pricing.py");
-            if (script == null) { r.put("success", false); r.put("message", "找不到 pricing.py"); return r; }
+            java.io.File script = new java.io.File(projectRoot(), scriptPath);
+            if (script == null || !script.isFile()) { r.put("success", false); r.put("message", "找不到 " + scriptPath); return r; }
             ProcessBuilder pb = new ProcessBuilder(utils.Config.get("PYTHON_BIN", "python"), script.getCanonicalPath());
             pb.directory(new java.io.File(script.getCanonicalPath()).getParentFile().getParentFile());
             pb.redirectErrorStream(true);
             Process p = pb.start();
-            boolean done = p.waitFor(120, java.util.concurrent.TimeUnit.SECONDS);
-            if (!done) { p.destroyForcibly(); r.put("success", false); r.put("message", "定价更新超时"); return r; }
+            boolean done = p.waitFor(timeoutSec, java.util.concurrent.TimeUnit.SECONDS);
+            String out = "";
+            if (!done) { p.destroyForcibly(); out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8); r.put("success", false); r.put("message", timeoutMsg); return r; }
+            out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             r.put("success", p.exitValue() == 0);
-            r.put("message", p.exitValue() == 0 ? "定价已更新" : "定价脚本退出码 " + p.exitValue());
+            String tail = out.isBlank() ? "" : "：" + out.trim().replaceAll("(?s)\\s+", " ").substring(0, Math.min(200, out.trim().length()));
+            r.put("message", p.exitValue() == 0 ? okMsg + tail : failPrefix + p.exitValue() + tail);
         } catch (Exception e) {
             r.put("success", false);
             r.put("message", "执行失败: " + e.getMessage());
+        } finally {
+            PYTHON_RUN_LOCK.set(false);
         }
         return r;
     }

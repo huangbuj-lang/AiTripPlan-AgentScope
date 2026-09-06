@@ -59,6 +59,8 @@ public class LocalKnowledgeTool {
             @ToolParam(name = "domain", required = false, description = "限定域：景点/美食/酒店（可选，不传查全部）") String domain) {
         if (city == null || city.isBlank()) {
             LK_CALLS.incrementAndGet(); LK_FAILS.incrementAndGet(); // 参数缺失也算失败调用
+            utils.CallTrace.record(utils.SafeModel.lastTraceId(), "TOOL", "query_local_knowledge",
+                    "知识库调用失败 · city 必填", false, 0L);
             return "【本地知识获取失败】city 必填";
         }
         long lkStart = System.currentTimeMillis();
@@ -86,7 +88,6 @@ public class LocalKnowledgeTool {
         String p = preference == null ? "" : preference.trim();
         // ★偏好归一：自由文本 → 标准标签（同义词表）
         List<String> prefTags = PrefSynonyms.normalize(p);
-
         // 意图（查哪几类）：优先按归一标签映射；无标签则按原关键词；默认全查
         List<String> intents = new ArrayList<>();
         String[] allIntentWords = {"美食", "吃", "餐厅", "火锅", "小吃", "地方菜", "异国料理", "海鲜", "素食", "饮品甜点",

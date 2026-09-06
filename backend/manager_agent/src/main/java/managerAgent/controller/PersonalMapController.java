@@ -23,10 +23,12 @@ public class PersonalMapController {
     private final ObjectMapper om = new ObjectMapper();
 
     @PostMapping("/personal-map")
-    public Map<String, Object> personalMap(@RequestBody String body) {
+    public Map<String, Object> personalMap(@RequestBody byte[] bodyBytes) {
         Map<String, Object> resp = new HashMap<>();
         resp.put("ok", false);
         try {
+            // ★byte[] + 显式 UTF-8：@RequestBody String 在无 charset 时被 ISO-8859-1 解码，中文景点名变乱码 → geocode 全查空
+            String body = new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8);
             JsonNode root = om.readTree(body);
             String title = root.path("title").asText("行程规划");
             String dest = root.path("destination").asText("");
@@ -75,8 +77,8 @@ public class PersonalMapController {
                     }
                 }
                 if (!allPts.isEmpty()) {
-                    // 高德官方 URI API 路线链接：市内默认公交模式（mode=bus），多途经点 via 分号分隔
-                    resp.put("webUrl", ExternalServices.buildNavigationUrl(allPts));
+                    // ★ditu.amap.com 网页版驾车 SSR：fname/flat/flon + vname|vlat|vlon|vid 途经点（PC 直接打开不丢途经点）
+                    resp.put("webUrl", ExternalServices.buildSsrDirUrl(allPts));
                     // 补充：静态地图图片兜底
                     resp.put("staticMapUrl", buildStaticMapUrl(allPts));
                 }
@@ -251,8 +253,11 @@ public class PersonalMapController {
                 String loc = poi.path("location").asText("");
                 String[] parts = loc.split(",");
                 if (parts.length < 2) continue;
-                // ★围栏校验：坐标须落在目的地中心 150km 内，越界视为同名错配，跳过
-                if (center != null) {
+                // ★围栏校验改「精确同名优先」：高德返回与景点完全同名（如「泸定桥」）的可信，直接采用；
+                //   围栏仅拦无精确同名命中的错配（如莫高窟被解析到杭州）。修复目的地为区域名（川西）时中心落在省会、
+                //   把同省景点全判越界的误杀
+                boolean exactSame = name.equals(poi.path("name").asText(""));
+                if (center != null && !exactSame) {
                     double d = distKm(Double.parseDouble(parts[1]), Double.parseDouble(parts[0]),
                             center[1], center[0]);
                     if (d > 150) continue;

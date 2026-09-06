@@ -90,10 +90,12 @@ public class TripEditController {
     /** 保存编辑后的结构化行程（覆盖 plan_json + 重渲染 markdown，仅本人） */
     @PutMapping("/{id}")
     public Map<String, Object> updateTrip(@PathVariable Long id,
-                                          @RequestBody String planJson,
+                                          @RequestBody byte[] planJsonBytes,
                                           HttpSession session) {
         long userId = uid(session);
         Map<String, Object> result = new HashMap<>();
+        // ★byte[] + 显式 UTF-8：防 @RequestBody String 按 ISO-8859-1 解码导致中文行程 JSON 乱码
+        String planJson = new String(planJsonBytes, java.nio.charset.StandardCharsets.UTF_8);
         TripPlanData plan = JsonUtils.parse(planJson, TripPlanData.class);
         if (plan == null) {
             result.put("success", false);

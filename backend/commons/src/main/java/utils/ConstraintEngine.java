@@ -97,9 +97,19 @@ public final class ConstraintEngine {
 
     // ==================== ①b 每天景点量（节奏硬校验） ====================
 
-    /** 默认节奏上下限：每天 2~4 个景点；用户写明多排/少排时不校验（用户显式要求优先）。 */
+    /** 默认节奏上下限：每天 2~4 个景点；用户写明多排/少排时不校验（用户显式要求优先）。
+     *  ★2026-09-06：区域环线(LOOP)/长途自驾(SELF_DRIVE)游下限放宽为 1——川西/甘南/新疆这类环线
+     *  景区间车程 2-6 小时、稻城亚丁/四姑娘山等大景区需整日游玩，每天 1 个大景区+沿途观景点是合理排法；
+     *  仍按城市节奏强求 2 个会逼模型硬凑或放弃输出结构化 JSON。上限 PACE_MAX=5 不变。 */
     private static final int PACE_MIN = 2;
     private static final int PACE_MAX = 5;
+
+    /** 环线/长途自驾类行程：每日下限 1（一个大景区即可，防糊弄的语义弱化为防空天） */
+    private static int paceMinFor(TripRequest req) {
+        if (req == null || req.getTravelType() == null) return PACE_MIN;
+        String t = req.getTravelType().trim().toUpperCase();
+        return ("LOOP".equals(t) || "SELF_DRIVE".equals(t)) ? 1 : PACE_MIN;
+    }
 
     /** 用户原文含显式节奏要求（多排/少排/特种兵/慢节奏等）→ 跳过数量校验。 */
     private static boolean userOverridesPace(TripRequest req) {
@@ -135,9 +145,10 @@ public final class ConstraintEngine {
                     spots++;
                 }
             }
-            if (spots < PACE_MIN) {
+            if (spots < paceMinFor(req)) {
                 report.add(new ValidationReport.Issue("schedule", "medium", "第" + day + "天",
-                        "第" + day + "天仅安排 " + spots + " 个景点，内容过少（默认每天 " + PACE_MIN + "~4 个）"));
+                        "第" + day + "天仅安排 " + spots + " 个景点，内容过少（默认每天 " + PACE_MIN + "~4 个"
+                                + (paceMinFor(req) < PACE_MIN ? "；环线/自驾行程每天 1 个大景区即可" : "") + "）"));
             } else if (spots > PACE_MAX) {
                 report.add(new ValidationReport.Issue("schedule", "medium", "第" + day + "天",
                         "第" + day + "天安排 " + spots + " 个景点，过于赶场（默认每天 " + PACE_MIN + "~4 个，至多 " + PACE_MAX + "）"));
@@ -269,6 +280,7 @@ public final class ConstraintEngine {
             int prev = -1;
             boolean prevValid = false;
             Set<String> seenInDay = new HashSet<>();
+            Set<String> seenNonAttr = new HashSet<>();
             boolean anyTime = false;
             for (SectionItem it : s.getItems()) {
                 int cur = parseMinutesOfDay(it.getTime());
@@ -282,19 +294,29 @@ public final class ConstraintEngine {
                     prevValid = true;
                 }
                 String place = it.getPlace() == null ? "" : it.getPlace().trim();
-                // 仅"景点"类条目计重复：交通(到达地)/餐饮(餐厅在古镇内)等条目的 place 是位置不是游览安排，不算重复
-                boolean attraction = it.getCategory() == null || it.getCategory().isBlank()
-                        || "景点".equals(it.getCategory()) || "attraction".equalsIgnoreCase(it.getCategory());
-                if (!place.isBlank() && attraction && !isGenericPlace(place)) {
-                    if (!seenInDay.add(place)) {
+            // 重复判定（2026-09-06 收紧）：
+            // ① 景点/未分类类：按「主名」判（切掉 ·子地点后缀），同景区拆行（双桥沟·红杉林/·四姑娜措）视为重复
+            // ② 非景点类（餐饮/住宿等）：仅精确同名算重复（古镇内多家真实店名不同名，不误伤）
+            boolean attraction = it.getCategory() == null || it.getCategory().isBlank()
+                    || "景点".equals(it.getCategory()) || "attraction".equalsIgnoreCase(it.getCategory());
+            String key = attraction ? placeMain(place) : place;
+            boolean generic = isGenericPlace(place);
+            if (!place.isBlank() && !generic) {
+                if (attraction) {
+                    if (!seenInDay.add(key)) {
                         report.add(new ValidationReport.Issue("duplicate", "medium", day,
-                                day + " 重复安排「" + place + "」"));
-                    } else if (!seenAcrossDays.add(place)) {
+                                day + " 重复安排「" + place + "」" + (key.equals(place) ? "" : "（与同景区「" + key + "」拆行重复）")
+                                        + "，同景区多条应合并为一条并在 activity 写全路线"));
+                    } else if (!seenAcrossDays.add(key)) {
                         report.add(new ValidationReport.Issue("duplicate", "low", day,
-                                "「" + place + "」在多个天重复出现"));
+                                "「" + key + "」在多个天重复出现"));
                     }
+                } else if (!seenNonAttr.add(key)) {
+                    report.add(new ValidationReport.Issue("duplicate", "low", day,
+                            day + " 「" + place + "」同名出现多次，建议合并进同一条描述（餐饮/入住/休息并入所在活动或写真实店名/酒店名）"));
                 }
             }
+        }
             if (!anyTime) {
                 report.getSkippedChecks().add("时间顺序(" + day + " 无时间字段)");
             }
@@ -306,6 +328,17 @@ public final class ConstraintEngine {
         return place.contains("自由") || place.contains("午餐") || place.contains("晚餐")
                 || place.contains("早餐") || place.contains("休息") || place.contains("返程")
                 || place.contains("出发") || place.contains("到达");
+    }
+
+    /** 地点主名：用于同景区拆行的同天重复判定。
+     *  「·」前段 >4 字视为景区主体（四姑娘山景区双桥沟·红杉林 → 四姑娘山景区双桥沟，沟内拆行判重复）；
+     *  前段 ≤4 字多为城市/古镇前缀（丹巴·中路乡、束河古镇·青龙桥、康定·情歌广场）——整串精确判，不切，
+     *  否则同一城市的所有「丹巴·X」会误判互相重复。 */
+    static String placeMain(String place) {
+        int i = place.indexOf('·');
+        if (i <= 0) return place.trim();
+        String main = place.substring(0, i).trim();
+        return main.length() > 4 ? main : place.trim();
     }
 
     private static void checkTransport(TripPlanData plan, ValidationReport report) {

@@ -204,6 +204,8 @@ body {
 .cols-auto { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
 .cols-metric { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+/* ★熔断器指标区：6 张指标卡（含备用模型）固定一行等宽 */
+.cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
@@ -217,17 +219,25 @@ body {
 .kv:first-of-type { border-top: none; }
 .kv b { color: var(--ink); font-weight: 600; text-align: right; word-break: break-all; }
 
-/* 指标卡：数字即主角 */
+/* 指标卡：数字即主角（单行不换行，溢出走跑马灯 .mq-on 注入） */
 .metric .num {
   font-family: var(--num-font); font-size: 27px; font-weight: 800;
   letter-spacing: -.02em; color: var(--blue); font-variant-numeric: tabular-nums;
-  word-break: break-all; line-height: 1.15;
+  white-space: nowrap; line-height: 1.15;
 }
 .metric .num.teal { color: var(--teal); }
 .metric .num.red { color: var(--rose); }
-.metric .num.model-name { font-size: 17px; line-height: 1.4; letter-spacing: 0; word-break: break-all; }
-.metric .label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+/* 模型名与数值同字号；单行不换行，过长时由 JS 注入跑马灯 */
+.metric .num.model-name { white-space: nowrap; }
+.metric .label { font-size: 12px; color: var(--muted); margin-top: 4px; white-space: nowrap; }
 .metric .sub { font-size: 11px; color: var(--faint); margin-top: 2px; }
+.metric .num, .metric .label { max-width: 100%; overflow: hidden; }
+/* 指标卡内容：水平左靠齐 + 垂直居中；数值/标签溢出隐藏（由跑马灯接管） */
+.card.metric { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; min-height: 88px; overflow: hidden; }
+/* 溢出跑马灯：右→左无缝循环（两段等宽副本，-50% 位移） */
+.mq-track { display: inline-flex; white-space: nowrap; will-change: transform; animation: mq-scroll 9s linear infinite; }
+.mq-track > span { padding-right: 28px; }
+@keyframes mq-scroll { to { transform: translateX(-50%); } }
 
 /* ============ 徽章 / 点 ============ */
 .badge { display: inline-block; padding: 1.5px 10px; border-radius: 20px; font-size: 11.5px; line-height: 1.6; }
@@ -247,6 +257,10 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr { transition: background .12s; }
 tbody tr:hover td { background: #F5F7FA; }
 td.num-cell { font-variant-numeric: tabular-nums; }
+
+/* ★成本观测双表等宽：4 列各 25% 铺满容器（右端不留空白），表头与数据全左对齐，间距由 padding 一致撑开 */
+#costsDims table, #costsTrend table { table-layout: fixed; }
+#costsDims th, #costsTrend th, #costsDims td, #costsTrend td { width: 25%; text-align: left; white-space: normal; }
 
 .section-h { font-size: 13.5px; color: var(--ink); margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
 .section-h::before { content: ""; width: 4px; height: 14px; border-radius: 2px; background: var(--teal); }

@@ -187,9 +187,9 @@ public class ShareController {
                 allPts.add(ll[0] + "," + ll[1] + "," + name + "," + ll[2]);
             }
             if (allPts.size() < 2) { result.put("error", "当天可定位的景点不足 2 个"); return result; }
-            // 高德官方 URI API 路线链接：市内默认公交模式（mode=bus），多途经点 via 分号分隔
+            // ★ditu.amap.com 网页版驾车 SSR：fname/flat/flon + vname|vlat|vlon|vid 途经点（PC 直接打开不丢途经点）
             result.put("ok", true);
-            result.put("webUrl", ExternalServices.buildNavigationUrl(allPts));
+            result.put("webUrl", ExternalServices.buildSsrDirUrl(allPts));
         } catch (Exception e) {
             result.put("error", e.getMessage());
         }
@@ -241,8 +241,10 @@ public class ShareController {
                 String loc = poi.path("location").asText("");
                 String[] parts = loc.split(",");
                 if (parts.length < 2) continue;
-                // ★围栏校验：坐标须落在目的地中心 150km 内，越界视为同名错配，跳过
-                if (center != null) {
+                // ★围栏校验改「精确同名优先」：与景点完全同名（如「泸定桥」）的可信直接采用；围栏仅拦无精确同名命中的
+                //   错配（莫高窟→杭州类）。修复目的地为区域名（川西）时中心落省会、同省景点全判越界的误杀
+                boolean exactSame = name.equals(poi.path("name").asText(""));
+                if (center != null && !exactSame) {
                     double d = distKm(Double.parseDouble(parts[1]), Double.parseDouble(parts[0]),
                             center[1], center[0]);
                     if (d > 150) continue;

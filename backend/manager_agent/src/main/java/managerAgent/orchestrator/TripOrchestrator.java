@@ -84,6 +84,13 @@ public class TripOrchestrator {
         if (plan == null || plan.getSections() == null || plan.getSections().isEmpty()) {
             plan = fallbackPlan(state.getRequest(), state.getRouteResult(), state.getPlanResult()); // 兜底已含完整 markdown 原文
             EventStore.add(sessionId, "定稿", "行程Agent未返回结构化终版JSON，降级为原文交付");
+            // ★诊断留档（2026-09-06）：回复原文入事件流落库，事后可查"为什么没带 JSON 块"（长文本/格式错/截断）
+            if (state.getPlanResult() != null && !state.getPlanResult().isBlank()) {
+                EventStore.add(sessionId, "行程原文", "（定稿降级·行程Agent回复全文）\n" + state.getPlanResult());
+            }
+            // ★观测完整性：降级路径没有可审查的结构化方案，审查闭环客观未执行——必须显式记录而非静默跳过，
+            //   否则管理端质量观测缺失审查节点，用户无法区分"审了通过"与"根本没审"
+            EventStore.add(sessionId, "审查", "⚠️ 原文降级无结构化方案，审查闭环未执行（仅做确定性校验+评分）");
         } else {
             plan.setMarkdown(renderMarkdown(plan)); // 结构化成功才渲染降级 markdown 字段
             // ④ Reviewer 闭环：每轮审查前先跑确定性校验+六维评分（纯代码，作为审查依据）→ REVISE 定向重编（≤2轮）
@@ -388,6 +395,7 @@ public class TripOrchestrator {
                 req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs, req.getPreference(), cacheFingerprint);
         if (hit != null) {
             EventStore.add(sessionId, "解析", "· 命中结果缓存，跳过专家调用 ·");
+            EventStore.add(sessionId, "审查", "结果缓存命中，正在执行校验/审查闭环（专家生成已跳过）...");
             state.setFromCache(true);
             state.setRouteResult(hit.routeResult);
             state.setPlanResult(hit.planResult);
@@ -425,6 +433,7 @@ public class TripOrchestrator {
             checkCancel();
             if (withPlanAgent) {
                 // ③ 行程Agent 一次定稿：输入=候选+簇+候选路线表 → 输出结构化终版【行程JSON】块
+                EventStore.add(sessionId, "行程", "跨城行程Agent 基于候选路线与候选定稿...");
                 String planResult = await(PARALLEL_POOL.submit(() ->
                         remoteTool.callTripPlannerAgent(finalPlanTask(state, null, null, null))), "行程Agent");
                 state.setPlanResult(planResult);
@@ -664,7 +673,12 @@ public class TripOrchestrator {
             String routeCandidates = extractRouteCandidates(state.getRouteResult());
             sb.append("请规划从 ").append(req.getOrigin()).append(" 到 ").append(req.getDestination())
                     .append(" 的").append(req.getDays()).append("天行程，重点规划【终点城市】与【途经城市】的景点，不要规划起点城市 ")
-                    .append(req.getOrigin()).append(" 内部的景点（起点只是出发地）。\n");
+                    .append(req.getOrigin()).append(" 内部的景点（起点只是出发地）");
+            String prefCross = req.getTripPref();
+            if (prefCross != null && !prefCross.isBlank()) {
+                sb.append("，偏好：").append(prefCross);
+            }
+            sb.append("。\n");
             if (!routeCandidates.isBlank()) {
                 sb.append("路线Agent给出多条候选路线方案，择一作为主线：\n").append(routeCandidates).append("\n");
             }
@@ -698,7 +712,7 @@ public class TripOrchestrator {
             sb.append("上一版行程JSON（修改基准，仅修订反馈涉及部分）：\n")
                     .append("【行程JSON】\n").append(prevPlanJson).append("\n【行程JSON结束】\n");
         }
-        sb.append("\n最终回复：完整可读的行程文本（含每日安排/衔接/住宿餐饮/天气），末尾附【行程JSON】结构化块（格式见系统规则）。");
+        sb.append("\n最终回复：简短概要（每天一句话，总长≤300字——完整可读文本由主管从你的JSON生成，概要只作兜底），末尾【必须】原样附完整【行程JSON】结构化块（格式见系统规则）。输出预算优先保证 JSON 块完整，宁可概要更短也不可截断 JSON；若单次输出放不下，JSON 块中删减 note/次要字段，禁止丢弃整个块。");
         return sb.toString().trim();
     }
 
@@ -800,19 +814,62 @@ public class TripOrchestrator {
     private TripPlanData repairPlanByAgent(TravelState state, String style, String feedback, TripPlanData prev) {
         EventStore.add(sessionId, "审查", "带审查反馈重调行程Agent重编（候选已就绪，局部修正）...");
         String task = finalPlanTask(state, style, feedback,
-                prev == null ? null : utils.JsonUtils.toJson(prev));
+                prev == null ? null : trimReviseBaseline(prev, feedback));
         String reply = await(PARALLEL_POOL.submit(() ->
                 remoteTool.callTripPlannerAgent(task)), "行程Agent(审查重编)");
         if (reply == null || reply.isBlank()) return null;
         String block = utils.CandidateUtil.extractPlanBlock(reply);
-        if (block.isBlank()) return null;
+        if (block.isBlank()) {
+            EventStore.add(sessionId, "行程原文", "（REVISE重编·无JSON块，行程Agent回复全文）\n" + reply);
+            return null;
+        }
         TripPlanData plan = JsonUtils.extractAndParse(block, TripPlanData.class);
         if (plan == null || plan.getSections() == null || plan.getSections().isEmpty()) {
+            EventStore.add(sessionId, "行程原文", "（REVISE重编·JSON块解析失败，块原文）\n" + block);
             EventStore.add(sessionId, "审查", "重编未产出结构化终版JSON，保留上一版");
             return null;
         }
         normalizePlan(state, plan);
         return plan;
+    }
+
+    /** ★REVISE 重编输入增量（2026-09-06）：上一版行程 JSON 按反馈涉及天裁剪后注入——
+     *  涉及天（反馈出现「第N天/dayN」）全字段原样；未涉及天保留安排骨架（删 note 等细碎文本字段），
+     *  模型照抄骨架不自由发挥，防走样；transport/stay/tips 区块原样。目的：重编任务输入减负，
+     *  模型上下文更宽松（配合输出指示：预算集中给 JSON 块，防截断丢块）。解析失败则回退全量 JSON。 */
+    private String trimReviseBaseline(TripPlanData prev, String feedback) {
+        String full = utils.JsonUtils.toJson(prev);
+        if (full == null) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = utils.JsonUtils.parse(full, com.fasterxml.jackson.databind.JsonNode.class);
+            if (root == null || !root.isObject()) return full;
+            java.util.Set<String> affected = new java.util.HashSet<>();
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("第\\s*(\\d+)\\s*天|day\\s*(\\d+)", java.util.regex.Pattern.CASE_INSENSITIVE)
+                    .matcher(feedback == null ? "" : feedback);
+            while (m.find()) {
+                String g = m.group(1) != null ? m.group(1) : m.group(2);
+                if (g != null) affected.add(g);
+            }
+            if (affected.isEmpty()) return full;
+            com.fasterxml.jackson.databind.JsonNode secs = root.get("sections");
+            if (secs == null || !secs.isArray()) return full;
+            java.util.regex.Pattern dayPat = java.util.regex.Pattern.compile("第\\s*(\\d+)\\s*天");
+            for (com.fasterxml.jackson.databind.JsonNode sec : secs) {
+                if (!"timeline".equals(sec.path("type").asText(""))) continue;
+                java.util.regex.Matcher dm = dayPat.matcher(sec.path("title").asText(""));
+                if (!dm.find()) continue;
+                if (affected.contains(dm.group(1))) continue; // 涉及天：全字段原样
+                com.fasterxml.jackson.databind.JsonNode items = sec.get("items");
+                if (items == null || !items.isArray()) continue;
+                for (com.fasterxml.jackson.databind.JsonNode it : items) {
+                    if (it.isObject()) ((com.fasterxml.jackson.databind.node.ObjectNode) it).remove("note");
+                }
+            }
+            return utils.JsonUtils.toJson(root);
+        } catch (Exception e) {
+            return full;
+        }
     }
 
     /** 从路线结果提取途经城市名（带市/区/县/镇/州后缀，排除起终点，最多5个）。
@@ -1171,7 +1228,10 @@ public class TripOrchestrator {
             String reply = remoteTool.callTripPlannerAgent(task); // 同步阻塞（A2A 自身超时控制）
             if (reply == null || reply.isBlank()) return null;
             String block = utils.CandidateUtil.extractPlanBlock(reply);
-            if (block.isBlank()) return null;
+            if (block.isBlank()) {
+                EventStore.add(sessionId, "行程原文", "（多方案单套·无JSON块，行程Agent回复全文）\n" + reply);
+                return null;
+            }
             TripPlanData plan = JsonUtils.extractAndParse(block, TripPlanData.class);
             if (plan == null || plan.getSections() == null || plan.getSections().isEmpty()) return null;
             normalizePlan(state, plan);

@@ -271,6 +271,11 @@ public class AppController {
             if (rounds != null) obs.put("reviseRounds", rounds);
             if (outcome != null) obs.put("reviseOutcome", outcome);
             if (cluster != null) obs.put("clusterStats", cluster);
+            // ★观测完整性：降级任务没有 reviseRounds，落 reviseSkipped 标记——前端据此显式展示"未审查"分支
+            if (rounds == null) {
+                obs.put("reviseSkipped", true);
+                obs.put("reviseSkipReason", "无结构化方案（降级原文），审查闭环未执行");
+            }
             utils.TracePersistence.saveObs(sessionId, obs);
             // ★事件流落库（task_events）：终态把内存事件批量写入——重启后历史任务的事件明细从库恢复
             java.util.List<Map<String, String>> events = managerAgent.hook.EventStore.allQuiet(sessionId);

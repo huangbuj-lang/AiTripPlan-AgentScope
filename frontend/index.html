@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>漫旅 · 规划你的下一段旅程</title>
 <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="css/style.css?v=20260828e">
+<link rel="stylesheet" href="css/style.css?v=20260906c">
 <link rel="stylesheet" href="css/print.css" media="print">
 </head>
 <body>
@@ -56,29 +56,8 @@
       <button id="cancelBtn" class="btn-cancel-hero" onclick="cancelTask()" title="停止"><i class="fa-solid fa-stop"></i></button>
     </div>
 
-    <!-- ★方案选择弹窗：单方案 / 多方案（多方案=后端并行聚合3套差异化行程） -->
-    <div id="schemeModal" class="scheme-modal" style="display:none" onclick="if(event.target===this)closeSchemeModal()">
-      <div class="scheme-card">
-        <h3 class="scheme-title">选择生成方式</h3>
-        <p class="scheme-sub">多方案将并行生成 美食向 / 出片向 / 省钱向 三套行程，可对比后一键采用</p>
-        <div class="scheme-opts">
-          <div class="scheme-opt" id="optSingle" onclick="pickScheme('single')">
-            <div class="opt-icon"><i class="fa-solid fa-file-lines"></i></div>
-            <div class="opt-name">单方案</div>
-            <div class="opt-desc">快速生成一套完整行程，省时优先</div>
-          </div>
-          <div class="scheme-opt" id="optMulti" onclick="pickScheme('multi')">
-            <div class="opt-icon"><i class="fa-solid fa-layer-group"></i></div>
-            <div class="opt-name">多方案</div>
-            <div class="opt-desc">三套差异化方案并行生成，选择更自由</div>
-          </div>
-        </div>
-        <div class="scheme-actions">
-          <button class="scheme-btn scheme-cancel" onclick="closeSchemeModal()">取消</button>
-          <button class="scheme-btn scheme-ok" onclick="confirmScheme()">开始生成</button>
-        </div>
-      </div>
-    </div>
+    <!-- ★方案选择弹窗已移至 body 尾部（脱离 hero 层叠上下文，否则 z-index 被 hero 钳制、行程区内容会盖住弹窗） -->
+
     <style>
       .scheme-modal{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(8,20,14,.55);backdrop-filter:blur(3px)}
       .scheme-card{width:min(480px,92vw);background:#fff;border-radius:18px;padding:30px 28px 24px;box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center}
@@ -187,6 +166,30 @@
   </div>
 </div>
 
+<!-- ★方案选择弹窗（单方案/多方案）：置于 body 根级，避免被 hero 层叠上下文钳制导致行程内容盖住弹窗 -->
+<div id="schemeModal" class="scheme-modal" style="display:none" onclick="if(event.target===this)closeSchemeModal()">
+  <div class="scheme-card">
+    <h3 class="scheme-title">选择生成方式</h3>
+    <p class="scheme-sub">多方案将并行生成 美食向 / 出片向 / 省钱向 三套行程，可对比后一键采用</p>
+    <div class="scheme-opts">
+      <div class="scheme-opt" id="optSingle" onclick="pickScheme('single')">
+        <div class="opt-icon"><i class="fa-solid fa-file-lines"></i></div>
+        <div class="opt-name">单方案</div>
+        <div class="opt-desc">快速生成一套完整行程，省时优先</div>
+      </div>
+      <div class="scheme-opt" id="optMulti" onclick="pickScheme('multi')">
+        <div class="opt-icon"><i class="fa-solid fa-layer-group"></i></div>
+        <div class="opt-name">多方案</div>
+        <div class="opt-desc">三套差异化方案并行生成，选择更自由</div>
+      </div>
+    </div>
+    <div class="scheme-actions">
+      <button class="scheme-btn scheme-cancel" onclick="closeSchemeModal()">取消</button>
+      <button class="scheme-btn scheme-ok" onclick="confirmScheme()">开始生成</button>
+    </div>
+  </div>
+</div>
+
 <!-- 我的行程弹层 -->
 <div id="myPlansModal" class="my-plans-modal" style="display:none">
   <div class="modal-card">
@@ -203,7 +206,7 @@
 </div>
 
 <script src="js/purify.min.js"></script>
-<script src="js/app.js?v=20260828c"></script>
+<script src="js/app.js?v=20260906h"></script>
 <script>
 /* 出行人数自定义下拉（纯交互：展开/选中/外部点击关闭，paxSel 同步保持兼容） */
 (function () {

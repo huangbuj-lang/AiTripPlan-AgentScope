@@ -67,6 +67,40 @@ public final class ExternalServices {
         return lon + "," + lat + "," + URLEncoder.encode(name, StandardCharsets.UTF_8);
     }
 
+    /**
+     * ★ditu.amap.com 网页版驾车 SSR 路线链接（PC 浏览器直接打开，含多途经点）。
+     * 途经点 vname|vlat|vlon|vid 竖线分隔（高德网页版参数）；vid 缺失时传空仍保留途经点坐标与名称。
+     * 9/2 曾改用 uri.amap.com/navigation(公交) —— PC 端跳 ditu /dir 时途经点(via)全部丢失且公交常查无线路，故恢复网页版格式。
+     * points 每项 lon,lat,name[,poiId]
+     */
+    public static String buildSsrDirUrl(java.util.List<String> points) {
+        if (points == null || points.size() < 2) return "";
+        String[] first = points.get(0).split(",", -1);
+        String[] last = points.get(points.size() - 1).split(",", -1);
+        StringBuilder nav = new StringBuilder(amapNavigationUrl());
+        nav.append("&fname=").append(enc(first.length >= 3 ? first[2] : ""));
+        nav.append("&flat=").append(first.length > 1 ? first[1] : "").append("&flon=").append(first[0]);
+        nav.append("&dname=").append(enc(last.length >= 3 ? last[2] : ""));
+        nav.append("&dlat=").append(last.length > 1 ? last[1] : "").append("&dlon=").append(last[0]);
+        if (points.size() > 2) {
+            StringBuilder vn = new StringBuilder(), va = new StringBuilder(), vo = new StringBuilder(), vi = new StringBuilder();
+            for (int i = 1; i < points.size() - 1; i++) {
+                String[] pp = points.get(i).split(",", -1);
+                if (vn.length() > 0) { vn.append("|"); va.append("|"); vo.append("|"); vi.append("|"); }
+                vn.append(enc(pp.length >= 3 ? pp[2] : ""));
+                va.append(pp.length > 1 ? pp[1] : "");
+                vo.append(pp[0]);
+                vi.append(enc(pp.length >= 4 && !"unknown".equals(pp[3]) ? pp[3] : ""));
+            }
+            nav.append("&vname=").append(vn).append("&vlat=").append(va).append("&vlon=").append(vo).append("&vid=").append(vi);
+        }
+        return nav.toString();
+    }
+
+    private static String enc(String v) {
+        return URLEncoder.encode(v == null ? "" : v, StandardCharsets.UTF_8);
+    }
+
     public static String amapMcpUrl(String key) {
         if (key == null || key.isBlank()) {
             throw new IllegalStateException("缺少高德MCP key");

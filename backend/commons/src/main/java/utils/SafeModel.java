@@ -128,6 +128,31 @@ public class SafeModel implements Model {
     /** ★当前阶段标注：主管在每次模型调用前设置（解析需求/偏好分类/聚合生成…），LLM span 说明据此描述"在做什么" */
     private static final ThreadLocal<String> CUR_STAGE = new ThreadLocal<>();
     public static void setStage(String stage) { CUR_STAGE.set(stage == null ? "" : stage); }
+
+    /** ★子Agent进程无显式阶段标注时（ReAct 框架内部多轮不外露阶段），按消息形态推断本轮在做什么。
+     *  只描述可确定的事实：轮次号 + 消息构成（任务起始/刚拿回工具数据/规划下一步），不猜模型意图。 */
+    private static String inferAgentRound(List<Msg> messages) {
+        if (messages == null || messages.isEmpty()) return "";
+        try {
+            int assistantRounds = 0;
+            boolean sawTool = false;
+            String lastRole = "";
+            for (Msg m : messages) {
+                if (m == null) continue;
+                io.agentscope.core.message.MsgRole r = m.getRole();
+                lastRole = r == null ? "" : r.name();
+                if ("ASSISTANT".equals(lastRole)) assistantRounds++;
+                if ("TOOL".equals(lastRole)) sawTool = true;
+            }
+            StringBuilder sb = new StringBuilder("第").append(Math.max(1, assistantRounds)).append("轮");
+            if ("TOOL".equals(lastRole)) sb.append(" · 刚拿到工具数据，整合中");
+            else if (!sawTool) sb.append(" · 任务起始（读任务/数据）");
+            else sb.append(" · 规划下一步");
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
     public static String currentStage() { String st = CUR_STAGE.get(); return st == null ? "" : st; }
 
     /** ★进程级最近 trace 标记：子Agent进程内由模型消息中的【trace:xxx】提取（A2A任务文本前缀），供工具层 span 归位 */
@@ -229,8 +254,10 @@ public class SafeModel implements Model {
             MODEL_CALLS.incrementAndGet(); // ★计数：每次模型调用+1（含重试）
             // ★调用链：记录一次 LLM 调用 span（归到当前 sessionId，跨进程各自记录）
             String sid = currentSessionId();
+            String stage = currentStage();
+            if (stage == null || stage.isBlank()) stage = inferAgentRound(messages); // ★子Agent无显式阶段：按消息形态推断轮次语义
             utils.CallTrace.Span llmSpan = sid.isBlank() ? null
-                    : utils.CallTrace.begin(sid, "LLM", target.getModelName(), currentStage());
+                    : utils.CallTrace.begin(sid, "LLM", target.getModelName(), stage);
             long llmStart = System.currentTimeMillis();
             java.util.concurrent.atomic.AtomicInteger retries = new java.util.concurrent.atomic.AtomicInteger(0);
             final String dimAtCall = getDimension(); // ★调用线程先捕获维度（doOnNext在reactor信号线程跑，ThreadLocal会丢）

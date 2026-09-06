@@ -28,17 +28,19 @@ let sessionId = (function () {
 
 // ===== ★ 登录状态检查（页面加载时执行） =====
 
-// ===== ★生成进度条（阶段驱动）：提交→解析→路线→行程→整合→完成 =====
+// ===== ★生成进度条（阶段驱动，单调递增）：提交→解析→路线→行程→审查→完成 =====
+// 审查阶段承接长时段（审查+返工重编），定稿=多方案/降级路径兜底；pct 只增不减（updateGenProgress 内钳制）
 const GEN_STAGES = {
     '解析': { pct: 8, label: '解析旅行需求...' },
     '路线': { pct: 20, label: '路线Agent规划路线...' },
     '行程': { pct: 35, label: '行程Agent规划行程...' },
-    '整合': { pct: 85, label: '主管整合生成方案...' },
+    '审查': { pct: 60, label: '独立审查行程质量...' },
+    '定稿': { pct: 85, label: '主管整合生成方案...' },
     '完成': { pct: 100, label: '生成完成！' }
 };
 
-// ★平滑推进：行程/整合阶段耗时长（1-2分钟），事件只在阶段开始时发一次，
-//   之后每 1.5s +1% 缓步推进，避免"半分钟到72%然后卡死"的假进度
+// ★平滑推进：阶段事件只在开始发一次，之后缓步爬升覆盖真实耗时（3s/步）：
+//   行程≈150s → 35→84；审查/返工 ≈1-2min → 60→94；避免"半分钟到80%然后卡死"或"8%死停后突跳100"
 let genSmoothTimer = null;
 function startGenSmooth(targetMax) {
     stopGenSmooth();
@@ -49,7 +51,7 @@ function startGenSmooth(targetMax) {
         const cur = parseInt(pctEl.textContent, 10) || 0;
         if (cur >= targetMax) { stopGenSmooth(); return; }
         updateGenProgress(cur + 1, null); // label 传 null 表示保留现有文字
-    }, 1500);
+    }, 3000);
 }
 function stopGenSmooth() {
     if (genSmoothTimer) { clearInterval(genSmoothTimer); genSmoothTimer = null; }
@@ -63,9 +65,14 @@ function genProgressHTML(pct, label) {
 function updateGenProgress(pct, label) {
     const fill = document.querySelector('.gen-fill');
     if (!fill) return;
-    fill.style.width = pct + '%';
+    // ★单调递增：进度只增不减（REVISE 重编/路线补查会重发"路线/行程"事件，不再把进度打回低位）
     const pctEl = document.querySelector('.gen-pct');
-    if (pctEl) pctEl.textContent = pct + '%';
+    if (pctEl) {
+        const cur = parseInt(pctEl.textContent, 10) || 0;
+        if (pct < cur) pct = cur;
+        pctEl.textContent = pct + '%';
+    }
+    fill.style.width = pct + '%';
     const lbl = document.querySelector('.gen-label-text');
     if (lbl && label !== null && label !== undefined) lbl.textContent = label;
 }
@@ -194,9 +201,20 @@ function savePlan() {
             payload = text + '\n\n' + PLAN_JSON_MARK + '\n' + structuredJson + '\n' + PLAN_JSON_END;
         } catch (e) { /* JSON 序列化失败则只存 markdown */ }
     }
-    // 从结果里提取城市和天数（简单取第一个关键词前的文本，容错处理）
+    // 从结果里提取城市和天数。★城市提取优先级（先权威值、正则只兜底——否则带景点名的需求会被正则猜空成"未知城市"）：
+    // 1) 结构化行程的 destination（后端解析的准确目的地）；2) 多方案集里各方案一致的 destination；3) prompt 正则兜底
     const prompt = document.getElementById('prompt').value.trim();
-    const city = prompt.replace(/帮我制定|制定|计划|规划|3日游|2日游|1日游|自驾游|游/g, '').trim() || '未知城市';
+    let city = '';
+    if (currentPlanData && currentPlanData.destination && String(currentPlanData.destination).trim()
+            && String(currentPlanData.destination).trim() !== '未知城市') {
+        city = String(currentPlanData.destination).trim();
+    } else if (planSetData && planSetData.plans && planSetData.plans.length) {
+        const dests = [...new Set((planSetData.plans || []).map(pl => (pl && pl.destination || '').toString().trim()).filter(Boolean))];
+        city = dests.length === 1 ? dests[0] : '';
+    }
+    if (!city) {
+        city = prompt.replace(/帮我制定|制定|计划|规划|3日游|2日游|1日游|自驾游|游/g, '').trim() || '未知城市';
+    }
     // ★天数提取：支持阿拉伯数字(7日)和中文数字(七日/七天)
     const daysMatch = prompt.match(/(\d+)日|([一二三四五六七八九十]+)[日天]/);
     let days = 3; // 默认3天（匹配不到时兜底）
@@ -526,6 +544,7 @@ function submitWithPreference(skip) {
 
 /** 实际提交任务（原 send 的提交逻辑，增加偏好参数） */
 function doSubmit(prompt, walk, chrono, museum, multi) {
+    newSession(); // ★每次新任务强制新会话：防止沿用历史 sessionId 提交，导致 task_history 的 submit_ms 停在旧时间、任务监控按旧时间归档看不到新任务
     if (polling) { clearInterval(polling); polling = null; }
     if (eventSource) { eventSource.close(); eventSource = null; }
     if (resultTimer) { clearInterval(resultTimer); resultTimer = null; }
@@ -669,12 +688,13 @@ function submitRevise() {
  * 追加一条思考过程事件到界面（SSE 与轮询共用）
  */
 function appendThinkItem(ev) {
-    // ★阶段驱动进度条：按事件类型推进（解析/路线/行程/整合/完成）
+    // ★阶段驱动进度条：按事件类型推进（解析/路线/行程/审查/定稿/完成），单调递增不回落
     const st = GEN_STAGES[ev.type];
     if (st) {
         updateGenProgress(st.pct, st.label);
-        if (ev.type === '行程') startGenSmooth(80);      // 行程Agent 1-2分钟：35%→80% 平滑
-        else if (ev.type === '整合') startGenSmooth(96); // 整合阶段：85%→96% 平滑
+        if (ev.type === '行程') startGenSmooth(84);      // 行程Agent 长时段：35%→84%（3s/步≈150s）
+        else if (ev.type === '审查') startGenSmooth(94); // 审查+返工重编时段：60%→94%
+        else if (ev.type === '定稿') startGenSmooth(97);
         else if (ev.type === '完成') stopGenSmooth();
     }
     const body = document.getElementById('thinkBody');
@@ -1280,6 +1300,26 @@ function switchPlan(i) {
 /** 当前渲染中的行程数据（供详情弹窗读取） */
 let currentPlanData = null;
 
+/* 行程项显示名/图标：景点餐饮用 place/activity；交通衔接项无 place 时用 from→to 或 way（修复时间轴/卡片空白节点） */
+function planItemLabel(it) {
+    if (!it) return '';
+    if (it.place || it.activity) return it.place || it.activity;
+    if (it.from && it.to) return it.from + ' → ' + it.to;
+    return it.way || it.note || '';
+}
+
+/* 卡片行活动小字：剥离与地点重复的头部与常见动词，留下活动要点（区分同地多次安排，如「康定情歌广场」游览 vs 逛沿街商铺） */
+function planItemAct(it) {
+    const a = (it.activity || '').trim();
+    if (!a || !it.place) return '';
+    let s = a;
+    if (s.startsWith(it.place)) s = s.slice(it.place.length).replace(/^[·:：\s]+/, '');
+    s = s.replace(/^(游览|参观|前往|打卡|体验|逛|漫步|去|夜游|乘车前往|早餐|午餐|晚餐)[·:：\s]*/, '');
+    s = s.replace(/\s*$/, '');
+    if (!s || s === (it.place || '').trim()) return ''; // 剥离后无有效区分（活动即地点名）则不显示
+    return s.length > 24 ? s.slice(0, 24) + '…' : s;
+}
+
 /** 将结构化 TripPlanData 渲染为「轨迹 + 天卡片」结构 */
 function renderStructuredPlan(plan) {
     if (!plan) return '<div class="empty">（空响应）</div>';
@@ -1295,15 +1335,14 @@ function renderStructuredPlan(plan) {
     const landmark = CITY_LANDMARKS[plan.destination] || '';
     html += '<h2 class="plan-title">' + escapeHtml(plan.title || '旅行规划') + '</h2>';
     html += '<div class="plan-meta">';
+    html += '<button type="button" class="meta-btn" onclick="openInsightModal()" title="查看该城市价格预测与未来7天客流">📈 价格·客流预测</button>';
     if (plan.days) html += '<span>🗓 <b>' + plan.days + '</b> 天</span>';
     if (plan.date) html += '<span class="date-chip" id="dateChip" style="cursor:pointer" title="点击查看日历" onclick="openTripCalendar()">📅 ' + escapeHtml(plan.date) + '</span>';
     const wth = cleanWeatherText(plan.weather);
     if (wth) html += '<span>🌤 ' + escapeHtml(wth) + '</span>';
     html += '</div></div>';
 
-    // 目的地参考：只读展示城市级价格与客流，不参与行程生成
-    html += '<div id="travelInsight" class="travel-insight" aria-live="polite"></div>';
-    setTimeout(() => { loadTravelInsight(plan); }, 0);
+    // 参考卡已收纳为上方「📈 价格·客流预测」按钮弹窗，不再自动浮出
 
     // 无 timeline 区块：整单走 markdown 兜底（历史行程兼容）
     if (days.length === 0) {
@@ -1321,26 +1360,35 @@ function renderStructuredPlan(plan) {
         + '<path d="' + routePath(d0Items.length) + '" stroke="rgba(31,174,143,.55)" stroke-width="2.4" stroke-dasharray="6 8"/></svg>'
         + '<div class="stops">'
         + d0Items.slice(0, 6).map((it, i) => {
+            const nm = it.place || it.activity || '';
+            const fb = !nm ? planItemLabel(it) : '';
             const hl = i === 1 || i === d0Items.length - 2; // 关键点高亮（第2个与倒数第2个）
             return '<div class="stop' + (hl ? ' hl' : '') + '">'
                 + '<div class="dot"></div><div class="tm">' + escapeHtml(it.time || '') + '</div>'
-                + '<div class="pl">' + amapLink(it.place || it.activity || '') + '</div>'
-                + '<div class="d">' + escapeHtml(it.cost || '') + '</div></div>';
+                + '<div class="pl">' + (nm ? amapLink(nm) : escapeHtml(fb)) + '</div>'
+                + '<div class="d">' + escapeHtml(nm ? (it.cost || '') : (it.duration || '')) + '</div></div>';
         }).join('')
         + '</div></div>';
 
-    // ===== 天卡片(显示当天全部安排,高度随数量) =====
+    // ===== 天卡片(概览=每天2-4个景点/途经点：纯移动行与同地点变体已在 dayOverviewItems 过滤合并) =====
     html += '<div class="days">';
     days.forEach((day, di) => {
-        const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity));
+        const items = dayOverviewItems((day.items || []).filter(it => it && (it.time || it.place || it.activity || it.from || it.way)));
         html += '<div class="day-card' + (di === 0 ? ' active' : '') + '" onclick="selectDay(' + di + ')">'
             + '<div class="day-top">'
             + '<span class="n">DAY ' + String(di + 1).padStart(2, '0') + '</span>'
             + '<button class="expand" id="dayMapBtn_' + di + '" title="查看当天高德路线图" onclick="event.stopPropagation();openDayMap(' + di + ')"><i class="fa-solid fa-map-location-dot"></i></button>'
             + '<button class="expand" title="查看当日详细规划" onclick="event.stopPropagation();openDayModal(' + di + ')"><i class="fa-solid fa-pen"></i></button>'
             + '</div>'
-            + items.map(it => '<div class="item"><span class="ic">' + activityIcon(it.activity || it.place || '') + '</span>'
-                + '<span><span class="pl">' + amapLink(it.place || it.activity || '') + '</span></span></div>').join('')
+            + items.map(it => {
+                const nm = it.place || it.activity || '';
+                const fb = !nm ? planItemLabel(it) : '';
+                if (!nm && !fb) return '';
+                const act = (!fb ? planItemAct(it) : '') + (it._extraAct ? '；' + it._extraAct : '');
+                return '<div class="item"><span class="ic">' + (nm ? activityIcon(it.activity || it.place || '') : '🚌') + '</span>'
+                    + '<span><span class="pl">' + (nm ? amapLink(nm) : escapeHtml(fb)) + '</span>'
+                    + (act ? '<span class="act">' + escapeHtml(act) + '</span>' : '') + '</span></div>';
+            }).join('')
             + '</div>';
     });
     html += '</div>';
@@ -1362,6 +1410,66 @@ function renderStructuredPlan(plan) {
     }
 
     return html;
+}
+
+/** 概览卡片行核心地点名：城市前缀(·前≤4字)去掉、括号注释去掉、'景区内/一带/方向'尾缀去掉——用于把
+ *  同一点的不同表述（康定·木格措(雅拉乡) / 木格措景区内 / 康定·溜溜城 vs 将军桥溜溜城）合并成一行 */
+function placeCore(p) {
+    if (!p) return '';
+    let s = String(p).replace(/（[^）]*）/g, '').replace(/\([^)]*\)/g, '').replace(/\s+/g, '');
+    const i = s.indexOf('·');
+    if (i > 0 && s.slice(0, i).length <= 4) s = s.slice(i + 1);
+    return s.replace(/(景区内|一带|方向|附近|景区入口|停车场|主入口)$/, '');
+}
+
+/** 纯移动行（A→B 无地点字段）：概览不占行，详情(铅笔)才显示 */
+function isPureMove(it) {
+    return !!(it.from && it.to) && !(it.place || '').trim();
+}
+
+/** 概览只保留「景点轴」条目：餐饮/住宿/交通/购物等非游览类不进概览（详情页完整展示）。
+ *  依据 category 关键词；category 未标时按 activity 后勤词兜底（早餐/入住/车程类） */
+const NON_SIGHT_KEYWORDS = ['餐饮', '美食', '早餐', '午餐', '晚餐', '夜宵', '小吃', '住宿', '酒店', '民宿',
+    '交通', '购物', '休闲', '休息', 'transfer', 'food', 'hotel', 'stay', 'shop', 'dining'];
+function isSightAxis(it) {
+    const cat = (it.category || '').trim();
+    if (cat) {
+        for (const k of NON_SIGHT_KEYWORDS) if (cat.indexOf(k) >= 0) return false;
+        return true;
+    }
+    const act = (it.activity || '').trim();
+    if (/^(早餐|午餐|晚餐|夜宵|入住|退房|夜宿|打车|乘车|车程|前往|返程|出发)/.test(act)) return false;
+    return true;
+}
+
+/** 概览行：剔纯移动；同核心地点(含互相包含)合并成一行，被并行的活动描述拼进该行小字 */
+function dayOverviewItems(items) {
+    const out = [];
+    const extra = {};
+    (items || []).forEach(it => {
+        if (isPureMove(it) || (it.from && !(it.place || '').trim() && !(it.activity || '').trim())) return;
+        if (!isSightAxis(it)) return; // 非景点轴（餐饮/住宿/交通/购物等）不进概览
+        const core = placeCore(it.place);
+        if (!core) { out.push(it); return; }
+        let dup = -1;
+        for (let i = 0; i < out.length; i++) {
+            const oc = out[i]._core || '';
+            if (oc && (oc === core || oc.indexOf(core) >= 0 || core.indexOf(oc) >= 0)) { dup = i; break; }
+        }
+        const extraAct = planItemAct(it);
+        if (dup < 0) {
+            it._core = core;
+            out.push(it);
+        } else if ((core.length || 0) > (out[dup]._core || '').length) {
+            const old = out[dup];
+            extra[dup] = (extra[dup] || '') + (extra[dup] ? '；' : '') + planItemAct(old);
+            it._core = core;
+            out[dup] = it;
+        } else {
+            extra[dup] = (extra[dup] || '') + (extra[dup] ? '；' : '') + extraAct;
+        }
+    });
+    return out.map((it, i) => { it._extraAct = extra[i] || ''; return it; });
 }
 
 /** 按当日景点数粗估徒步公里数（不用太具体：4个景点≈3km，每多2个+1km，封顶8km） */
@@ -1528,18 +1636,22 @@ function openDayModal(di) {
     const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
     const day = days[di];
     if (!day) return;
-    const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity));
+    const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity || it.from || it.way));
     document.getElementById('modalEm').textContent = activityIcon(day.title || '');
     document.getElementById('modalTitle').textContent = 'DAY ' + String(di + 1).padStart(2, '0') + ' · ' + (day.title || ('第 ' + (di + 1) + ' 天'));
     document.getElementById('modalSub').textContent = items.length + ' 个安排 · ' + currentPlanData.destination || '';
     document.getElementById('modalBody').innerHTML =
         items.map(it => {
             const hl = it.time && /^1[2-8]:/.test(it.time); // 午餐/下午时段高亮（近似）
+            const nm = it.place || it.activity || '';
+            const fb = !nm ? planItemLabel(it) : '';
+            if (!nm && !fb) return '';
+            const dParts = [it.activity, it.cost, it.duration, it.note].filter(Boolean).join(' · ');
             return '<div class="detail-item' + (hl ? ' hl' : '') + '">'
                 + '<span class="detail-time">' + escapeHtml(it.time || '') + '</span>'
-                + '<div class="detail-body"><div class="p"><span class="em">' + activityIcon(it.activity || it.place || '') + '</span>'
-                + amapLink(it.place || it.activity || '') + '</div>'
-                + '<div class="d">' + escapeHtml([it.activity, it.cost, it.note].filter(Boolean).join(' · ')) + '</div></div></div>';
+                + '<div class="detail-body"><div class="p"><span class="em">' + (nm ? activityIcon(it.activity || it.place || '') : '🚌') + '</span>'
+                + (nm ? amapLink(nm) : escapeHtml(fb)) + '</div>'
+                + (dParts ? '<div class="d">' + escapeHtml(dParts) + '</div>' : '') + '</div></div>';
         }).join('')
         + '<div class="detail-foot">'
         + '<span>📍 <b>' + items.length + '</b> 个安排</span>'
@@ -1936,6 +2048,85 @@ function formatCny(value) {
     const num = Number(value);
     if (!Number.isFinite(num)) return '-';
     return '¥' + (Number.isInteger(num) ? num.toLocaleString('zh-CN') : num.toFixed(1).replace(/\.0$/, ''));
+}
+
+/* ============ ★预测弹窗：行程头部「📈 价格·客流预测」按钮 ============ */
+
+/** 打开预测弹窗：展示该城市价格预测 + 未来客流趋势（原顶部自动浮出的参考卡收纳为此弹窗） */
+function openInsightModal() {
+    const plan = currentPlanData;
+    if (!plan || !plan.destination) return;
+    const city = String(plan.destination).trim();
+    document.getElementById('modalEm').textContent = '📈';
+    document.getElementById('modalTitle').textContent = city + ' · 价格与客流预测';
+    document.getElementById('modalSub').textContent = '城市级预测 · 仅供参考';
+    document.getElementById('modalBody').innerHTML = '<div style="padding:28px;text-align:center;color:var(--muted)">预测数据加载中…</div>';
+    document.getElementById('modalMask').classList.add('show');
+
+    // ★客流预测固定查「未来 7 天」（数据管道窗口=今天+1 起 7 天），与行程日期无关；定价不依赖日期
+    const startDate = localDateString(new Date(Date.now() + 86400e3));
+    const params = new URLSearchParams({ city: city, startDate: startDate, days: '7' });
+    fetch('/api/insights?' + params.toString(), { headers: { 'Accept': 'application/json' } })
+        .then(r => r.json())
+        .then(data => {
+            const body = document.getElementById('modalBody');
+            if (!data || !data.available) {
+                body.innerHTML = '<div class="state-box" style="padding:34px"><div class="big">📭</div>暂无「' + escapeHtml(city) + '」的预测数据<br><span style="font-size:12px;color:var(--muted)">该城市近期未纳入数据统计（预测窗口已过或未重算），可稍后重试</span></div>';
+                return;
+            }
+            renderInsightModalBody(body, data);
+        })
+        .catch(() => {
+            const body = document.getElementById('modalBody');
+            body.innerHTML = '<div class="state-box" style="padding:34px">预测数据加载失败，请稍后重试</div>';
+        });
+}
+
+/** 渲染预测弹窗正文：价格预测表（基准→预测价+浮动）+ 未来客流柱状 */
+function renderInsightModalBody(bodyEl, data) {
+    const pricing = data.pricing || {};
+    const forecast = Array.isArray(data.forecast) ? data.forecast : [];
+    let html = '';
+
+    // —— 价格预测 ——
+    html += '<div style="font-weight:700;font-size:14px;margin:2px 0 8px;color:var(--ink)">💴 价格预测 <span style="font-weight:400;font-size:11.5px;color:var(--muted)">动态定价 = 基准价 × 城市热力系数</span></div>';
+    const pRows = [['hotel', '酒店（晚）'], ['food', '餐饮（餐）'], ['ticket', '门票（人）']];
+    const rows = pRows.map(pair => {
+        const p = pricing[pair[0]] || {};
+        const base = Number(p.base), price = Number(p.price);
+        if (!Number.isFinite(base) || !Number.isFinite(price) || base <= 0) return '';
+        const diff = price / base;
+        const up = diff >= 1.001, down = diff <= 0.999;
+        const cls = up ? 'up' : down ? 'down' : 'flat';
+        const arrow = up ? '▲' : down ? '▼' : '＝';
+        return '<tr><td>' + pair[1] + '</td><td>' + formatCny(base) + '</td><td><b>' + formatCny(price) + '</b></td>' +
+            '<td><span class="pf-badge ' + cls + '">' + arrow + ' ' + Math.abs(diff * 100 - 100).toFixed(0) + '%</span></td></tr>';
+    }).join('');
+    if (rows) {
+        html += '<table class="pf-tbl"><thead><tr><th>项目</th><th>基准价</th><th>预测价</th><th>浮动</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    } else {
+        html += '<div class="state-box" style="padding:20px">暂无定价数据</div>';
+    }
+
+    // —— 未来客流 ——
+    html += '<div style="font-weight:700;font-size:14px;margin:18px 0 2px;color:var(--ink)">🚶 客流预测 <span style="font-weight:400;font-size:11.5px;color:var(--muted)">未来 7 天客流指数（与出行日期无关）</span></div>';
+    if (forecast.length) {
+        const vals = forecast.map(f => Number(f.index)).filter(Number.isFinite);
+        const max = Math.max.apply(null, vals.concat([1]));
+        html += '<div class="pf-bars">' + forecast.map(f => {
+            const v = Number(f.index);
+            if (!Number.isFinite(v)) return '';
+            const h = Math.max(5, Math.round(v / max * 56));
+            const day = String(f.day || '').slice(5).replace('-', '/');
+            const cls = v >= 1.2 ? ' hot' : (v >= 0.8 ? ' warm' : '');
+            return '<div class="pf-bar-col"><div class="pf-bar' + cls + '" style="height:' + h + 'px"><span>' + v.toFixed(1) + '</span></div>' +
+                '<div class="pf-bar-day">' + day + '</div><div class="pf-bar-note">' + crowdLevel(v) + '</div></div>';
+        }).join('') + '</div>';
+        html += '<div style="font-size:11px;color:var(--muted);margin-top:4px">柱高=客流指数：≥1.2 偏挤（红）· 0.8~1.2 中等（金）· &lt;0.8 宽松（蓝）；数据源自平台历史行程统计</div>';
+    } else {
+        html += '<div class="state-box" style="padding:20px">暂无客流预测数据</div>';
+    }
+    bodyEl.innerHTML = html;
 }
 
 function newSession() {
