@@ -234,10 +234,39 @@ public class TripOrchestrator {
                 ReviseSummary.finish(sessionId, "rework_no_improvement");
                 break;
             }
+            // ★区块回填（2026-09-06）：整单/天级重编只修审查指出问题，transport/stay/tips 与问题无关、
+            //   上一版有效——模型重编若把这类区块写空/漏写（如 tips 空 → 前端"实用贴士"空卡），
+            //   用上一版对应区块回填，防交付外观降级
+            backfillSideSections(fixed, current);
             fixed.setMarkdown(renderMarkdown(fixed));
             current = fixed;
         }
         return current;
+    }
+
+    /** ★重编区块回填：整单/天级重编只修审查指出问题，transport/stay/tips 与问题无关、上一版有效。
+     *  模型重编若把这类区块写空/漏写 → 新版该区块空时整体回填上一版对应区块（连 title）。 */
+    private void backfillSideSections(TripPlanData fresh, TripPlanData prev) {
+        if (fresh == null || prev == null) return;
+        for (String typ : new String[]{"transport", "stay", "tips"}) {
+            Section fs = findSectionByType(fresh, typ);
+            Section ps = findSectionByType(prev, typ);
+            if (fs == null || ps == null) continue;
+            boolean freshEmpty = fs.getItems() == null || fs.getItems().isEmpty();
+            boolean prevFull = ps.getItems() != null && !ps.getItems().isEmpty();
+            if (freshEmpty && prevFull) {
+                fs.setItems(ps.getItems());
+                log.info("重编区块回填 {}：{} 条（新版空→沿用上一版）", typ, ps.getItems().size());
+            }
+        }
+    }
+
+    private static Section findSectionByType(TripPlanData plan, String type) {
+        if (plan == null || plan.getSections() == null) return null;
+        for (Section s : plan.getSections()) {
+            if (s != null && type.equals(s.getType())) return s;
+        }
+        return null;
     }
 
     /** 审查问题是否涉及交通/衔接（domain=transport 或 type=route 或 type=schedule 中提及衔接）→ 需要补查真实路线 */
@@ -725,7 +754,9 @@ public class TripOrchestrator {
             sb.append("上一版行程JSON（修改基准，仅修订反馈涉及部分）：\n")
                     .append("【行程JSON】\n").append(prevPlanJson).append("\n【行程JSON结束】\n");
         }
-        sb.append("\n最终回复：简短概要（每天一句话，总长不超过300字——完整可读文本由主管从你的JSON生成，概要只作兜底），末尾【必须】原样附完整【行程JSON】结构化块（格式见系统规则）。输出预算优先保证 JSON 块完整，宁可概要更短也不可截断 JSON；若单次输出放不下，JSON 块中删减 note/次要字段，禁止丢弃整个块。");
+        sb.append("\n最终回复：简短概要（每天一句话，总长不超过300字——完整可读文本由主管从你的JSON生成，概要只作兜底），末尾【必须】原样附完整【行程JSON】结构化块（格式见系统规则）。"
+                + "输出预算优先保证 JSON 块完整，宁可概要更短也不可截断 JSON。"
+                + "JSON 的区块必须齐全：每天 timeline、stay、transport、tips 等区块一个都不能少——内容精简时压缩区块内每条 note/描述文字（宁短勿长），禁止整块删除或留空区块；tips（实用贴士）必须保留 5-8 条真实可用的提示。");
         return sb.toString().trim();
     }
 

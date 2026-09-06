@@ -1517,17 +1517,19 @@ function renderStructuredPlan(plan) {
     });
     html += '</div>';
 
-    // ===== 其余区块（交通/住宿/贴士） =====
+    // ===== 其余区块（交通/住宿/贴士）：items 全空时整卡隐藏，防"只有标题的空壳" =====
     if (others.length > 0) {
         html += '<div class="plan-sheet">';
         others.forEach(sec => {
             const type = sec.type || 'other';
+            const lis = (sec.items || []).map(it => {
+                const t = formatSectionItem(type, it);
+                return t ? '<li>' + escapeHtml(t) + '</li>' : '';
+            }).join('');
+            if (!lis) return; // 无任何有效内容：不渲染空卡
             html += '<div class="plan-section ' + (STRUCT_CLASS[type] || 'sec-other') + '">'
                 + '<div class="sec-title"><span class="sec-icon">' + (STRUCT_ICON[type] || '📋') + '</span><span>' + escapeHtml(sec.title || '行程详情') + '</span></div><ul>'
-                + (sec.items || []).map(it => {
-                    const t = formatSectionItem(type, it);
-                    return t ? '<li>' + escapeHtml(t) + '</li>' : '';
-                }).join('')
+                + lis
                 + '</ul></div>';
         });
         html += '</div>';
@@ -1816,18 +1818,23 @@ function renderLegacySheet(plan) {
     const wth = cleanWeatherText(plan.weather);
     if (wth) html += '<span>🌤 ' + escapeHtml(wth) + '</span>';
     html += '<span>📝 由 AI 旅行规划助手生成</span></div></div>';
+    let tipsLis = '';
     sections.forEach(sec => {
         const type = sec.type || 'other';
-        html += '<div class="plan-section ' + (STRUCT_CLASS[type] || 'sec-other') + '">'
-            + '<div class="sec-title"><span class="sec-icon">' + (STRUCT_ICON[type] || '📋') + '</span><span>' + escapeHtml(sec.title || '行程详情') + '</span></div><ul>';
+        let lis = '';
         (sec.items || []).forEach(it => {
             const t = formatSectionItem(type, it);
-            if (t) html += '<li>' + escapeHtml(t) + '</li>';
+            if (t) lis += '<li>' + escapeHtml(t) + '</li>';
         });
-        html += '</ul></div>';
+        if (!lis) return; // 无任何有效内容：整卡隐藏，防"只有标题的空壳"
+        if (type === 'tips') tipsLis = lis;
+        html += '<div class="plan-section ' + (STRUCT_CLASS[type] || 'sec-other') + '">'
+            + '<div class="sec-title"><span class="sec-icon">' + (STRUCT_ICON[type] || '📋') + '</span><span>' + escapeHtml(sec.title || '行程详情') + '</span></div><ul>'
+            + lis
+            + '</ul></div>';
     });
-    // F-6 实用信息兜底
-    if (!sections.some(s => s.type === 'tips' && (s.items || []).length > 0)) {
+    // F-6 实用信息兜底（tips 无任何有效内容时给通用提示，避免空卡/缺失）
+    if (!tipsLis) {
         html += '<div class="plan-section sec-tips"><div class="sec-title">📌 实用信息</div><ul>'
             + '<li>电话：报警 110 / 急救 120 / 火警 119</li>'
             + '<li>电话：政务服务热线 12345</li>'
