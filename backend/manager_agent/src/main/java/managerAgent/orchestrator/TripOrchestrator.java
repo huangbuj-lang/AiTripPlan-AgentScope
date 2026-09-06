@@ -1882,7 +1882,9 @@ public class TripOrchestrator {
             allowDrop = true;
         } else {
             if (chain.size() < days) return null;
-            cap = Math.max(2, (int) Math.ceil(chain.size() / (double) days));
+            // ★2026-09-06: cap 下限 2→1——小候选(如大连 3 簇/3 天)时 ceil=1 被 max(2) 抬到 2,
+            //   3 簇只能切 2 天 → 天数对不上 → 骨架误判不可用回退整单, 失去"簇按天隔离"防跨天景点重复
+            cap = Math.max(1, (int) Math.ceil(chain.size() / (double) days));
             allowDrop = false;
         }
         java.util.List<DaySkel> out = new java.util.ArrayList<>();
