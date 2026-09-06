@@ -1486,34 +1486,52 @@ function renderStructuredPlan(plan) {
         + '</div></div>';
 
     // ===== 天卡片(概览=每天2-4个景点/途经点：纯移动行与同地点变体已在 dayOverviewItems 过滤合并) =====
+    // ★2026-09-06 防御式渲染：单天数据异常/无景点时给占位，绝不让空白卡或中断后续天
     html += '<div class="days">';
     days.forEach((day, di) => {
-        const rawItems = (day.items || []).filter(it => it && (it.time || it.place || it.activity || it.from || it.way));
-        // 天气行：从景点流剔除，改放卡片右上角（纯文本不可跳转；详情页铅笔仍完整展示）
-        const wIt = rawItems.find(isWeatherItem);
-        let wText = '';
-        if (wIt) {
-            wText = String(wIt.activity || wIt.place || '')
-                .replace(/^\s*天气\s*[:：]?\s*/, '').trim();
+        try {
+            const rawItems = (day.items || []).filter(it => it && (it.time || it.place || it.activity || it.from || it.way));
+            // 天气行：从景点流剔除，改放卡片右上角（纯文本不可跳转；详情页铅笔仍完整展示）
+            const wIt = rawItems.find(isWeatherItem);
+            let wText = '';
+            if (wIt) {
+                wText = String(wIt.activity || wIt.place || '')
+                    .replace(/^\s*天气\s*[:：]?\s*/, '').trim();
+            }
+            const items = dayOverviewItems(rawItems.filter(it => !isWeatherItem(it)));
+            html += '<div class="day-card' + (di === 0 ? ' active' : '') + '" onclick="selectDay(' + di + ')">'
+                + '<div class="day-top">'
+                + '<span class="n">DAY ' + String(di + 1).padStart(2, '0') + '</span>'
+                + (wText ? '<span class="day-wx" title="当天天气（以出行前实时预报为准）">' + escapeHtml(wText) + '</span>' : '')
+                + '<button class="expand" id="dayMapBtn_' + di + '" title="查看当天高德路线图" onclick="event.stopPropagation();openDayMap(' + di + ')"><i class="fa-solid fa-map-location-dot"></i></button>'
+                + '<button class="expand" title="查看当日详细规划" onclick="event.stopPropagation();openDayModal(' + di + ')"><i class="fa-solid fa-pen"></i></button>'
+                + '</div>';
+            let itemHtml = '';
+            (items || []).forEach(it => {
+                try {
+                    const nm = it.place || it.activity || '';
+                    const fb = !nm ? planItemLabel(it) : '';
+                    if (!nm && !fb) return;
+                    const act = (!fb ? planItemAct(it) : '') + (it._extraAct ? '；' + it._extraAct : '');
+                    itemHtml += '<div class="item"><span class="ic">' + (nm ? activityIcon(it.activity || it.place || '') : '🚌') + '</span>'
+                        + '<span><span class="pl">' + (nm ? amapLink(nm) : escapeHtml(fb)) + '</span>'
+                        + (act ? '<span class="act">' + escapeHtml(act) + '</span>' : '') + '</span></div>';
+                } catch (err) { /* 单条渲染异常忽略，不拖垮整卡 */ }
+            });
+            if (!itemHtml) {
+                itemHtml = '<div class="item dim"><span class="ic">🛌</span><span>'
+                    + '<span class="pl">当日以休整 / 机动为主</span>'
+                    + '<span class="act">无固定景点，详细安排见右侧铅笔详情</span></span></div>';
+            }
+            html += itemHtml + '</div>';
+        } catch (err) {
+            // 单天整体异常：给出占位卡，继续渲染后续天，杜绝"空白卡 + 后续天全部丢失"
+            html += '<div class="day-card' + (di === 0 ? ' active' : '') + '" onclick="selectDay(' + di + ')">'
+                + '<div class="day-top"><span class="n">DAY ' + String(di + 1).padStart(2, '0') + '</span>'
+                + '<button class="expand" title="查看当日详细规划" onclick="event.stopPropagation();openDayModal(' + di + ')"><i class="fa-solid fa-pen"></i></button>'
+                + '</div><div class="item dim"><span class="ic">🛌</span><span><span class="pl">当日安排加载中</span>'
+                + '<span class="act">点击铅笔查看详细规划</span></span></div></div>';
         }
-        const items = dayOverviewItems(rawItems.filter(it => !isWeatherItem(it)));
-        html += '<div class="day-card' + (di === 0 ? ' active' : '') + '" onclick="selectDay(' + di + ')">'
-            + '<div class="day-top">'
-            + '<span class="n">DAY ' + String(di + 1).padStart(2, '0') + '</span>'
-            + (wText ? '<span class="day-wx" title="当天天气（以出行前实时预报为准）">' + escapeHtml(wText) + '</span>' : '')
-            + '<button class="expand" id="dayMapBtn_' + di + '" title="查看当天高德路线图" onclick="event.stopPropagation();openDayMap(' + di + ')"><i class="fa-solid fa-map-location-dot"></i></button>'
-            + '<button class="expand" title="查看当日详细规划" onclick="event.stopPropagation();openDayModal(' + di + ')"><i class="fa-solid fa-pen"></i></button>'
-            + '</div>'
-            + items.map(it => {
-                const nm = it.place || it.activity || '';
-                const fb = !nm ? planItemLabel(it) : '';
-                if (!nm && !fb) return '';
-                const act = (!fb ? planItemAct(it) : '') + (it._extraAct ? '；' + it._extraAct : '');
-                return '<div class="item"><span class="ic">' + (nm ? activityIcon(it.activity || it.place || '') : '🚌') + '</span>'
-                    + '<span><span class="pl">' + (nm ? amapLink(nm) : escapeHtml(fb)) + '</span>'
-                    + (act ? '<span class="act">' + escapeHtml(act) + '</span>' : '') + '</span></div>';
-            }).join('')
-            + '</div>';
     });
     html += '</div>';
 

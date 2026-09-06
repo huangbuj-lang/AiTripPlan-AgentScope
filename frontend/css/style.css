@@ -378,6 +378,11 @@ footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line
 .plan-section ul{list-style: none;}
 .plan-section li{padding: 5px 0; font-size: 13.5px; color: #3A4045; border-bottom: 1px dashed var(--line);}
 .plan-section li:last-child{border-bottom: none;}
+/* 实用贴士等提示性文字：比行程主体低一层级（小一号、浅灰），不与景点/详情正文同级 */
+.plan-section.sec-tips li{font-size: 12px; color: #6B7280; line-height: 1.7;}
+/* 天卡占位行（当日休整/无固定景点）：弱化展示 */
+.day-card .item.dim .pl{color: var(--muted); font-weight: 600;}
+.day-card .item.dim .act{font-style: normal;}
 .sec-title{font-size: 15px; font-weight: 800; color: var(--teal); border-left: 4px solid var(--teal); padding-left: 9px; margin: 4px 0 8px;}
 .sec-overview .sec-title{color: #6c5ce7; border-color: #6c5ce7;}
 .sec-timeline .sec-title{color: var(--sky); border-color: var(--sky);}
