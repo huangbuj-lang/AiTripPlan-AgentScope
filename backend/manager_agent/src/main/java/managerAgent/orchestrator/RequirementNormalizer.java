@@ -35,7 +35,11 @@ public final class RequirementNormalizer {
     /** 旅行类型关键词 */
     private static final Pattern LOOP_KW = Pattern.compile("环线|环游|大环线|小环线");
     private static final Pattern DRIVE_KW = Pattern.compile("自驾|开车|包车|租车|房车");
-    private static final Pattern CROSS_KW = Pattern.compile("[到→→经]");
+    private static final Pattern CROSS_KW = Pattern.compile("[到→经]");
+    /** ★大区域词（2026-09-06）：目的地为跨县大区域时 LLM 常误判"单城市游"（川西/甘南=区域环线）——
+     *  命中即按区域环线处理，保证域专家候选覆盖全区、骨架按"每天1大景区"排。 */
+    private static final Pattern AREA_KW = Pattern.compile(
+            "川西|甘南|青甘|甘青|新疆|北疆|南疆|西藏|滇西|滇西北|大西北|呼伦贝尔|坝上|阿坝|甘孜|川藏|青藏|河西走廊|黔东南|恩施|神农架|伊犁");
 
     /** 天气敏感关键词（户外/摄影类需求，行程需重点关注天气） */
     private static final Pattern WEATHER_KW = Pattern.compile(
@@ -72,6 +76,8 @@ public final class RequirementNormalizer {
         normalizeTravelType(req);
         normalizeTravelers(req);
         normalizeDate(req);
+        normalizeDays(req);
+        normalizeDestination(req);
         if (!req.isWeatherSensitive() && req.getRaw() != null) {
             req.setWeatherSensitive(WEATHER_KW.matcher(req.getRaw()).find());
         }
@@ -147,23 +153,29 @@ public final class RequirementNormalizer {
 
     // ==================== 旅行类型识别（PDF 补充篇：单城市/跨城路线/环线/自驾） ====================
 
-    /** 旅行类型：LLM 已识别出合法值则保留；否则按原文规则推导（环线/自驾 > 跨城 > 单城）。 */
+    /** 旅行类型：★大区域词命中时直接区域环线/自驾（LLM 对"川西七日"误判单城市游）；否则 LLM 值合法保留；
+     *  非法则按原文规则推导（环线/自驾 > 跨城 > 单城）。 */
     static void normalizeTravelType(TripRequest req) {
+        if (req == null) return;
+        String raw = req.getRaw() == null ? "" : req.getRaw();
+        String dest = nz(req.getDestination());
+        boolean area = AREA_KW.matcher(raw).find() || AREA_KW.matcher(dest).find();
+        boolean loop = LOOP_KW.matcher(raw).find();
+        boolean drive = DRIVE_KW.matcher(raw).find();
+        if (area || loop || drive) {
+            // 大区域/环线/自驾词：LLM 的 SINGLE_CITY 判定作废（川西=区域环线，非单城市）
+            if (loop && drive) req.setTravelType("SELF_DRIVE");
+            else if (drive && !loop) req.setTravelType("SELF_DRIVE");
+            else req.setTravelType("LOOP");
+            return;
+        }
         if (validType(req.getTravelType())) {
             return; // LLM 值合法，直接采信
         }
-        String raw = req.getRaw() == null ? "" : req.getRaw();
-        boolean loop = LOOP_KW.matcher(raw).find();
-        boolean drive = DRIVE_KW.matcher(raw).find();
         String origin = nz(req.getOrigin());
-        String dest = nz(req.getDestination());
         boolean crossCity = !origin.isBlank() && !dest.isBlank() && !origin.trim().equals(dest.trim());
-        if (loop && drive) {
-            req.setTravelType("SELF_DRIVE");
-        } else if (loop) {
-            req.setTravelType("LOOP");
-        } else if (crossCity) {
-            req.setTravelType(drive ? "SELF_DRIVE" : "CROSS_CITY");
+        if (crossCity) {
+            req.setTravelType("CROSS_CITY");
         } else {
             req.setTravelType("SINGLE_CITY");
         }
@@ -216,6 +228,28 @@ public final class RequirementNormalizer {
                 // 非法日期保留 LLM 原值
             }
         }
+    }
+
+    /** 天数兜底（2026-09-06）：需求解析 LLM 偶发把"N日游"解析错（如川西七日游→1天）——
+     *  raw 含明确的 N天/N日（含中文数字）时以原文为准覆盖。取最后一个合法匹配（"3天2晚"取3）。 */
+    static void normalizeDays(TripRequest req) {
+        String raw = req.getRaw();
+        if (raw == null || raw.isBlank()) return;
+        Matcher m = Pattern.compile("([0-9一二两三四五六七八九十]{1,2})\\s*(天|日)\\s*(游|行程|旅行|深度|的旅行)?").matcher(raw);
+        int best = -1;
+        while (m.find()) {
+            int v = cnToInt(m.group(1));
+            if (v >= 1 && v <= 30) best = v;
+        }
+        if (best > 0 && best != req.getDays()) req.setDays(best);
+    }
+
+    /** 目的地纠偏（2026-09-06）：LLM 偶发把"N日/天"并入目的地（"川西七日"→目的地="川西七日"）——截掉尾部数量日/天。 */
+    static void normalizeDestination(TripRequest req) {
+        String dest = req.getDestination();
+        if (dest == null) return;
+        String t = dest.trim().replaceAll("[0-9一二两三四五六七八九十]+\\s*[日天]$", "").trim();
+        if (t.length() >= 2 && !t.equals(dest)) req.setDestination(t);
     }
 
     /** 旅行类型值合法性 */

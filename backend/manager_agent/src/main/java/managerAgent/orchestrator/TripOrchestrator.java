@@ -468,10 +468,15 @@ public class TripOrchestrator {
         state.setRouteResult(routeResult2);
         checkCancel();
         if (withPlanAgent) {
-            // ③ 行程Agent 一次定稿：输入=候选+簇分组+簇间衔接 → 输出结构化终版【行程JSON】块
-            String planFirst = await(PARALLEL_POOL.submit(() ->
-                    remoteTool.callTripPlannerAgent(finalPlanTask(state, null, null, null))), "行程Agent");
-            state.setPlanResult(planFirst);
+            // ③ ★天骨架并行定稿（2026-09-06）：候选簇→地理链→按天切段→逐日短任务并行→拼装整单；
+            //    失败（骨架不可用/某天失败）自动回退原整单 finalPlanTask
+            String planText = planByDaySkeleton(state, req);
+            if (planText == null || planText.isBlank()) {
+                EventStore.add(sessionId, "定稿", "整单生成（天骨架不可用或回退，行程Agent一次定稿）...");
+                planText = await(PARALLEL_POOL.submit(() ->
+                        remoteTool.callTripPlannerAgent(finalPlanTask(state, null, null, null))), "行程Agent");
+            }
+            state.setPlanResult(planText);
             harvestCandidates(state);
             checkCancel();
             // ★失败不缓存：行程Agent未返回(空)时写缓存会污染后续命中(拿到空planResult直接降级)——宁可下次重跑
@@ -724,35 +729,50 @@ public class TripOrchestrator {
         String n = String.valueOf(utils.CandidateUtil.candidateCountPerDomain(String.valueOf(req.getDays())));
         EventStore.add(sessionId, "候选", "候选前置查询(域专家三线程并行，每域" + n + "个)"
                 + (waypoints == null || waypoints.isBlank() ? "" : " · 途经:" + waypoints) + " ...");
+        // ★2026-09-06：景点域偶发失败（域专家中断/降级致 candidates 空）会让骨架/行程失去景点依据——失败自动重查一次
         try {
-            String qs = "destination=" + java.net.URLEncoder.encode(
-                    req.getDestination() == null ? "" : req.getDestination(), "UTF-8")
-                    + "&days=" + req.getDays()
-                    + "&preference=" + java.net.URLEncoder.encode(pref, "UTF-8")
-                    + "&waypoints=" + java.net.URLEncoder.encode(waypoints == null ? "" : waypoints, "UTF-8")
-                    + "&brief=" + java.net.URLEncoder.encode(req.toStateBrief(), "UTF-8")
-                    + "&sessionId=" + java.net.URLEncoder.encode(sessionId, "UTF-8");
-            java.net.URL u = new java.net.URL("http://localhost:8085/trip/candidates?" + qs);
-            java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
-            c.setConnectTimeout(10000);
-            c.setReadTimeout(300000); // 域专家并行最长120s + 置信度重试
-            String body = new String(c.getInputStream().readAllBytes(), "UTF-8");
-            java.util.Map<String, Object> root = utils.JsonUtils.parse(body, java.util.Map.class);
-            String reply = root == null ? null : str(root.get("reply"));
-            String block = reply == null ? "" : utils.CandidateUtil.extractBlock(reply);
-            java.util.Map<String, Object> cands = block.isBlank() ? null : utils.CandidateUtil.parse(block);
-            if (cands != null && !cands.isEmpty()) {
-                state.setCandidatesJson(utils.JsonUtils.toJson(cands));
-                String summary = utils.CandidateUtil.evidenceSummary(cands);
-                String cluster = utils.CandidateUtil.clusterHintSummary(cands);
-                EventStore.add(sessionId, "候选", "三域候选已前置入状态"
-                        + (summary.isBlank() ? "" : "：" + summary)
-                        + (cluster.isBlank() ? "" : "｜" + cluster));
-                EventStore.putExtra(sessionId, "clusterStats", utils.CandidateUtil.clusterStats(cands));
-                state.addTrace("候选", "三域候选(结构化,前置查询,每域" + n + ")");
-                return;
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                String qs = "destination=" + java.net.URLEncoder.encode(
+                        req.getDestination() == null ? "" : req.getDestination(), "UTF-8")
+                        + "&days=" + req.getDays()
+                        + "&preference=" + java.net.URLEncoder.encode(pref, "UTF-8")
+                        + "&waypoints=" + java.net.URLEncoder.encode(waypoints == null ? "" : waypoints, "UTF-8")
+                        + "&brief=" + java.net.URLEncoder.encode(req.toStateBrief(), "UTF-8")
+                        + "&sessionId=" + java.net.URLEncoder.encode(sessionId, "UTF-8");
+                java.net.URL u = new java.net.URL("http://localhost:8085/trip/candidates?" + qs);
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+                c.setConnectTimeout(10000);
+                c.setReadTimeout(300000); // 域专家并行最长120s + 置信度重试
+                String body = new String(c.getInputStream().readAllBytes(), "UTF-8");
+                java.util.Map<String, Object> root = utils.JsonUtils.parse(body, java.util.Map.class);
+                String reply = root == null ? null : str(root.get("reply"));
+                String block = reply == null ? "" : utils.CandidateUtil.extractBlock(reply);
+                java.util.Map<String, Object> cands = block.isBlank() ? null : utils.CandidateUtil.parse(block);
+                boolean hasAttr = cands != null && !candDomainList(cands, "attraction").isEmpty();
+                if (cands != null && !cands.isEmpty() && hasAttr) {
+                    // ★坐标补齐（2026-09-06）：域专家景点候选 location 覆盖率不稳定（0%~100%），
+                    //  坐标不足会令路线按簇查/天骨架成簇失效——主管用高德按名补查缺失坐标
+                    int fixed = enrichSightLocations(cands, req.getDestination());
+                    if (fixed > 0) {
+                        EventStore.add(sessionId, "候选", "景点坐标补齐：" + fixed + " 个（高德按名补查）");
+                    }
+                    state.setCandidatesJson(utils.JsonUtils.toJson(cands));
+                    String summary = utils.CandidateUtil.evidenceSummary(cands);
+                    String cluster = utils.CandidateUtil.clusterHintSummary(cands);
+                    EventStore.add(sessionId, "候选", "三域候选已前置入状态"
+                            + (summary.isBlank() ? "" : "：" + summary)
+                            + (cluster.isBlank() ? "" : "｜" + cluster));
+                    EventStore.putExtra(sessionId, "clusterStats", utils.CandidateUtil.clusterStats(cands));
+                    state.addTrace("候选", "三域候选(结构化,前置查询,每域" + n + ")");
+                    return;
+                }
+                if (attempt == 1) {
+                    EventStore.add(sessionId, "候选", cands == null || cands.isEmpty()
+                            ? "候选前置查询失败/无结构化结果，自动重查一次..."
+                            : "景点域候选缺失（域专家降级），自动重查一次...");
+                }
             }
-            EventStore.add(sessionId, "候选", "候选前置查询失败/无结构化结果，行程Agent将自行补查兜底");
+            EventStore.add(sessionId, "候选", "候选前置查询重查后仍失败/缺景点域，行程Agent将自行补查兜底");
         } catch (Exception e) {
             log.warn("候选前置查询异常(行程Agent自行补查兜底): {}", e.getMessage());
             EventStore.add(sessionId, "候选", "候选前置查询异常(" + e.getMessage() + ")，行程Agent将自行补查兜底");
@@ -831,6 +851,47 @@ public class TripOrchestrator {
         }
         normalizePlan(state, plan);
         return plan;
+    }
+
+    /** ★景点坐标补齐：对景点候选缺失 location 的条目，用高德 place/text 按名称+目的地检索补坐标。
+     *  返回补齐数量；QPS 限流规避（单次 350ms 间隔）。失败静默（保留原空值，下游自行兜底）。 */
+    private int enrichSightLocations(java.util.Map<String, Object> cands, String dest) {
+        int fixed = 0;
+        try {
+            java.util.List<java.util.Map<String, Object>> spots = candDomainList(cands, "attraction");
+            for (java.util.Map<String, Object> it : spots) {
+                Object loc = it.get("location");
+                if (loc != null && !String.valueOf(loc).trim().isBlank()) continue;
+                String name = str(it.get("name")).trim();
+                if (name.isBlank()) continue;
+                String city = dest == null ? "" : dest.trim();
+                try {
+                    String qs = "keywords=" + java.net.URLEncoder.encode(name, "UTF-8")
+                            + "&city=" + java.net.URLEncoder.encode(city, "UTF-8")
+                            + "&output=json&key=" + utils.ExternalServices.amapKey() + "&offset=1&extensions=base";
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(
+                            utils.ExternalServices.amapPlaceSearchUrl(qs)).openConnection();
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(8000);
+                    String body = new String(c.getInputStream().readAllBytes(), "UTF-8");
+                    com.fasterxml.jackson.databind.JsonNode node = utils.JsonUtils.parse(body, com.fasterxml.jackson.databind.JsonNode.class);
+                    com.fasterxml.jackson.databind.JsonNode pois = node == null ? null : node.path("pois");
+                    if (pois != null && pois.isArray() && pois.size() > 0) {
+                        String l = pois.get(0).path("location").asText("");
+                        if (l != null && !l.isBlank()) {
+                            it.put("location", l.trim());
+                            fixed++;
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // 单点失败静默（不阻塞整体）
+                }
+                try { Thread.sleep(350); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+        } catch (Exception e) {
+            log.warn("景点坐标补齐异常(忽略): {}", e.getMessage());
+        }
+        return fixed;
     }
 
     /** ★REVISE 重编输入增量（2026-09-06）：上一版行程 JSON 按反馈涉及天裁剪后注入——
@@ -1328,5 +1389,439 @@ public class TripOrchestrator {
             sb.append("\n");
         }
         return sb.toString().trim();
+    }
+
+    // ==================== ★天骨架并行定稿（2026-09-06 架构） ====================
+    // 动机：行程Agent 单次生成整单（7天终版JSON≈9千字）受模型长输出速度影响，单轮常超300s被掐断重试。
+    // 改法：主管按候选坐标贪心成簇(≤5km)→最近邻地理链→按天切连续段→每天独立短任务(只输出当天，30-90s)
+    //      并行生成→拼装成标准整单JSON文本(【行程JSON】块)，下游 parse/审查/缓存/降级链路完全不变。
+    // 跨天连续：每天出发地=昨天末簇住宿地，由高德 regeo 城镇链代码锁定；簇不跨天=景点天然不重复、不回头。
+    // 失败/不可用（候选无坐标、簇<2、天数<2、任一天失败）→ 返回 null，调用方回退原整单生成。
+    private static class DaySkel {
+        int day;
+        String fromTown = "";
+        String endTown = "";
+        final java.util.List<java.util.Map<String, Object>> members = new java.util.ArrayList<>();
+        final java.util.List<double[]> locs = new java.util.ArrayList<>();
+    }
+
+    /** 主控：骨架并行生成整单行程JSON文本（可读概要+【行程JSON】块），失败返回 null。 */
+    private String planByDaySkeleton(TravelState state, TripRequest req) {
+        if (req == null || req.getDays() < 2) return null;
+        java.util.Map<String, Object> cands = utils.CandidateUtil.parse(state.getCandidatesJson());
+        java.util.List<java.util.Map<String, Object>> spots = candDomainList(cands, "attraction");
+        if (spots.size() < 3) return null;
+        java.util.List<java.util.List<java.util.Map<String, Object>>> clusters = clusterKm(spots);
+        if (clusters == null || clusters.size() < 2) return null;
+        java.util.List<java.util.List<java.util.Map<String, Object>>> chain = nearestChain(clusters);
+        if (chain == null) return null;
+        java.util.List<DaySkel> days = cutIntoDays(chain, req.getDays(), req);
+        if (days == null || days.size() != req.getDays()) return null;
+        EventStore.add(sessionId, "定稿", "天骨架并行定稿：候选按坐标成" + clusters.size() + "簇→地理链切"
+                + days.size() + "天，逐日短任务并行生成后拼装（防单次长输出超时）");
+        // regeo 城镇链：每天末簇反查住宿城镇；第1天出发=origin，其后出发=昨天住宿城镇
+        for (int i = 0; i < days.size(); i++) {
+            DaySkel sk = days.get(i);
+            sk.day = i + 1;
+            if (!sk.locs.isEmpty()) {
+                // 住宿城镇取当天全部候选的质心反查（比"最后成员"更代表当日活动区域）
+                double sx = 0, sy = 0;
+                for (double[] p : sk.locs) { sx += p[0]; sy += p[1]; }
+                sk.endTown = townNear(sx / sk.locs.size(), sy / sk.locs.size());
+                if (sk.endTown == null) sk.endTown = "";
+            }
+            sk.fromTown = i == 0
+                    ? (req.getOrigin() == null || req.getOrigin().isBlank() ? "" : req.getOrigin())
+                    : days.get(i - 1).endTown;
+        }
+        // 分批并行执行每天任务（8085 并发能力有限：实测 4+ 并发 A2A 时后提交任务失败——每批最多 3 个，
+        // 批内并行、批间串行）；单天失败自动重试 1 次（每段独立 240s 预算，短输出必按时返回）
+        int batchSize = 3;
+        java.util.List<dto.TripPlanData> dayPlans = new java.util.ArrayList<>();
+        java.util.List<String> summaries = new java.util.ArrayList<>();
+        java.util.List<String> failed = new java.util.ArrayList<>();
+        int processed = 0;
+        while (processed < days.size()) {
+            int batchEnd = Math.min(processed + batchSize, days.size());
+            java.util.List<java.util.concurrent.Future<String>> futs = new java.util.ArrayList<>();
+            for (int i = processed; i < batchEnd; i++) {
+                final DaySkel f = days.get(i);
+                futs.add(PARALLEL_POOL.submit(() -> remoteTool.callTripPlannerAgent(daySkeletonTask(state, req, f))));
+            }
+            java.util.Map<Integer, dto.TripPlanData> batchPlans = new java.util.TreeMap<>();
+            for (int i = 0; i < futs.size(); i++) {
+                int dayNo = processed + i + 1;
+                checkCancel();
+                String label = "行程Agent·第" + dayNo + "天";
+                String reply = waitBudget(futs.get(i), label, 240);
+                dto.TripPlanData dp = parseDayReply(reply, dayNo, "骨架");
+                if (dp == null) {
+                    // 单天重试一次
+                    EventStore.add(sessionId, "定稿", "第" + dayNo + "天首次生成失败，重试...");
+                    final DaySkel f = days.get(processed + i);
+                    String reply2 = waitBudget(PARALLEL_POOL.submit(() ->
+                            remoteTool.callTripPlannerAgent(daySkeletonTask(state, req, f))), label + "(重试)", 240);
+                    dp = parseDayReply(reply2, dayNo, "骨架重试");
+                }
+                if (dp == null) {
+                    failed.add(String.valueOf(dayNo));
+                    continue;
+                }
+                batchPlans.put(dayNo, dp);
+            }
+            if (!batchPlans.isEmpty()) {
+                for (java.util.Map.Entry<Integer, dto.TripPlanData> e : batchPlans.entrySet()) {
+                    dayPlans.add(e.getValue());
+                    summaries.add(oneLineDay(e.getValue(), e.getKey()));
+                    EventStore.add(sessionId, "定稿", "第" + e.getKey() + "天生成完成("
+                            + e.getValue().getSections().size() + "区块)");
+                }
+            }
+            processed = batchEnd;
+        }
+        if (!failed.isEmpty()) {
+            EventStore.add(sessionId, "定稿", "天骨架生成不完整（失败天：" + String.join("、", failed) + "），回退整单生成");
+            return null;
+        }
+        // 拼装标准整单：只收与当天匹配的 timeline + 全部 stay
+        java.util.List<Object> allSecs = new java.util.ArrayList<>();
+        for (int i = 0; i < dayPlans.size(); i++) {
+            dto.TripPlanData dp = dayPlans.get(i);
+            String dayTag = "第" + (i + 1) + "天";
+            for (dto.Section s : dp.getSections()) {
+                String type = s.getType() == null ? "" : s.getType();
+                String title = s.getTitle() == null ? "" : s.getTitle();
+                if ("timeline".equals(type) && !title.contains(dayTag)) continue; // 防模型越权输出其它天
+                allSecs.add(s);
+            }
+        }
+        java.util.Map<String, Object> root = new java.util.LinkedHashMap<>();
+        root.put("title", (req.getDestination() == null ? "" : req.getDestination()) + req.getDays() + "日游");
+        root.put("destination", req.getDestination());
+        root.put("days", req.getDays());
+        root.put("weather", "");
+        root.put("sections", allSecs);
+        String planJson = utils.JsonUtils.toJson(root);
+        if (planJson == null || planJson.isBlank()) return null;
+        String brief = String.join("\n", summaries);
+        state.addTrace("定稿", "天骨架并行生成完成(" + days.size() + "天，簇链切分)");
+        return brief + "\n\n【行程JSON】\n" + planJson + "\n【行程JSON结束】";
+    }
+
+    /** 单天任务文本：只编第 day 天；候选仅该天簇成员；给出出发地/住宿区域，输出标准【行程JSON】块（仅当天区块）。 */
+    private String daySkeletonTask(TravelState state, TripRequest req, DaySkel sk) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("你是行程定稿Agent。本次任务：只编排整个行程的【第 ").append(sk.day).append(" 天】（共 ")
+                .append(req.getDays()).append(" 天），【禁止】安排或提及其它天，也禁止编造候选清单之外的景点。\n\n");
+        sb.append("【整体需求】").append(req.getDestination()).append(" ").append(req.getDays()).append(" 日游");
+        if (req.getPreference() != null && !req.getPreference().isBlank()) {
+            sb.append("，偏好：").append(req.getPreference());
+        }
+        String tripPref = req.getTripPref();
+        if (tripPref != null && !tripPref.isBlank()) {
+            sb.append("；行程节奏偏好：").append(tripPref);
+        }
+        if (req.getBudgetTotal() > 0) {
+            sb.append("；预算：").append((long) req.getBudgetTotal()).append(" 元");
+        }
+        sb.append("\n\n【今日出发地】")
+                .append(sk.fromTown.isBlank() ? "行程起点（从出发城市启程）" : sk.fromTown)
+                .append(sk.day == 1 ? "（第1天从行程起点出发）" : "（昨天住宿地，今天从这里前往今日景点；如与今日首景点相距较远请先写清移动方式与车程）")
+                .append("\n");
+        sb.append("【今日住宿区域】").append(sk.endTown.isBlank() ? "今日游玩区域就近" : sk.endTown)
+                .append("（选择该区域真实酒店）\n");
+        sb.append("【今日可安排景点候选（物理邻近组，可全选或选部分，最多5个）】\n");
+        for (java.util.Map<String, Object> it : sk.members) {
+            String nm = str(it.get("name"));
+            String loc = str(it.get("location"));
+            String pr = str(it.get("price"));
+            String ot = str(it.get("openTime"));
+            sb.append("- ").append(nm.isBlank() ? "(未命名)" : nm)
+                    .append(loc.isBlank() ? "" : "（坐标 " + loc + "）")
+                    .append(pr.isBlank() ? "" : " 票价:" + pr)
+                    .append(ot.isBlank() ? "" : " 开放:" + ot).append("\n");
+        }
+        sb.append("\n【输出要求】按系统规则输出【行程JSON】块：sections 只含今天的 type=timeline（title 用「第")
+                .append(sk.day).append("天」）与 type=stay；timeline 覆盖全天（到达/景点游玩/午餐晚餐/晚间），")
+                .append("一个景区内部多站点合并成一条并写进 activity；当天所有条目 place 文本不得重复；cat=景点的条目不超过5个；")
+                .append("概要每天一句话不超过60字。JSON 完整优先，宁短勿长，禁止截断 JSON 块。");
+        return sb.toString().trim();
+    }
+
+    /** 从候选 Map 取某域 candidates 条目列表（域内字段平铺成新 Map）。 */
+    private static java.util.List<java.util.Map<String, Object>> candDomainList(
+            java.util.Map<String, Object> cands, String domain) {
+        java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
+        if (cands == null) return out;
+        Object dom = cands.get(domain);
+        if (!(dom instanceof java.util.Map<?, ?> dm)) return out;
+        Object cs = dm.get("candidates");
+        if (cs instanceof java.util.List<?> list) {
+            for (Object o : list) {
+                if (o instanceof java.util.Map<?, ?> m) {
+                    java.util.Map<String, Object> mm = new java.util.LinkedHashMap<>();
+                    for (java.util.Map.Entry<?, ?> e : m.entrySet()) mm.put(String.valueOf(e.getKey()), e.getValue());
+                    out.add(mm);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 解析高德 location "经度,纬度" → [lng,lat]；非法返回 null。 */
+    private static double[] locOf(java.util.Map<String, Object> it) {
+        if (it == null) return null;
+        Object v = it.get("location");
+        if (v == null) return null;
+        String s = String.valueOf(v).trim();
+        int c = s.indexOf(',');
+        if (c <= 0) return null;
+        try {
+            double lng = Double.parseDouble(s.substring(0, c).trim());
+            double lat = Double.parseDouble(s.substring(c + 1).trim());
+            return new double[]{lng, lat};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static double havKm(double la1, double lo1, double la2, double lo2) {
+        double R = 6371.0;
+        double dLat = Math.toRadians(la2 - la1);
+        double dLng = Math.toRadians(lo2 - lo1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(la1)) * Math.cos(Math.toRadians(la2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    /** 坐标候选贪心成簇（≤5km，同 CandidateUtil 口径）。不足2个有效坐标返回 null。 */
+    private static java.util.List<java.util.List<java.util.Map<String, Object>>> clusterKm(
+            java.util.List<java.util.Map<String, Object>> spots) {
+        java.util.List<java.util.Map<String, Object>> coord = new java.util.ArrayList<>();
+        for (java.util.Map<String, Object> it : spots) if (locOf(it) != null) coord.add(it);
+        if (coord.size() < 2) return null;
+        java.util.List<java.util.List<java.util.Map<String, Object>>> groups = new java.util.ArrayList<>();
+        java.util.List<double[]> cents = new java.util.ArrayList<>();
+        for (java.util.Map<String, Object> it : coord) {
+            double[] p = locOf(it);
+            int best = -1;
+            double bestD = Double.MAX_VALUE;
+            for (int g = 0; g < groups.size(); g++) {
+                double[] c = cents.get(g);
+                double d = havKm(c[1], c[0], p[1], p[0]);
+                if (d <= 5.0 && d < bestD) { best = g; bestD = d; }
+            }
+            if (best >= 0) {
+                groups.get(best).add(it);
+                double[] c = cents.get(best);
+                int n = groups.get(best).size();
+                c[0] = (c[0] * (n - 1) + p[0]) / n;
+                c[1] = (c[1] * (n - 1) + p[1]) / n;
+            } else {
+                java.util.List<java.util.Map<String, Object>> g = new java.util.ArrayList<>();
+                g.add(it);
+                groups.add(g);
+                cents.add(new double[]{p[0], p[1]});
+            }
+        }
+        return groups;
+    }
+
+    /** 簇质心最近邻贪心排链（不回头），返回簇序列。 */
+    private static java.util.List<java.util.List<java.util.Map<String, Object>>> nearestChain(
+            java.util.List<java.util.List<java.util.Map<String, Object>>> clusters) {
+        if (clusters == null || clusters.isEmpty()) return null;
+        double[][] cents = new double[clusters.size()][2];
+        for (int i = 0; i < clusters.size(); i++) {
+            double sx = 0, sy = 0;
+            java.util.List<double[]> ls = new java.util.ArrayList<>();
+            for (java.util.Map<String, Object> it : clusters.get(i)) {
+                double[] p = locOf(it);
+                if (p != null) { sx += p[0]; sy += p[1]; ls.add(p); }
+            }
+            if (ls.isEmpty()) return null;
+            cents[i] = new double[]{sx / ls.size(), sy / ls.size()};
+        }
+        java.util.List<java.util.List<java.util.Map<String, Object>>> chain = new java.util.ArrayList<>();
+        boolean[] used = new boolean[clusters.size()];
+        int cur = 0;
+        chain.add(clusters.get(0));
+        used[0] = true;
+        for (int step = 1; step < clusters.size(); step++) {
+            int next = -1;
+            double best = Double.MAX_VALUE;
+            for (int i = 0; i < clusters.size(); i++) {
+                if (used[i]) continue;
+                double d = havKm(cents[cur][1], cents[cur][0], cents[i][1], cents[i][0]);
+                if (d < best) { best = d; next = i; }
+            }
+            if (next < 0) break;
+            chain.add(clusters.get(next));
+            used[next] = true;
+            cur = next;
+        }
+        return chain;
+    }
+
+    /** 地理链按天切连续段。
+     *  区域环线/长途自驾（LOOP/SELF_DRIVE）：每天 1 个主景区簇（+顺路 <30km 的邻近簇成员）——川西这类
+     *  景区间动辄 100-300km，同天塞两个相距 200km 的景区=审查必抓的"路线不合理"；多余簇为候选池供挑选，丢弃不进天。
+     *  城市游：每天 ceil(C/D) 簇（同城景点密集、簇间短途，可多簇/天），链必须全部分完。
+     *  每天景点候选数 ≤5。切不出完整天数返回 null（调用方回退整单）。 */
+    private static java.util.List<DaySkel> cutIntoDays(
+            java.util.List<java.util.List<java.util.Map<String, Object>>> chain, int days, TripRequest req) {
+        if (chain == null || days < 1 || chain.size() < 1) return null;
+        boolean loop = req != null && req.getTravelType() != null
+                && ("LOOP".equals(req.getTravelType().trim().toUpperCase())
+                || "SELF_DRIVE".equals(req.getTravelType().trim().toUpperCase()));
+        int cap;
+        boolean allowDrop;
+        if (loop) {
+            cap = 1;
+            allowDrop = true;
+        } else {
+            if (chain.size() < days) return null;
+            cap = Math.max(2, (int) Math.ceil(chain.size() / (double) days));
+            allowDrop = false;
+        }
+        java.util.List<DaySkel> out = new java.util.ArrayList<>();
+        int idx = 0;
+        while (idx < chain.size() && out.size() < days) {
+            DaySkel sk = new DaySkel();
+            int taken = 0;
+            int spots = 0;
+            double[] anchor = null; // 主簇质心（环线模式用于顺路判定）
+            while (idx < chain.size() && taken < cap && spots < 5) {
+                java.util.List<java.util.Map<String, Object>> cl = chain.get(idx);
+                if (taken > 0 && loop) {
+                    // 环线：仅并入与主簇相距 <30km 的邻近簇（顺路点），否则留给后续天/弃用
+                    double[] c0 = centroidOf(cl);
+                    if (anchor != null && c0 != null && havKm(anchor[1], anchor[0], c0[1], c0[0]) >= 30.0) break;
+                }
+                for (java.util.Map<String, Object> it : cl) {
+                    sk.members.add(it);
+                    double[] p = locOf(it);
+                    if (p != null) sk.locs.add(p);
+                }
+                spots += cl.size();
+                if (anchor == null && !sk.locs.isEmpty()) anchor = centroidOf(cl);
+                idx++;
+                taken++;
+            }
+            if (sk.members.isEmpty()) return null;
+            out.add(sk);
+        }
+        if (out.size() != days) return null;
+        if (!allowDrop && idx < chain.size()) return null;
+        return out;
+    }
+
+    /** 簇质心 [lng,lat]；空簇返回 null。 */
+    private static double[] centroidOf(java.util.List<java.util.Map<String, Object>> cl) {
+        double sx = 0, sy = 0;
+        int n = 0;
+        for (java.util.Map<String, Object> it : cl) {
+            double[] p = locOf(it);
+            if (p != null) { sx += p[0]; sy += p[1]; n++; }
+        }
+        return n == 0 ? null : new double[]{sx / n, sy / n};
+    }
+
+    /** 高德 regeo 逆地理：坐标反查城镇（township 优先，空则 district）。QPS 限流：调用间隔 350ms。 */
+    private String townNear(double lng, double lat) {
+        try {
+            String url = "https://restapi.amap.com/v3/geocode/regeo?location=" + lng + "," + lat
+                    + "&key=" + utils.ExternalServices.amapKey() + "&extensions=base";
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            String body = new String(c.getInputStream().readAllBytes(), "UTF-8");
+            com.fasterxml.jackson.databind.JsonNode node = utils.JsonUtils.parse(body, com.fasterxml.jackson.databind.JsonNode.class);
+            String tw = node == null ? "" : node.path("regeocode").path("addressComponent").path("township").asText("");
+            if (tw != null && !tw.isBlank()) return tw;
+            String dt = node == null ? "" : node.path("regeocode").path("addressComponent").path("district").asText("");
+            return dt == null ? "" : dt;
+        } catch (Exception e) {
+            return "";
+        } finally {
+            try { Thread.sleep(350); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        }
+    }
+
+    /** 单天独立等待：预算 budgetSec 秒（区别于整单 await 的 RemoteTimeout），带取消轮询与事件记录。 */
+    private String waitBudget(java.util.concurrent.Future<String> future, String label, long budgetSec) {
+        EventStore.add(sessionId, "调用工具", "调用「" + label + "」获取真实数据...");
+        long deadline = System.nanoTime() + budgetSec * 1_000_000_000L;
+        try {
+            while (true) {
+                checkCancel();
+                long remainMs = (deadline - System.nanoTime()) / 1_000_000L;
+                if (remainMs <= 0) {
+                    future.cancel(true);
+                    EventStore.add(sessionId, "Agent结果", label + " ❌ 单天生成超时(" + budgetSec + "s)");
+                    return "";
+                }
+                try {
+                    String r = future.get(Math.min(remainMs, 500L), TimeUnit.MILLISECONDS);
+                    return r == null ? "" : r;
+                } catch (java.util.concurrent.ExecutionException ex) {
+                    if (ex.getCause() instanceof CancelledException) {
+                        throw (CancelledException) ex.getCause();
+                    }
+                    throw ex;
+                } catch (java.util.concurrent.TimeoutException e) {
+                    // 本轮 500ms 未完成，回循环头检查中断
+                }
+            }
+        } catch (CancelledException e) {
+            future.cancel(true);
+            EventStore.add(sessionId, "Agent结果", label + " ⏹ 已中断");
+            throw e;
+        } catch (Exception e) {
+            EventStore.add(sessionId, "Agent结果", label + " ❌ 调用失败(" + e.getMessage() + ")");
+            return "";
+        }
+    }
+
+    /** 解析单天回复 → TripPlanData；无块/解析失败留档原文并返回 null（供重试判定）。 */
+    private dto.TripPlanData parseDayReply(String reply, int dayNo, String ctx) {
+        if (reply == null || reply.isBlank()) return null;
+        String block = utils.CandidateUtil.extractPlanBlock(reply);
+        if (block.isBlank()) {
+            EventStore.add(sessionId, "行程原文", "（第" + dayNo + "天" + ctx + "·无JSON块，回复全文）\n" + reply);
+            return null;
+        }
+        dto.TripPlanData dp = utils.JsonUtils.extractAndParse(block, dto.TripPlanData.class);
+        if (dp == null || dp.getSections() == null || dp.getSections().isEmpty()) {
+            EventStore.add(sessionId, "行程原文", "（第" + dayNo + "天" + ctx + "·JSON解析失败，块原文）\n" + block);
+            return null;
+        }
+        return dp;
+    }
+
+    /** 单天行程一句话概要（拼装整单的可读概要）。 */
+    private static String oneLineDay(dto.TripPlanData dp, int day) {
+        StringBuilder sb = new StringBuilder("第" + day + "天：");
+        int items = 0;
+        String first = "", last = "";
+        if (dp.getSections() != null) {
+            for (dto.Section s : dp.getSections()) {
+                if (!"timeline".equals(s.getType()) || s.getItems() == null) continue;
+                for (dto.SectionItem it : s.getItems()) {
+                    if (it == null) continue;
+                    String p = it.getPlace() == null ? "" : it.getPlace().trim();
+                    if (p.isBlank()) continue;
+                    if (first.isBlank()) first = p;
+                    last = p;
+                    items++;
+                }
+            }
+        }
+        if (first.isBlank()) return sb.append("行程内容生成，详见JSON").toString();
+        sb.append(first);
+        if (!last.equals(first)) sb.append(" → ").append(last);
+        sb.append("（").append(items).append(" 个地点安排）");
+        return sb.toString();
     }
 }
