@@ -28,21 +28,26 @@ let sessionId = (function () {
 
 // ===== ★ 登录状态检查（页面加载时执行） =====
 
-// ===== ★生成进度条（阶段驱动，单调递增）：提交→解析→路线→行程→审查→完成 =====
-// 审查阶段承接长时段（审查+返工重编），定稿=多方案/降级路径兜底；pct 只增不减（updateGenProgress 内钳制）
+// ===== ★生成进度条（事件驱动真进度 + 宽段慢爬，单调递增防回落）：实测耗时构成(川西7天骨架) ≈
+//   候选+路线 3.5-4min / 行程并行 6-7min / 审查+返工 3-7min → 权重按真实占比铺开，
+//   避免旧版"解析→行程事件一跳 85%、97% 卡 10 分钟"的前快后慢。
+//   pct 锚点：候选≈14 路线≈30 行程(骨架 32→66 由"第N天生成完成"逐批推进) 审查≈72→96(REVISE 返工回落 78 重爬) 定稿 98 完成 100
 const GEN_STAGES = {
-    '解析': { pct: 8, label: '解析旅行需求...' },
-    '路线': { pct: 20, label: '路线Agent规划路线...' },
-    '行程': { pct: 35, label: '行程Agent规划行程...' },
-    '审查': { pct: 60, label: '独立审查行程质量...' },
-    '定稿': { pct: 85, label: '主管整合生成方案...' },
+    '解析': { pct: 6, label: '解析旅行需求...' },
+    '候选': { pct: 14, label: '查询三域候选...' },
+    '路线': { pct: 30, label: '路线Agent规划真实衔接...' },
+    '行程': { pct: 72, label: '行程Agent并行规划每天...' },
+    '审查': { pct: 96, label: '独立审查行程质量...' },
+    '定稿': { pct: 99, label: '主管整合生成方案...' },
     '完成': { pct: 100, label: '生成完成！' }
 };
+// 已完成的骨架天计数（"第N天生成完成"事件推进用，新任务清零）
+let genDayN = 0;
 
 // ★平滑推进：阶段事件只在开始发一次，之后缓步爬升覆盖真实耗时（3s/步）：
 //   行程≈150s → 35→84；审查/返工 ≈1-2min → 60→94；避免"半分钟到80%然后卡死"或"8%死停后突跳100"
 let genSmoothTimer = null;
-function startGenSmooth(targetMax) {
+function startGenSmooth(targetMax, stepMs) {
     stopGenSmooth();
     genSmoothTimer = setInterval(() => {
         const pctEl = document.querySelector('.gen-pct');
@@ -51,7 +56,7 @@ function startGenSmooth(targetMax) {
         const cur = parseInt(pctEl.textContent, 10) || 0;
         if (cur >= targetMax) { stopGenSmooth(); return; }
         updateGenProgress(cur + 1, null); // label 传 null 表示保留现有文字
-    }, 3000);
+    }, stepMs || 3000);
 }
 function stopGenSmooth() {
     if (genSmoothTimer) { clearInterval(genSmoothTimer); genSmoothTimer = null; }
@@ -62,14 +67,15 @@ function genProgressHTML(pct, label) {
         + '<div class="gen-label"><span class="gen-pct">' + pct + '%</span><span class="gen-label-text">' + escapeHtml(label || '') + '</span></div></div>';
 }
 
-function updateGenProgress(pct, label) {
+function updateGenProgress(pct, label, force) {
     const fill = document.querySelector('.gen-fill');
     if (!fill) return;
     // ★单调递增：进度只增不减（REVISE 重编/路线补查会重发"路线/行程"事件，不再把进度打回低位）
+    //   force=true：审查 REVISE 返工时允许小幅回落（限审查带内），让"返工重爬"可见而非 97% 卡死
     const pctEl = document.querySelector('.gen-pct');
     if (pctEl) {
         const cur = parseInt(pctEl.textContent, 10) || 0;
-        if (pct < cur) pct = cur;
+        if (!force && pct < cur) pct = cur;
         pctEl.textContent = pct + '%';
     }
     fill.style.width = pct + '%';
@@ -135,8 +141,12 @@ function restoreRunningUI() {
             const list = evts || [];
             list.forEach(appendThinkItem);
             const last = list[list.length - 1];
-            const st = last && GEN_STAGES[last.type];
-            if (st && last.type !== '完成') updateGenProgress(st.pct, null);
+            // 恢复校准：按最后里程碑事件推进（天计数从最后"第N天生成完成"恢复，保证后续续推不低估）
+            if (last) {
+                const md = last.content && last.content.match(/第(\d+)天生成完成/);
+                if (md) genDayN = parseInt(md[1], 10);
+                advanceGen(last);
+            }
             lastEventCount = list.length;
             if (eventSource) eventSource.close();
             eventSource = new EventSource('/events/stream?sessionId=' + encodeURIComponent(sessionId));
@@ -625,6 +635,10 @@ function doSubmit(prompt, walk, chrono, museum, multi) {
             });
             if (resultTimer) clearInterval(resultTimer);
             resultTimer = setInterval(fetchResult, 2000);
+            // ★候选带慢爬：候选查询 ~60-75s，从 2 爬向 14（6s/步），候选完成事件到即接管
+            genDayN = 0;
+            updateGenProgress(2, '解析旅行需求...');
+            startGenSmooth(14, 6000);
         })
         .catch(err => {
             document.getElementById('resultBody').innerHTML =
@@ -716,6 +730,10 @@ function submitRevise() {
             });
             if (resultTimer) clearInterval(resultTimer);
             resultTimer = setInterval(fetchResult, 2000);
+            // ★修订提交=整单重编+复核：直接进审查带慢爬，事件到即接管
+            genDayN = 0;
+            updateGenProgress(70, '按修订意见重新生成并复核...');
+            startGenSmooth(96, 8000);
         })
         .catch(err => {
             document.getElementById('resultBody').innerHTML =
@@ -726,18 +744,74 @@ function submitRevise() {
 }
 
 /**
+ * ★事件→进度映射（真里程碑驱动）：骨架主路径事件序列与后端一致（见 task_events type/content）：
+ *   解析 → 候选(开始/完成/路线按簇) → 定稿(天骨架并行定稿=行程开始) → 定稿(第N天生成完成×7) →
+ *   候选(代码回取,REVISE注入) → 审查(独立审查员) → 校验/评分(第N轮) → 审查(REVISE返工) → 校验(第2轮) → 完成
+ *   pct 锚点（按实测时间占比铺开）：候选 14 / 路线 30 / 骨架行程 32→66(每天+4.5) / 审查 72→96 / 定稿 98
+ *   force 回落仅限审查 REVISE：进度若已 >78 允许落回 78 重爬（返工可见，不会 97% 卡死）
+ */
+function advanceGen(ev) {
+    if (!ev || !ev.type) return;
+    const t = ev.type;
+    const c = ev.content || '';
+    if (t === '完成') { stopGenSmooth(); updateGenProgress(100, '生成完成！'); return; }
+    if (t === '解析') { updateGenProgress(6, '解析旅行需求...'); return; }
+    if (t === '候选') {
+        if (c.indexOf('已前置入状态') >= 0 || c.indexOf('已入状态中心') >= 0) {
+            updateGenProgress(14, '三域候选已就绪'); stopGenSmooth();
+        } else if (c.indexOf('路线按簇') >= 0 || c.indexOf('查真实衔接') >= 0) {
+            updateGenProgress(16, '路线Agent规划真实衔接...'); startGenSmooth(30, 9000);
+        } else {
+            updateGenProgress(10, '查询三域候选...'); startGenSmooth(14, 7000);
+        }
+        return;
+    }
+    if (t === '路线') { updateGenProgress(30, '路线Agent规划真实衔接...'); stopGenSmooth(); return; }
+    if (t === '定稿') {
+        const mDay = c.match(/第(\d+)天生成完成/);
+        if (mDay) { // 骨架：每天/每批完成 → 行程带 32→66 推进（事件频率即真实节奏）
+            genDayN = Math.max(genDayN, parseInt(mDay[1], 10));
+            const p = Math.min(66, 32 + genDayN * 4.5);
+            updateGenProgress(p, '行程Agent 已生成 ' + genDayN + ' 天（并行推进中）...');
+            stopGenSmooth();
+        } else if (c.indexOf('天骨架并行定稿') >= 0 || c.indexOf('逐日短任务') >= 0) {
+            genDayN = 0;
+            updateGenProgress(32, '行程Agent 并行生成各天行程...');
+            stopGenSmooth();
+        } else {
+            updateGenProgress(98, '主管整合生成方案...'); stopGenSmooth();
+        }
+        return;
+    }
+    if (t === '校验' || t === '评分') {
+        const rnd = c.match(/第(\d+)轮/);
+        const r = rnd ? parseInt(rnd[1], 10) : 1;
+        if (r >= 2) { stopGenSmooth(); updateGenProgress(94, '返工后复核通过，即将交付'); }
+        else updateGenProgress(72, '第 1 轮校验/评分中...');
+        return;
+    }
+    if (t === '审查') {
+        if (c.indexOf('REVISE') >= 0 || c.indexOf('返工') >= 0 || c.indexOf('重编') >= 0) {
+            // 审查发现问题 → 返工（回落限审查带内，可见"返工重爬"而非卡死）
+            stopGenSmooth();
+            updateGenProgress(78, '审查发现问题，正在返工修正...', true);
+            startGenSmooth(96, 8000);
+        } else if (c.indexOf('修正上限') >= 0) {
+            stopGenSmooth(); updateGenProgress(96, '已达修正上限，交付当前版本');
+        } else {
+            updateGenProgress(70, '独立审查行程质量...');
+        }
+        return;
+    }
+    const st = GEN_STAGES[t];
+    if (st) updateGenProgress(st.pct, st.label);
+}
+
+/**
  * 追加一条思考过程事件到界面（SSE 与轮询共用）
  */
 function appendThinkItem(ev) {
-    // ★阶段驱动进度条：按事件类型推进（解析/路线/行程/审查/定稿/完成），单调递增不回落
-    const st = GEN_STAGES[ev.type];
-    if (st) {
-        updateGenProgress(st.pct, st.label);
-        if (ev.type === '行程') startGenSmooth(84);      // 行程Agent 长时段：35%→84%（3s/步≈150s）
-        else if (ev.type === '审查') startGenSmooth(94); // 审查+返工重编时段：60%→94%
-        else if (ev.type === '定稿') startGenSmooth(97);
-        else if (ev.type === '完成') stopGenSmooth();
-    }
+    advanceGen(ev); // ★事件驱动进度推进（候选/路线/第N天完成/审查REVISE…按真实里程碑跳，宽段慢爬）
     const body = document.getElementById('thinkBody');
     const empty = body.querySelector('.empty');
     if (empty) empty.remove();
