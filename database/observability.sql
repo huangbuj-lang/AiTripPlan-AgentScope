@@ -33,3 +33,22 @@ CREATE TABLE IF NOT EXISTS llm_cost_daily (
     output_tokens BIGINT       NOT NULL DEFAULT 0,
     PRIMARY KEY (day, dimension)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ★2026-09-06 新增：事件流落库（EventStore 终态批量写入；重启后管理端从库恢复事件时间线）
+CREATE TABLE IF NOT EXISTS task_events (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    session_id  VARCHAR(64)  NOT NULL,
+    ts          BIGINT       NOT NULL,
+    type        VARCHAR(32)  NOT NULL DEFAULT '',
+    content     TEXT,
+    PRIMARY KEY (id),
+    KEY idx_session (session_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ★2026-09-06 新增：任务观测落库（REVISE 轮次/聚类统计等 extras，重启后恢复管理端质量观测）
+CREATE TABLE IF NOT EXISTS task_obs (
+    session_id  VARCHAR(64)  NOT NULL,
+    obs_json    TEXT,
+    updated_ms  BIGINT       NOT NULL,
+    PRIMARY KEY (session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
