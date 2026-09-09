@@ -6,9 +6,7 @@ import routeMakingAgent.agents.RouteMakingAgent;
 import utils.NacosModelConfig;
 import utils.AgentRuntimeConfig;
 
-/**
- * 启动类
- */
+/** 启动类 */
 @SpringBootApplication
 public class RouteMakingAgentApplication {
     public static void main(String[] args) {

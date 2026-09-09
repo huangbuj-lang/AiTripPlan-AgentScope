@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 数据管线统一配置读取器（唯一出口）：
 - Nacos 配置 aitripplan-pipeline-config.json（优先，5秒缓存）

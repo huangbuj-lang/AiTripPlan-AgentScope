@@ -13,10 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 行程分享接口（P0）：生成/撤销分享链接 + 免登录只读页。
- * share_code 短码指向 trip_plans，只读页复用 A4 渲染组件渲染 plan_json。
- */
+/** 行程分享接口（P0）：生成/撤销分享链接 + 免登录只读页。 */
 @RestController
 @RequestMapping("/api")
 public class ShareController {
@@ -41,7 +38,7 @@ public class ShareController {
         return sb.toString();
     }
 
-    /** 创建分享（幂等：同一行程重复分享则刷新 code；可设密码/有效期） */
+        /** 创建分享（幂等：同一行程重复分享则刷新 code； */
     @PostMapping("/trips/{id}/share")
     public Map<String, Object> createShare(@PathVariable Long id,
                                            @RequestParam(required = false) String password,
@@ -49,7 +46,7 @@ public class ShareController {
                                            HttpSession session) {
         long uid = userId(session);
         Map<String, Object> result = new HashMap<>();
-        // 校验行程归属
+        //校验行程归属
         Integer cnt = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM trip_plans WHERE id = ? AND user_id = ?", Integer.class, id, uid);
         if (cnt == null || cnt == 0) {
@@ -64,7 +61,7 @@ public class ShareController {
             expiresAt = jdbcTemplate.queryForObject(
                     "SELECT DATE_ADD(NOW(), INTERVAL ? DAY)", String.class, validDays);
         }
-        // upsert（uk_trip 唯一，重复分享刷新）
+        //upsert（uk_trip 唯一，重复分享刷新）
         jdbcTemplate.update(
                 "INSERT INTO trip_shares(trip_id, user_id, share_code, password_hash, is_public, expires_at) " +
                 "VALUES (?, ?, ?, ?, 1, ?) " +
@@ -88,10 +85,7 @@ public class ShareController {
         return result;
     }
 
-    /**
-     * 免登录只读页：按 code 取行程内容（结构化 JSON 优先，markdown 兜底）。
-     * 可选密码校验；浏览量 +1。
-     */
+        /** 免登录只读页：按 code 取行程内容（结构化 JSON 优先，markdown 兜底）。 */
     @GetMapping("/share/{code}")
     public Map<String, Object> getSharedTrip(@PathVariable String code,
                                              @RequestParam(required = false) String password) {
@@ -104,7 +98,7 @@ public class ShareController {
             return result;
         }
         Map<String, Object> share = shares.get(0);
-        // 有效期校验
+        //有效期校验
         if (share.get("expires_at") != null) {
             Integer expired = jdbcTemplate.queryForObject(
                     "SELECT NOW() > ?", Integer.class, share.get("expires_at"));
@@ -114,7 +108,7 @@ public class ShareController {
                 return result;
             }
         }
-        // 密码校验
+        //密码校验
         if (share.get("password_hash") != null) {
             if (password == null || !passwordEncoder.matches(password, (String) share.get("password_hash"))) {
                 result.put("success", false);
@@ -123,7 +117,7 @@ public class ShareController {
                 return result;
             }
         }
-        // 取行程内容
+        //取行程内容
         Long tripId = ((Number) share.get("trip_id")).longValue();
         Map<String, Object> trip = jdbcTemplate.queryForMap(
                 "SELECT city, days, plan_content, plan_json FROM trip_plans WHERE id = ?", tripId);
@@ -137,11 +131,7 @@ public class ShareController {
         return result;
     }
 
-    /**
-     * ★分享页按天生成路线图：免登录，从分享行程的 plan_json 提取第 N 天景点，
-     * 逐个 geocode 拿坐标+POI ID，拼 ditu.amap.com/ssr/dir 多途经点链接（当天全部景点衔接）。
-     * day 从 1 开始。
-     */
+        /** 分享页按天生成路线图：免登录，从分享行程的 plan_json 提取第 N 天景点， 逐个 geocode 拿坐标+POI ID，拼 ditu.amap.com/ssr/dir 多途经点链接（当天全部景点衔接）。 */
     @GetMapping("/share/{code}/day-map")
     public Map<String, Object> dayMap(@PathVariable String code, @RequestParam int day) {
         Map<String, Object> result = new HashMap<>();
@@ -158,7 +148,7 @@ public class ShareController {
             com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(planJson);
             com.fasterxml.jackson.databind.JsonNode sections = root.path("sections");
             if (!sections.isArray()) { result.put("error", "行程数据异常"); return result; }
-            // 提取第 day 天（1基）的 timeline 区块
+            //提取第 day 天（1基）的 timeline 区块
             List<String> places = new java.util.ArrayList<>();
             int dayIdx = 0;
             for (com.fasterxml.jackson.databind.JsonNode sec : sections) {
@@ -176,7 +166,7 @@ public class ShareController {
                 break;
             }
             if (places.isEmpty()) { result.put("error", "第 " + day + " 天没有可定位的景点"); return result; }
-            // 逐个 geocode（复用高德 place/text，350ms 限速）
+            //逐个 geocode（复用高德 place/text，350ms 限速）
             String key = ExternalServices.amapKey();
             if (key.isBlank()) { result.put("error", "高德Key未配置，请在管理端填写或配置AMAP_KEY"); return result; }
             String city = trip.get("city") == null ? "" : String.valueOf(trip.get("city"));
@@ -187,9 +177,28 @@ public class ShareController {
                 allPts.add(ll[0] + "," + ll[1] + "," + name + "," + ll[2]);
             }
             if (allPts.size() < 2) { result.put("error", "当天可定位的景点不足 2 个"); return result; }
-            // ★ditu.amap.com 网页版驾车 SSR：fname/flat/flon + vname|vlat|vlon|vid 途经点（PC 直接打开不丢途经点）
+            //拼 ditu 链接
+            String[] first = allPts.get(0).split(",", -1);
+            String[] last = allPts.get(allPts.size() - 1).split(",", -1);
+            StringBuilder nav = new StringBuilder(ExternalServices.amapNavigationUrl());
+            nav.append("&fname=").append(java.net.URLEncoder.encode(first.length >= 3 ? first[2] : "", "UTF-8"));
+            nav.append("&flat=").append(first[1]).append("&flon=").append(first[0]);
+            nav.append("&dname=").append(java.net.URLEncoder.encode(last.length >= 3 ? last[2] : "", "UTF-8"));
+            nav.append("&dlat=").append(last[1]).append("&dlon=").append(last[0]);
+            if (allPts.size() > 2) {
+                StringBuilder vn = new StringBuilder(), va = new StringBuilder(), vo = new StringBuilder(), vi = new StringBuilder();
+                for (int i = 1; i < allPts.size() - 1; i++) {
+                    String[] pp = allPts.get(i).split(",", -1);
+                    if (vn.length() > 0) { vn.append("|"); va.append("|"); vo.append("|"); vi.append("|"); }
+                    vn.append(java.net.URLEncoder.encode(pp.length >= 3 ? pp[2] : "", "UTF-8"));
+                    va.append(pp[1]); vo.append(pp[0]);
+                    vi.append(java.net.URLEncoder.encode(pp.length >= 4 && !"unknown".equals(pp[3]) ? pp[3] : "", "UTF-8"));
+                }
+                nav.append("&vname=").append(vn).append("&vlat=").append(va)
+                   .append("&vlon=").append(vo).append("&vid=").append(vi);
+            }
             result.put("ok", true);
-            result.put("webUrl", ExternalServices.buildSsrDirUrl(allPts));
+            result.put("webUrl", nav.toString());
         } catch (Exception e) {
             result.put("error", e.getMessage());
         }
@@ -200,31 +209,11 @@ public class ShareController {
     private static final java.util.concurrent.ConcurrentHashMap<String, double[]> DEST_CENTER_CACHE =
             new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** 地名→坐标+POI ID：关键词带目的地限定 + 目的地围栏校验（防同名景点错配，如"五彩池"被解析到黄龙），失败返回 null；350ms 限速 */
-    /** 地名 geocode：原文查不到时对「·」子地点格式（place具体化铁律产物，如"束河古镇·青龙桥"）按 子地点→大地点 依次重试 */
+        /** 地名→坐标+POI ID：关键词带目的地限定 + 目的地围栏校验（防同名景点错配，如"五彩池"被解析到黄龙），失败返回 null； */
     private String[] geocode(String key, String name, String city) {
-        String[] direct = geocodeOnce(key, name, city);
-        if (direct != null) return direct;
-        int sep = name.indexOf('·');
-        if (sep >= 0) {
-            String sub = name.substring(sep + 1).trim();
-            String parent = name.substring(0, sep).trim();
-            if (!sub.isBlank()) {
-                String[] r = geocodeOnce(key, sub, city);
-                if (r != null) return r;
-            }
-            if (!parent.isBlank()) {
-                String[] r = geocodeOnce(key, parent, city);
-                if (r != null) return r;
-            }
-        }
-        return null;
-    }
-
-    private String[] geocodeOnce(String key, String name, String city) {
         try {
             String cleanCity = cleanCityName(city);
-            // ★关键词组合：目的地+景点名（如 "九寨沟 五彩池"），提升同城景点命中率
+            //关键词组合：目的地+景点名（如 "九寨沟 五彩池"），提升同城景点命中率
             String kw = (cleanCity != null && !cleanCity.isBlank() && !name.contains(cleanCity))
                     ? name + " " + cleanCity : name;
             String qs = "keywords=" + java.net.URLEncoder.encode(kw, "UTF-8")
@@ -241,10 +230,8 @@ public class ShareController {
                 String loc = poi.path("location").asText("");
                 String[] parts = loc.split(",");
                 if (parts.length < 2) continue;
-                // ★围栏校验改「精确同名优先」：与景点完全同名（如「泸定桥」）的可信直接采用；围栏仅拦无精确同名命中的
-                //   错配（莫高窟→杭州类）。修复目的地为区域名（川西）时中心落省会、同省景点全判越界的误杀
-                boolean exactSame = name.equals(poi.path("name").asText(""));
-                if (center != null && !exactSame) {
+                //围栏校验：坐标须落在目的地中心 150km 内，越界视为同名错配，跳过
+                if (center != null) {
                     double d = distKm(Double.parseDouble(parts[1]), Double.parseDouble(parts[0]),
                             center[1], center[0]);
                     if (d > 150) continue;

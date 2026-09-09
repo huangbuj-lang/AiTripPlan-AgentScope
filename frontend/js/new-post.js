@@ -1,14 +1,12 @@
-/* ============================================================
-   new-post.js — 发帖页（new-post.html）
-   ============================================================ */
+/* ============================================================ new-post.js — 发帖页（new-post.html） ============================================================ */
 
-// 登录检查 + 加载版块/我的行程
+//登录检查 + 加载版块/我的行程
 function init() {
     fetch('/api/check-login').then(r => r.json()).then(d => { if (!d.success) location.href = 'login.html'; });
     fetch('/api/forum/boards').then(r => r.json()).then(d => {
         const sel = document.getElementById('boardId');
         sel.innerHTML = (d.boards || []).map(b => '<option value="' + b.id + '">' + b.name + '</option>').join('');
-        // ★从版块页带参进入时自动预选（如 ?boardId=2 旅行问答）
+        //从版块页带参进入时自动预选（如 ?boardId=2 旅行问答）
         const want = new URLSearchParams(location.search).get('boardId');
         if (want && sel.querySelector('option[value="' + want + '"]')) {
             sel.value = want;
@@ -22,7 +20,7 @@ function init() {
     });
 }
 
-// 结伴同行（boardId=3）显示目的地+日期字段；问答版（boardId=2）提示可请求AI答主
+//结伴同行（boardId=3）显示目的地+日期字段
 document.getElementById('boardId').addEventListener('change', function () {
     document.getElementById('mateFields').style.display = (this.value === '3') ? 'block' : 'none';
     document.getElementById('aiHint').style.display = (this.value === '2') ? 'block' : 'none';
@@ -33,7 +31,7 @@ function submit(btn) {
     const content = document.getElementById('content').value.trim();
     const boardId = document.getElementById('boardId').value;
     if (!title || !content) { setMsg('请填写标题和内容', false); return; }
-    // ★防重复提交：点击即禁用并转圈，成功跳转或失败恢复
+    //防重复提交：点击即禁用并转圈，成功跳转或失败恢复
     if (btn && btn.disabled) return;
     const origLabel = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 发布中...'; }

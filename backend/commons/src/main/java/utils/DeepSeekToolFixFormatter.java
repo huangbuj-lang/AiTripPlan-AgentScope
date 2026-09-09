@@ -10,9 +10,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * DeepSeek 消息格式化器：修复 tool_calls 与 tool 响应不配对问题
- */
+/** DeepSeek 消息格式化器：修复 tool_calls 与 tool 响应不配对问题 */
 public class DeepSeekToolFixFormatter extends DeepSeekFormatter {
 
     @Override
@@ -23,7 +21,7 @@ public class DeepSeekToolFixFormatter extends DeepSeekFormatter {
 
     /** 修复 tool_calls 与 tool 响应的配对 */
     private List<OpenAIMessage> fixToolMessagePairs(List<OpenAIMessage> msgs) {
-        // 第一遍：收集声明过与实际响应的 tool_call_id
+        //第一遍：收集声明过与实际响应的 tool_call_id
         Set<String> declaredCallIds = new HashSet<>();   // assistant 声明的 tool_call_id
         Set<String> respondedCallIds = new HashSet<>();  // 有 tool 响应的 tool_call_id
         for (OpenAIMessage m : msgs) {
@@ -38,18 +36,18 @@ public class DeepSeekToolFixFormatter extends DeepSeekFormatter {
         }
         respondedCallIds.retainAll(declaredCallIds); // 只保留被声明过的 id
 
-        // 第二遍：重建消息列表
+        //第二遍：重建消息列表
         List<OpenAIMessage> result = new ArrayList<>(msgs.size());
         for (OpenAIMessage m : msgs) {
             String role = m.getRole();
             if ("tool".equals(role)) {
-                // 删除孤立的 tool 消息
+                //删除孤立的 tool 消息
                 if (!declaredCallIds.contains(m.getToolCallId())) {
                     continue;
                 }
                 result.add(m);
             } else if ("assistant".equals(role) && m.getToolCalls() != null && !m.getToolCalls().isEmpty()) {
-                // 裁剪 tool_calls：只保留有响应的
+                //裁剪 tool_calls：只保留有响应的
                 List<OpenAIToolCall> valid = new ArrayList<>();
                 for (OpenAIToolCall tc : m.getToolCalls()) {
                     if (respondedCallIds.contains(tc.getId())) {
@@ -59,13 +57,13 @@ public class DeepSeekToolFixFormatter extends DeepSeekFormatter {
                 if (valid.size() == m.getToolCalls().size()) {
                     result.add(m); // 全部有响应：原样保留
                 } else if (valid.isEmpty()) {
-                    // 全部无响应：降级为纯文本 assistant
+                    //全部无响应：降级为纯文本 assistant
                     result.add(OpenAIMessage.builder()
                             .role("assistant")
                             .content(asText(m.getContent()))
                             .build());
                 } else {
-                    // 部分有响应：只保留有效的 tool_calls
+                    //部分有响应：只保留有效的 tool_calls
                     result.add(OpenAIMessage.builder()
                             .role("assistant")
                             .content(asText(m.getContent()))

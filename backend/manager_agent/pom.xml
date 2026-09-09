@@ -39,12 +39,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <source>25</source>
-                    <target>25</target>
-                    <compilerArgs>
-                        <arg>--enable-preview</arg>
-                        <arg>-proc:full</arg>
-                    </compilerArgs>
+                    <source>17</source>
+                    <target>17</target>
+                    <compilerArgs>--enable-preview</compilerArgs>
                     <!-- ★新功能修复：保留方法参数名（Spring @RequestParam 不加value时靠反射拿参数名，必须开这个） -->
                     <parameters>true</parameters>
                 </configuration>

@@ -9,12 +9,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 登录拦截器：未登录用户不能调用任务/保存接口
- * 已登录 → 放行；未登录 → 返回401 + JSON提示
- * ★P0：登录后校验凭证版本号（pwd_version）与账号状态（status），
- *      改密/封禁后旧会话立即失效（强制全端下线）。
- */
+/** 登录拦截器：未登录用户不能调用任务/保存接口 已登录 → 放行； */
 public class LoginInterceptor implements HandlerInterceptor {
 
     private final JdbcTemplate jdbcTemplate;
@@ -31,7 +26,7 @@ public class LoginInterceptor implements HandlerInterceptor {
             return reject(response, HttpServletResponse.SC_UNAUTHORIZED, "请先登录");
         }
 
-        // ★P0：凭证版本/账号状态校验（改密/封禁后强制下线）
+        //P0：凭证版本/账号状态校验（改密/封禁后强制下线）
         long userId = ((Number) userIdObj).longValue();
         Object sessionVer = session.getAttribute("pwdVersion");
         if (sessionVer != null) {

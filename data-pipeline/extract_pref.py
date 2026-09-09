@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 保存行程 → LLM 提取偏好标签 → 追加写入用户画像（用户无感）
 - 由 PlanController.savePlan 异步调用：python extract_pref.py --user <id> --content <行程文本>
@@ -26,8 +26,7 @@ STANDARD_TAGS = ["亲子", "老人", "情侣", "拍照", "美食", "自然风光
 
 def sql(query, fetch=True):
     host, port = (RDS_HOST.split(":") + ["3306"])[:2]
-    mysql_bin = ENV.get("MYSQL_BIN") or os.environ.get("MYSQL_BIN") or "mysql"
-    cmd = [mysql_bin, f"-h{host}", f"-P{port}", f"-u{RDS_USER}", f"-p{RDS_PASS}",
+    cmd = ["mysql", f"-h{host}", f"-P{port}", f"-u{RDS_USER}", f"-p{RDS_PASS}",
            "--default-character-set=utf8mb4", "-D", "aitripplan", "-N", "-B", "-e", query]
     r = subprocess.run(cmd, check=False, capture_output=True, text=True)
     if r.returncode != 0:
@@ -68,7 +67,7 @@ def main():
     if not tags:
         print("no tags extracted")
         return
-    # 读现有画像
+    #读现有画像
     rows = sql(f"SELECT tags FROM user_profiles_tags WHERE user_id={uid}")
     cur = {}
     if rows and rows[0][0] and rows[0][0] != "NULL":
@@ -76,7 +75,7 @@ def main():
             cur = json.loads(rows[0][0])
         except Exception:
             cur = {}
-    # 追加 内容-标签（带时间序权重，重复提取则+1），上限压缩：每键最大5，总键数最多20
+    #追加 内容-标签（带时间序权重，重复提取则+1），上限压缩：每键最大5，总键数最多20
     for tg in tags:
         key = f"内容-{tg}"
         cur[key] = min(cur.get(key, 0) + 1, 5)

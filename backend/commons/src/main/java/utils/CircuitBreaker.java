@@ -1,8 +1,6 @@
 package utils;
 
-/**
- * 熔断器：连续失败时熔断并降级备用模型
- */
+/** 熔断器：连续失败时熔断并降级备用模型 */
 public class CircuitBreaker {
 
     /** 熔断器状态 */
@@ -30,14 +28,14 @@ public class CircuitBreaker {
             return false;
         }
         if (state == State.OPEN) {
-            // 冷却结束：转半开，放行主模型试探
+            //冷却结束：转半开，放行主模型试探
             if (System.nanoTime() - openedAtNanos >= coolDownMs * 1_000_000L) {
                 state = State.HALF_OPEN;
                 return false; // 半开：允许主模型试探
             }
             return true; // 冷却期内：继续熔断
         }
-        // 半开状态：允许主模型试探
+        //半开状态：允许主模型试探
         return false;
     }
 
@@ -52,7 +50,7 @@ public class CircuitBreaker {
     /** 记录失败调用，达到阈值则熔断 */
     public synchronized void onFailure() {
         if (state == State.HALF_OPEN) {
-            // 半开试探失败：立即重新熔断
+            //半开试探失败：立即重新熔断
             state = State.OPEN;
             openedAtNanos = System.nanoTime();
             failureTimes.clear();

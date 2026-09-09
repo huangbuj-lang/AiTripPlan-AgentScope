@@ -5,9 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * 熔断器单元测试
- */
+/** 熔断器单元测试 */
 class CircuitBreakerTest {
 
     private final CircuitBreaker breaker = CircuitBreaker.getInstance();

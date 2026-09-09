@@ -1,12 +1,4 @@
-/* ============================================================
-   admin.js — 管理控制台 v2（admin.html）
-   侧边栏页签 + 系统脉搏条 + 全部接口渲染
-   交互纪律：
-   · 点击逻辑 —— 所有写操作按钮点击即进入忙碌态（spinner+disabled），
-     完成后恢复；危险操作二次确认；失败给出可重试出口。
-   · 等待逻辑 —— 数据区加载先显示骨架屏；自动刷新页签显示
-     「每 Ns 自动刷新」标签；请求失败显示带「重试」按钮的状态盒。
-   ============================================================ */
+/** admin.js 管理控制台全部前端逻辑。 */
 
 let currentTab = 'status';
 let statusTimer = null, tasksTimer = null;
@@ -24,25 +16,6 @@ function toast(msg, isErr) {
     t.textContent = msg;
     t.className = 'toast show' + (isErr ? ' err' : '');
     setTimeout(() => { t.className = 'toast'; }, 2600);
-}
-
-/* 指标卡溢出跑马灯：数据左靠齐单行不换行，内容装不下时注入右→左无缝循环动画（两段等宽副本 -50% 位移） */
-function applyCardMarquee(root) {
-    if (!root) return;
-    root.querySelectorAll('.metric .num, .metric .label').forEach(el => {
-        if (el.dataset.mqDone || el.scrollWidth <= el.clientWidth + 1) return;
-        el.dataset.mqDone = '1';
-        const t = el.textContent;
-        el.textContent = '';
-        const tr = document.createElement('div');
-        tr.className = 'mq-track';
-        [0, 1].forEach(() => {
-            const s = document.createElement('span');
-            s.textContent = t;
-            tr.appendChild(s);
-        });
-        el.appendChild(tr);
-    });
 }
 function fmtDur(ms) {
     if (ms == null || ms < 0) return '—';
@@ -152,6 +125,25 @@ function renderPulseFromAgents(agents) {
     });
 }
 
+/* 指标卡溢出跑马灯：数据左靠齐单行不换行，内容装不下时注入右→左无缝循环动画（两段等宽副本 -50% 位移） */
+function applyCardMarquee(root) {
+    if (!root) return;
+    root.querySelectorAll('.metric .num, .metric .label').forEach(el => {
+        if (el.dataset.mqDone || el.scrollWidth <= el.clientWidth + 1) return;
+        el.dataset.mqDone = '1';
+        const t = el.textContent;
+        el.textContent = '';
+        const tr = document.createElement('div');
+        tr.className = 'mq-track';
+        [0, 1].forEach(() => {
+            const s = document.createElement('span');
+            s.textContent = t;
+            tr.appendChild(s);
+        });
+        el.appendChild(tr);
+    });
+}
+
 /* ============ 系统状态 ============ */
 function loadStatus(btn) {
     const done = btnBusy(btn, '刷新中...');
@@ -211,11 +203,11 @@ function loadTasks(btn) {
         if (runCnt) runCnt.textContent = running.length ? running.length + ' 个' : '';
         b.innerHTML = running.length
             ? '<div class="table-wrap"><table><thead><tr><th>会话ID</th><th>当前步骤</th><th>LLM轮数</th><th>提交时间</th><th>操作</th></tr></thead><tbody>' +
-              running.map(x => '<tr style="cursor:pointer" onclick="showTrace(\'' + esc(x.sessionId) + '\')"><td class="mono">' + esc(x.sessionId) + '</td>' +
+              running.map(x => '<tr><td class="mono">' + esc(x.sessionId) + '</td>' +
                 '<td><b>' + esc(x.currentStep || '—') + '</b></td>' +
                 '<td class="num-cell">' + (x.modelCallsUsed != null && x.modelCallsUsed >= 0 ? x.modelCallsUsed : '—') + '</td>' +
                 '<td class="num-cell">' + fmtTime(x.submitMs) + '</td>' +
-                '<td><button class="btn btn-danger-o btn-xs" onclick="event.stopPropagation();forceCancel(\'' + esc(x.sessionId) + '\')">强制中断</button></td></tr>').join('') +
+                '<td><button class="btn btn-danger-o btn-xs" onclick="forceCancel(\'' + esc(x.sessionId) + '\')">强制中断</button></td></tr>').join('') +
               '</tbody></table></div>'
             : '<div class="state-box"><div class="big">🌙</div>暂无运行中任务<br><span style="font-size:12px">用户从前台提交规划后会出现在这里，每 3 秒自动更新步骤</span></div>';
         // 页签圆点：有运行中任务或高失败率时提示
@@ -226,7 +218,7 @@ function loadTasks(btn) {
         const h = document.getElementById('taskHistoryBody');
         const hist = d.history || [];
         h.innerHTML = hist.length
-            ? '<table><thead><tr><th>提交时间</th><th>会话ID</th><th>用户</th><th>状态</th><th>耗时</th><th title="本任务消耗的模型调用次数（每次ReAct思考轮=1次）">LLM轮数</th><th>最后步骤</th><th title="Reviewer 闭环返工轮数（上限2轮）">返工</th></tr></thead><tbody>' +
+            ? '<table><thead><tr><th>提交时间</th><th>会话ID</th><th>用户</th><th>状态</th><th>耗时</th><th title="本任务消耗的模型调用次数（每次ReAct思考轮=1次）">LLM轮数</th><th>最后步骤</th></tr></thead><tbody>' +
               hist.map(x => '<tr style="cursor:pointer" onclick="showTrace(\'' + esc(x.sessionId) + '\')">' +
                 '<td class="num-cell">' + fmtTime(x.submitMs) + '</td>' +
                 '<td class="mono">' + esc(x.sessionId) + '</td>' +
@@ -234,16 +226,9 @@ function loadTasks(btn) {
                 '<td>' + (TASK_BADGE[x.status] || esc(x.status)) + '</td>' +
                 '<td class="num-cell">' + fmtDur(x.durationMs) + '</td>' +
                 '<td class="num-cell">' + (x.modelCallsUsed != null && x.modelCallsUsed >= 0 ? x.modelCallsUsed : '—') + '</td>' +
-                '<td>' + esc(x.currentStep || '—') + '</td>' +
-                '<td>' + (x.reviseRounds > 0 ? '<span class="badge warn" title="' + esc(x.reviseOutcome || '?') + '">返工 ' + x.reviseRounds + '轮</span>' : '<span class="badge plain">—</span>') + '</td></tr>').join('') +
+                '<td>' + esc(x.currentStep || '—') + '</td></tr>').join('') +
               '</tbody></table>'
             : '<div class="state-box"><div class="big">📭</div>暂无历史任务<br><span style="font-size:12px">任务结束后自动归档到这里</span></div>';
-        // ★事件明细跟随刷新：事件面板打开时，随 3s 任务轮询静默更新其内容（不闪骨架）
-        const evFold = document.getElementById('eventFold');
-        const evSid = document.getElementById('eventSessionId');
-        if (evFold && evFold.open && evSid && evSid.textContent && evSid.textContent !== '—') {
-            refreshEvents(evSid.textContent, false);
-        }
         if (btn) toast('任务监控已刷新');
     }).catch(() => { done(); errBox('taskHistoryBody', '任务监控加载失败', 'loadTasks'); });
 }
@@ -417,7 +402,7 @@ function loadCosts() {
 }
 
 /* ============ 任务调用链明细（统一五列表格 + 层级展开） ============ */
-const TRACE_LAYER_ICON = { A2A: '🔗', MCP: '🗺️', LLM: '🧠', TOOL: '🛠️', REVIEW: '♻️', CLUSTER: '📍' };
+const TRACE_LAYER_ICON = { A2A: '🔗', MCP: '🗺️', LLM: '🧠', TOOL: '🛠️' };
 
 /* 三态结果徽标 */
 function traceBadge(stat) {
@@ -433,7 +418,7 @@ function leafState(s) {
     return atts.some(a => !a.ok) ? 'bad' : 'ok';
 }
 
-/* 组状态汇总：全成功绿 / 有失败有成功黄 / 全失败红 */
+/* 聚合状态：全成功绿 / 有失败有成功黄 / 全失败红 */
 function aggState(items) {
     const st = items.map(i => i.stat);
     if (st.every(x => x === 'ok')) return 'ok';
@@ -503,23 +488,12 @@ function showTrace(sessionId) {
     const fold = document.getElementById('traceFold');
     fold.open = true;
     document.getElementById('traceSessionId').textContent = sessionId;
-    // ★事件面板随调用链一起打开（去掉独立「事件」按钮：点任务行即同时展示调用链+事件）
-    const evFold = document.getElementById('eventFold');
-    if (evFold) { evFold.open = true; }
-    const evSid = document.getElementById('eventSessionId');
-    if (evSid) evSid.textContent = sessionId;
-    refreshEvents(sessionId, false);
     const b = document.getElementById('traceBody');
     b.innerHTML = '<div class="sk-row w80"></div><div class="sk-row w60"></div>';
-    // ★并行拉调用链 + 事件观测（REVISE 轮次/聚类统计），合并成一棵树
-    Promise.all([
-        fetchJson('/api/admin/tasks/trace?sessionId=' + encodeURIComponent(sessionId)),
-        fetchJson('/api/admin/tasks/events?sessionId=' + encodeURIComponent(sessionId)).catch(() => null)
-    ]).then(([d, ev]) => {
+    fetchJson('/api/admin/tasks/trace?sessionId=' + encodeURIComponent(sessionId)).then(d => {
         const KEY_LAYERS = { LLM: 1, A2A: 1, TOOL: 1 };
         const spans = (d.spans || []).filter(s => KEY_LAYERS[s.layer]);
-        const obs = (ev && ev.obs) || null;
-        if (!spans.length && !obs) {
+        if (!spans.length) {
             b.innerHTML = '<div style="color:var(--faint);font-size:13px;padding:10px">该任务没有记录到调用明细（较早的任务或子进程未上报）</div>';
             return;
         }
@@ -552,22 +526,16 @@ function showTrace(sessionId) {
             if (llms.length) gs.push({ label: 'LLM调用', desc: '模型调用', spans: llms });
             const tools = list.filter(x => x.layer === 'TOOL' && (x.name === 'query_trip' || x.name === 'query_route_unified'));
             if (tools.length) gs.push({ label: '综合工具', desc: '综合工具调用', spans: tools });
-            // ★三域候选（含域降级信息）：原先被静默丢弃，现单独成组
-            const cands = list.filter(x => x.layer === 'TOOL' && (x.name === 'query_trip_candidates' || x.name === 'domain_candidates'));
-            if (cands.length) gs.push({ label: '三域候选', desc: cands.map(x => (x.detail || '').replace('三域并行候选完成: ', '').replace('三域候选工具完成 · ', '')).join('；'), spans: cands });
             const lk = list.filter(x => x.layer === 'TOOL' && x.name === 'query_local_knowledge');
             if (lk.length) gs.push({ label: '知识库工具', desc: '知识库调用', spans: lk });
             if (gs.length) nodes.push({ label: ag + 'Agent', desc: gs.map(g => g.label).join('/'), groups: gs });
         });
-        // ★质量观测节点（任务1-3 合并进树）：REVISE 轮次 + 聚类统计，与 Agent 节点同级
-        const qNode = qualityNode(obs);
-        if (qNode) nodes.push(qNode);
         // 渲染统一五列表格
         let html = '<div class="trace-tree"><table class="trace-tbl"><thead><tr><th>时间</th><th>名称</th><th>结果</th><th>耗时</th><th>说明</th></tr></thead><tbody>';
         nodes.forEach((n, i) => { html += agentRow(n, i); });
         html += '</tbody></table></div>';
         b.innerHTML = html;
-        // ★标准树折叠：初始全部展开；点父行=收起整个子树；再点=展开下一层（子层重置为收起）
+        // ★标准树折叠：初始全部展开；
         b.querySelectorAll('tr.trace-agent, tr.trace-group').forEach(tr => {
             tr.classList.add('open'); // 初始展开态
             tr.addEventListener('click', () => {
@@ -591,111 +559,6 @@ function showTrace(sessionId) {
         });
     }).catch(() => { b.innerHTML = '<div style="color:#C97A7C;font-size:13px;padding:10px">调用链加载失败，请重试</div>'; });
 }
-
-/* ★质量观测 → 树节点（与主管Agent/A2A 同级；无观测数据返回 null 不占位）。
-   组1=审查返工（每轮一行叶子）；组2=候选聚类（统计一行叶子） */
-function qualityNode(obs) {
-    if (!obs) return null;
-    const groups = [];
-    const rounds = obs.reviseRounds || [];
-    if (rounds.length) {
-        const outcomeTxt = { pass_first: '首轮通过', pass_after_rework: '返工后通过', maxed: '达上限交付',
-            rework_failed: '重跑异常·交付旧版', rework_no_improvement: '重跑无改进·保留旧版', parse_error: '审查输出异常' }[obs.reviseOutcome] || (obs.reviseOutcome || '—');
-        const leaves = rounds.map(r => ({
-            layer: 'REVIEW', name: '第' + r.round + '轮 ' + (r.verdict || '—'),
-            ts: null, costMs: -1,
-            success: r.verdict !== 'REVISE',
-            detail: '质量分 ' + (r.qualityScore != null && r.qualityScore >= 0 ? r.qualityScore : '—')
-                + ' · ' + (r.issues || []).map(is => (is.severity || '?') + '/' + (DOMAIN_CN[is.domain] || is.domain || '?')
-                    + (is.target && is.target !== 'overall' ? '@' + is.target : '')).join('、')
-        }));
-        // 结局并入分组标题（"审查返工（1/2 轮）· 首轮通过"），不再单独占一行
-        groups.push({
-            label: '审查返工（' + Math.max.apply(null, rounds.map(r => r.round || 1)) + '/2 轮）· ' + outcomeTxt,
-            desc: '', spans: leaves
-        });
-    } else if (obs.reviseSkipped) {
-        // ★降级任务（无结构化方案）：审查闭环客观未执行——显式展示"未审查"而非静默缺失，
-        //   让用户能区分"审了通过"与"根本没审"（用户要求：没有返工也要展示分支）
-        groups.push({
-            label: '审查返工（未执行）· ' + (obs.reviseSkipReason || '任务降级为原文交付'),
-            desc: '', spans: [{
-                layer: 'REVIEW', name: '未审查', ts: null, costMs: -1, success: false,
-                detail: obs.reviseSkipReason || '无结构化方案，审查闭环跳过（仅做确定性校验+评分）'
-            }]
-        });
-    }
-    const cs = obs.clusterStats;
-    if (cs && cs.attractionCount != null && cs.attractionCount > 0) {
-        const cov = cs.locationCoverage != null ? cs.locationCoverage : 0;
-        const modeTxt = { coordinate: '坐标聚类', area: '区域文本分组', none: '无分组' }[cs.mode] || cs.mode;
-        // ★分组成功态修正：坐标聚类不成组时回退区域文本分组是设计内兜底（正常，非故障）——
-        //   只有"完全没分出组"(none/0组)才算失败，否则误标红色误导排查（obsverify-001 实证）
-        const grouped = (cs.coordGroups || 0) > 0 || (cs.areaGroups || 0) > 0;
-        groups.push({
-            label: '候选聚类', desc: modeTxt,
-            spans: [{
-                layer: 'CLUSTER', name: '分组效果', ts: null, costMs: -1, success: grouped,
-                detail: '景点 ' + cs.attractionCount + ' 个 · 带坐标 ' + cs.withLocation + '/' + cs.attractionCount + '（' + cov + '%）'
-                    + ' · ' + (cs.coordGroups > 0 ? cs.coordGroups + ' 组(坐标)' : (cs.areaGroups > 0 ? cs.areaGroups + ' 组(文本兜底)' : '未成组'))
-                    + ' · 各组 ' + (Array.isArray(cs.groupSizes) && cs.groupSizes.length ? cs.groupSizes.join('+') : '—')
-            }]
-        });
-    }
-    if (!groups.length) return null;
-    return {
-        label: '质量观测', desc: groups.map(g => g.label).join('/'),
-        groups: groups
-    };
-}
-
-/* ============ 任务阶段事件明细（管理端透明化：解析/路线/候选/定稿/校验/审查等全阶段时间线） ============ */
-const EV_BADGE = { 解析: 'plain', 路线: 'plain', 行程: 'plain', 候选: 'plain', 调用工具: 'warn', Agent结果: 'warn',
-    思考: 'plain', 定稿: 'plain', 修订: 'warn', 校验: 'warn', 评分: 'ok', 审查: 'warn', 证据链: 'plain', 完成: 'ok' };
-
-/* 拉取并渲染单任务事件时间线；withSkeleton=false 用于 3s 定时静默刷新（不闪骨架）。
-   ★事件面板无独立按钮：随 showTrace（点任务行）一并打开；运行中任务由 loadTasks 轮询静默刷新。
-   ★静默刷新时：内容无变化直接跳过重渲染（滚动位置自然保留）；内容有变化也恢复原滚动位置——不弹回顶部 */
-function refreshEvents(sessionId, withSkeleton) {
-    const b = document.getElementById('eventBody');
-    if (!b) return;
-    if (withSkeleton) { refreshEvents._sig = ''; b.innerHTML = skeleton(3); }
-    fetchJson('/api/admin/tasks/events?sessionId=' + encodeURIComponent(sessionId)).then(d => {
-        const evs = d.events || [];
-        const last = evs.length ? evs[evs.length - 1] : null;
-        const sig = ((d.meta && d.meta.status) || '') + '|' + evs.length + '|' + (last ? last.time + last.content : '');
-        // 先记旧滚动位置再重渲染
-        const prevWrap = b.querySelector('.table-wrap');
-        const keepScroll = prevWrap ? prevWrap.scrollTop : 0;
-        if (!withSkeleton && sig === refreshEvents._sig) return; // 内容没变：不动 DOM，不重置滚动
-        refreshEvents._sig = sig;
-        if (!evs.length) {
-            b.innerHTML = '<div style="color:var(--faint);font-size:13px;padding:10px">该会话暂无事件记录（事件在进程内存中，重启或超 30 分钟未活动即清除；较早的任务可点行查看调用链）</div>';
-            return;
-        }
-        const meta = d.meta || {};
-        let html = '';
-        if (meta && meta.status) {
-            const stBadge = meta.status === 'RUNNING' ? '<span class="badge plain">运行中</span>'
-                : (TASK_BADGE[meta.status] || esc(meta.status));
-            html += '<div style="font-size:12.5px;color:var(--muted);padding:0 0 8px">任务状态 ' + stBadge +
-                ' · 最后步骤 <b>' + esc(meta.currentStep || '—') + '</b> · 共 ' + evs.length + ' 条（按发生顺序）</div>';
-        }
-        html += '<div class="table-wrap" style="max-height:440px;overflow:auto"><table class="trace-tbl"><thead><tr><th>时间</th><th>阶段</th><th>事件内容</th></tr></thead><tbody>' +
-            evs.map(e => '<tr><td class="num-cell">' + esc(e.time) + '</td>' +
-                '<td><span class="badge ' + (EV_BADGE[e.type] || 'plain') + '">' + esc(e.type) + '</span></td>' +
-                '<td>' + esc(e.content || '') + '</td></tr>').join('') +
-            '</tbody></table></div>';
-        b.innerHTML = html;
-        const wrap = b.querySelector('.table-wrap'); // 内容更新后恢复阅读位置（新增行追加在底部）
-        if (wrap && keepScroll > 0) wrap.scrollTop = keepScroll;
-    }).catch(() => {
-        if (withSkeleton) b.innerHTML = '<div style="color:#C97A7C;font-size:13px;padding:10px">事件明细加载失败，请重试</div>';
-    });
-}
-
-/* ============ 审查返工/聚类：详情只在调用链「质量观测」节点展示（独立面板已按需求移除） ============ */
-const DOMAIN_CN = { attraction: '景点', hotel: '酒店', dining: '餐饮', transport: '交通', none: '—', '': '—' };
 
 /* ============ 数据管理 ============ */
 function loadData(btn) {
@@ -866,8 +729,7 @@ function runPricing() {
     }).catch(() => { restore(); toast('请求失败', true); });
 }
 
-/* 客流预测专用：只跑本地统计（forecast.py 读 trip_plans 生成 forecast_output），不碰采集/定价管线。
-   成功弹窗只提示已完成（不展示脚本明细输出）；失败才显示后端具体原因 */
+/* 客流预测专用：只跑本地统计（forecast.py 读 trip_plans 生成 forecast_output），不碰采集/定价管线。 */
 function runForecastLocal(btn) {
     const restore = btnBusy(document.getElementById('forecastRunBtn'), '统计中...');
     fetchJson('/api/admin/forecast/run', { method: 'POST' }).then(d => {
@@ -1469,6 +1331,9 @@ function promptLabel(key) {
     const labels = {
         requestParser: '需求解析提示词',
         preferenceClassifier: '偏好分类提示词',
+        tripAggregator: '行程聚合/输出格式',
+        tripAggregatorParseRetry: '聚合解析重试',
+        tripAggregatorGapRetry: '聚合补齐重试',
         moderation: '内容审核提示词',
         tripEditor: '行程编辑提示词',
         routeAgentSystem: '路线Agent系统提示词',

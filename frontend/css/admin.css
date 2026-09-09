@@ -1,10 +1,4 @@
-/* ============================================================
-   admin.css — 管理控制台 · 经典若依/Vben 风格（深色侧栏 + 浅色内容）
-   布局：左侧深色导航 + 右侧白色顶栏 + 浅灰内容区（卡片化）
-   色板：侧栏 #001529 × 主色蓝 #409EFF，Element 语义色
-   签名元素：系统脉搏条(pulse-strip)——四节点实时状态带
-   数字纪律：tabular-nums / wght 800 / mono 只用于标识符
-   ============================================================ */
+/* admin.css 管理控制台样式。 */
 :root {
   --bg: #F0F2F5;
   --panel: #FFFFFF;
@@ -204,8 +198,6 @@ body {
 .cols-auto { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
 .cols-metric { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
-/* ★熔断器指标区：6 张指标卡（含备用模型）固定一行等宽 */
-.cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);

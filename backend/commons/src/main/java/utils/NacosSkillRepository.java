@@ -21,17 +21,7 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-/**
- * ★Nacos Skill 仓库（适配 AgentScope 1.0.8 的 AgentSkillRepository 接口）。
- *
- * 数据源：Nacos 3.2.x「AI → Skills」注册中心（AiService.downloadSkillZip 拉取 skill zip 包）。
- * skill 包格式：zip 内含 SKILL.md（YAML front-matter: name/description + 正文全文）。
- *
- * 热更新机制：
- *  - 定时轮询（refreshIntervalSec）对比远端版本号，变化时拉取最新包并重建缓存；
- *  - AgentScope 的 SkillBox.getSkillPrompt 每轮推理都从 repository 取——即刷新后下一轮立即生效；
- *  - 兼容 fail-soft：Nacos 不可达时保留上次缓存的 skill 快照，不影响 Agent 主流程。
- */
+/** Nacos Skill 仓库（适配 AgentScope 1.0.8 的 AgentSkillRepository 接口）。 */
 @Slf4j
 public class NacosSkillRepository implements AgentSkillRepository {
 
@@ -48,18 +38,18 @@ public class NacosSkillRepository implements AgentSkillRepository {
         refresh(); // 初始拉取一次
     }
 
-    /** ★拉取全部 skill 并重建缓存；返回是否有变化 */
+        /** 拉取全部 skill 并重建缓存； */
     public synchronized boolean refresh() {
         try {
-            // 1) 列出全部 skill 名：Nacos 3.2 admin API 无法从 AiService 列举，
-            //    约定用配置里的固定清单 SKILL_NAMES（逗号分隔），缺省为空=无skill。
+            //1) 列出全部 skill 名：Nacos 3.2 admin API 无法从 AiService 列举，
+            //约定用配置里的固定清单 SKILL_NAMES（逗号分隔），缺省为空=无skill。
             List<String> names = configuredSkillNames();
             if (names.isEmpty()) return false;
             boolean changed = false;
             long versionSum = 0;
             for (String name : names) {
                 try {
-                    // ★Nacos skill 版本状态机：draft 的包 client API 拉不到，必须 online 后用明确版本号拉。
+                    //Nacos skill 版本状态机：draft 的包 client API 拉不到，必须 online 后用明确版本号拉。
                     byte[] zipBytes = null;
                     for (String ver : Config.get("SKILL_VERSION", "0.0.1").split("[,，]")) {
                         try {
@@ -125,7 +115,7 @@ public class NacosSkillRepository implements AgentSkillRepository {
         String name = fallbackName;
         String description = "";
         String content = md;
-        // YAML front-matter: ---\nname: xx\ndescription: yy\n---
+        //YAML front-matter: ---\nname: xx\ndescription: yy\n---
         Matcher fm = Pattern.compile("(?s)^---\\s*(.*?)\\s*---\\s*(.*)$").matcher(md);
         if (fm.find()) {
             Map<String, String> meta = parseSimpleYaml(fm.group(1));
@@ -133,7 +123,7 @@ public class NacosSkillRepository implements AgentSkillRepository {
             description = meta.getOrDefault("description", "");
             content = fm.group(2);
         } else {
-            // 无 front-matter：首行 # 标题当 name/description
+            //无 front-matter：首行 # 标题当 name/description
             Matcher h1 = Pattern.compile("(?m)^#\\s+(.+)$").matcher(md);
             if (h1.find()) {
                 description = h1.group(1).trim();
@@ -160,7 +150,7 @@ public class NacosSkillRepository implements AgentSkillRepository {
 
     private boolean existing0(String name) { return cache.containsKey(name); }
 
-    // ==================== AgentSkillRepository 接口实现 ====================
+    //==================== AgentSkillRepository 接口实现 ====================
 
     @Override public AgentSkill getSkill(String name) {
         CachedSkill c = cache.get(name);

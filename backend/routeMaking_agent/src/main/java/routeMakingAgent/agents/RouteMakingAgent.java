@@ -15,14 +15,12 @@ import utils.mcp.AmapEnhancedToolFactory.AgentType;
 
 import java.util.Set;
 
-/**
- * 路线制定Agent
- */
+/** 路线制定Agent */
 @Component
 @Slf4j
 public class RouteMakingAgent {
 
-    /** ★规范外部化：从 classpath 读 agent-rules.md 作为 sysPrompt（改规则只改文档不用重编译）；读取失败回退内置提示 */
+        /** 规范外部化：从 classpath 读 agent-rules.md 作为 sysPrompt（改规则只改文档不用重编译）； */
     private static String loadSysPrompt() {
         try (var in = RouteMakingAgent.class.getResourceAsStream("/agent-rules.md")) {
             if (in != null) {
@@ -36,8 +34,8 @@ public class RouteMakingAgent {
     @Scope("prototype") // 原型作用域：每次任务获取新实例，避免单例Bean并发冲突
     public ReActAgent getRouteMakingAgent() {
 
-        // ★高德MCP：只暴露路线综合工具
-        // 综合工具 query_route_unified（mode=driving 跨城自驾 / mode=urban 市内衔接）
+        //高德MCP：只暴露路线综合工具
+        //跨城自驾 query_route_all/query_route/query_distance + 市内游衔接 query_urban_route（步行/公交）
         Toolkit toolkit = new Toolkit();
         AmapEnhancedToolFactory.register(toolkit, AgentType.ROUTE);
 
@@ -48,7 +46,7 @@ public class RouteMakingAgent {
         );
         log.info("=============");
 
-        // ★Skill 热更：拉取 Nacos skill 仓库，把技能说明拼进 sysPrompt（失败降级为无skill）
+        //Skill 热更：拉取 Nacos skill 仓库，把技能说明拼进 sysPrompt（失败降级为无skill）
         String skillPrompt = utils.SkillManager.wireAndPromptSafely(toolkit,
                 Config.getInt("SKILL_REFRESH_SEC", 30));
         return AgentUtils.getReActAgentBuilder(
@@ -57,7 +55,7 @@ public class RouteMakingAgent {
                 )
                         .memory(new LimitedMemory(Config.getInt("MEMORY_SIZE", 20))) // 限量记忆
                         .toolkit(toolkit) // 工具包
-                        // ★规范外部化：sysPrompt 从 resources/agent-rules.md 读取 + 拼接Nacos技能清单
+                        //规范外部化：sysPrompt 从 resources/agent-rules.md 读取 + 拼接Nacos技能清单
                         .sysPrompt(AgentPrompts.routeAgentSystem(loadSysPrompt() + skillPrompt))
                         .build();
             }

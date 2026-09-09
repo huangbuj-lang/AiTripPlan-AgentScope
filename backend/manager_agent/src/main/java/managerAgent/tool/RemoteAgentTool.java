@@ -17,9 +17,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * 将远程Agent封装为工具供主管调用
- */
+/** 将远程Agent封装为工具供主管调用 */
 @Slf4j
 public class RemoteAgentTool {
 
@@ -30,11 +28,11 @@ public class RemoteAgentTool {
         this.sessionId = sessionId;
     }
 
-    // ★2026-09-05 删缓存：同一 A2aAgent 实例并发 call 会抛 "Agent is still running"（多方案3套并行定稿=2/3套降级兜底的根因）。
-    //   A2aAgent 为协议层轻对象（Nacos 连接池在 NacosUtil 单例共享），每次调用新建独立实例成本可接受，换来并发安全。
-    private static final Duration REMOTE_TIMEOUT = Duration.ofSeconds(300); // ★2026-08-24 云端240s→300s: 路线Agent多轮工具调用常超240s
+    //远程Agent代理缓存：按 name 复用 A2aAgent（避免反复重建 Nacos 连接）
+    private static final ConcurrentHashMap<String, A2aAgent> AGENT_CACHE = new ConcurrentHashMap<>();
+    private static final Duration REMOTE_TIMEOUT = Duration.ofSeconds(300); // 2026-08-24 云端240s→300s: 路线Agent多轮工具调用常超240s
 
-    // ==================== 子Agent健康统计（管理端展示） ====================
+    //==================== 子Agent健康统计（管理端展示） ====================
     /** 按 agent 名累计：总调用次数 / 失败次数 / 累计耗时ms（进程内存值） */
     public static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong> AGENT_CALLS = new java.util.concurrent.ConcurrentHashMap<>();
     public static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong> AGENT_FAILS = new java.util.concurrent.ConcurrentHashMap<>();
@@ -49,12 +47,16 @@ public class RemoteAgentTool {
         AGENT_COST_MS.computeIfAbsent(name, k -> new java.util.concurrent.atomic.AtomicLong()).addAndGet(costMs);
     }
 
-    /** 按 name 新建 A2A 代理（★不缓存复用：并发安全，见 AGENT_CACHE 删除注释） */
+    /** 按 name 获取（缓存复用）A2A 远程Agent代理 */
     private A2aAgent getAgent(String name) throws NacosException {
-        return A2aAgent.builder()
+        A2aAgent agent = AGENT_CACHE.get(name);
+        if (agent != null) return agent;
+        A2aAgent created = A2aAgent.builder()
                 .name(name)
                 .agentCardResolver(new NacosAgentCardResolver(NacosUtil.getNacosClient()))
                 .build();
+        A2aAgent existing = AGENT_CACHE.putIfAbsent(name, created); // 并发下只保留第一个
+        return existing != null ? existing : created;
     }
 
     /** 通用远程Agent调用：查名片 → 发消息 → 阻塞取回复 → 记录事件 */
@@ -73,21 +75,21 @@ public class RemoteAgentTool {
 
         Map<String, Object> orchestration = utils.NacosModelConfig.orchestrationConfig();
         RemoteTimeout.configure(orchestration);
+        long deadline = System.nanoTime() + RemoteTimeout.timeout().toNanos();
+
         A2aAgent agent = getAgent(name); // 复用缓存的A2A远程Agent代理
 
         log.info("============");
         log.info("获取到的远程Agent描述：" + agent.getDescription());
         log.info("============");
 
-        // ★A2A传输级重试：超时/异常/空返回 → 带失败信号重发1次（代码级，与子Agent内工具重试相互独立）
+        //A2A传输级重试：超时/异常/空返回 → 带失败信号重发1次（代码级，与子Agent内工具重试相互独立）
         String emptyMsg0 = label + "没有返回内容";
         String result = null;
         long callStartMs = System.currentTimeMillis(); // 健康统计：整次调用（含重试）计时
-        utils.CallTrace.Span a2aSpan = utils.CallTrace.begin(sessionId, "A2A", name, ""); // ★调用链：每轮尝试记入 span.attempts
+        utils.CallTrace.Span a2aSpan = utils.CallTrace.begin(sessionId, "A2A", name, ""); // 调用链：每轮尝试记入 span.attempts
         for (int attempt = 1; attempt <= 2; attempt++) {
-            // ★2026-09-05 每 attempt 独立预算：deadline 在循环内重算——原 300s 总预算被 attempt1 耗尽后 attempt2 秒弃(0ms 直接失败)，超时重发形同虚设
-            long deadline = System.nanoTime() + RemoteTimeout.timeout().toNanos();
-            // ★任务级调用链：会话标记随任务文本传给子Agent，子Agent进程的 LLM/工具 span 据此归位
+            //任务级调用链：会话标记随任务文本传给子Agent，子Agent进程的 LLM/工具 span 据此归位
             String taskToSend = "【trace:" + sessionId + "】" + task;
             if (attempt > 1) {
                 taskToSend = task + "\n\n【重试提示】上一次调用超时或返回空。请务必调用你的工具完成查询并输出完整结果。";
@@ -124,17 +126,13 @@ public class RemoteAgentTool {
                     }
                 }
             } catch (Exception e) {
-                // ★用户中断：InterruptedException 或取消标志已置位 → 不重试，直接终止（否则中断会被当成失败重发第2次，永远停不下来）
+                //用户中断：InterruptedException 或取消标志已置位 → 不重试，直接终止（否则中断会被当成失败重发第2次，永远停不下来）
                 if (e instanceof InterruptedException || EventStore.isCancelRequested(sessionId)) {
                     Thread.currentThread().interrupt();
                     a2aSpan.addAttempt(attempt, false, System.currentTimeMillis() - callStartMs, "用户中断");
                     throw new managerAgent.hook.CancelledException();
                 }
                 log.warn("{} A2A调用异常(attempt={}): {}", label, attempt, e.getMessage());
-                // ★2026-09-05 超时/传输异常后先中断远端任务：否则 8085 侧 attempt1 任务继续空跑，重发 attempt2 又开新任务，双任务叠加更慢
-                try {
-                    agent.interrupt();
-                } catch (Exception ignored) { }
                 String em = e.getMessage() == null ? "" : e.getMessage();
                 a2aSpan.addAttempt(attempt, false, System.currentTimeMillis() - callStartMs,
                         em.isBlank() ? "异常" : (em.length() > 120 ? em.substring(0, 120) : em));
@@ -145,11 +143,11 @@ public class RemoteAgentTool {
             }
         }
         String emptyMsg = emptyMsg0;
-        // 健康统计：按最终结果记录成功/失败与耗时
+        //健康统计：按最终结果记录成功/失败与耗时
         boolean callOk = result != null && !result.isBlank() && !result.equals(emptyMsg);
         long callCostMs = System.currentTimeMillis() - callStartMs;
         recordCall(name, callOk, callCostMs);
-        // ★任务级调用链：A2A 调用明细（每轮尝试已入 span.attempts，管理端叶子内下拉展示）
+        //任务级调用链：A2A 调用明细（每轮尝试已入 span.attempts，管理端叶子内下拉展示）
         a2aSpan.success = callOk;
         a2aSpan.costMs = callCostMs;
         int failedTries = 0;
@@ -159,7 +157,7 @@ public class RemoteAgentTool {
         a2aSpan.detail = callOk
                 ? (failedTries > 0 ? "子Agent调用成功(重试后)" : "子Agent调用成功")
                 : "子Agent调用失败(重试后仍失败)";
-        // 记录子Agent调用结果事件
+        //记录子Agent调用结果事件
         EventStore.add(sessionId, "Agent结果", result == null || result.isBlank() || result.equals(emptyMsg)
                 ? label + " ❌ 调用失败(重试后仍空)"
                 : label + " ✅ 调用成功(返回" + result.length() + "字符)");
@@ -169,9 +167,7 @@ public class RemoteAgentTool {
         return result;
     }
 
-    /**
-     * 调用路线制定Agent，返回规划结果
-     */
+        /** 调用路线制定Agent，返回规划结果 */
     @Tool(description = "从Nacos注册中心获取路线制定Agent，返回自驾游路线规划结果")
     public String callRouteMakingAgent(
             @ToolParam(name = "task", description = "用户需要规划的具体自驾路线任务描述，例如：请规划从广州到珠海的自驾路线，包含每日行车路线、途经景点和驾驶时间")
@@ -179,9 +175,7 @@ public class RemoteAgentTool {
         return callRemoteAgent("RouteMakingAgent", task, "路线Agent");
     }
 
-    /**
-     * 调用行程规划Agent，返回规划结果
-     */
+        /** 调用行程规划Agent，返回规划结果 */
     @Tool(description = "从Nacos注册中心获取行程规划Agent，返回指定目的地的景点和行程规划结果")
     public String callTripPlannerAgent(
             @ToolParam(name = "task", description = "用户需要规划的具体旅行任务描述，例如：请规划珠海2日游的景点、每日行程安排、酒店和美食推荐")

@@ -15,9 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 用户侧行程参考信息：只读展示数据库已生成的城市级定价与客流结果。
- */
+/** 用户侧行程参考信息：只读展示数据库已生成的城市级定价与客流结果。 */
 @Slf4j
 @RestController
 @RequestMapping("/api/insights")

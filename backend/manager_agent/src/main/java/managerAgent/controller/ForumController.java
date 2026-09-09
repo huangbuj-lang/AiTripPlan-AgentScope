@@ -12,10 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 论坛接口（P1）：三版块 / 发帖 / 评论(两级楼中楼) / 点赞收藏 / 搜索 / 同款行程复制 / 业务日配额。
- * 消毒依赖前端 DOMPurify（存储 markdown 原文），服务端在展示时由前端安全渲染。
- */
+/** 论坛接口（P1）：三版块 / 发帖 / 评论(两级楼中楼) / 点赞收藏 / 搜索 / 同款行程复制 / 业务日配额。 */
 @RestController
 @RequestMapping("/api/forum")
 public class ForumController {
@@ -66,7 +63,7 @@ public class ForumController {
         } catch (Exception ignored) { /* 通知失败不阻塞主流程 */ }
     }
 
-    // ==================== 版块 ====================
+    //==================== 版块 ====================
 
     @GetMapping("/boards")
     public Map<String, Object> boards() {
@@ -77,7 +74,7 @@ public class ForumController {
         return result;
     }
 
-    // ==================== 帖子 ====================
+    //==================== 帖子 ====================
 
     /** 帖子列表：按版块过滤、排序(latest/hot)、关键词搜索、分页 */
     @GetMapping("/posts")
@@ -137,13 +134,13 @@ public class ForumController {
             result.put("message", "今日发帖已达上限（" + POST_DAILY_LIMIT + " 篇/天）");
             return result;
         }
-        // 审核第一层：DFA 敏感词快筛，命中直接拒绝
+        //审核第一层：DFA 敏感词快筛，命中直接拒绝
         if (moderationService.containsSensitive(title + content)) {
             result.put("success", false);
             result.put("message", "内容含违规信息，请修改后重试");
             return result;
         }
-        // 关联行程时内嵌结构化 JSON（供详情页展示 + 同款复制）
+        //关联行程时内嵌结构化 JSON（供详情页展示 + 同款复制）
         final String planJson;
         if (tripId != null) {
             List<Map<String, Object>> trips = jdbcTemplate.queryForList(
@@ -171,7 +168,7 @@ public class ForumController {
         org.springframework.jdbc.support.KeyHolder keyHolder = new org.springframework.jdbc.support.GeneratedKeyHolder();
         jdbcTemplate.update(psc, keyHolder);
         Number newId = keyHolder.getKey();
-        // 审核第二层：异步 LLM 语义审核（block隐藏/review进人工队列）
+        //审核第二层：异步 LLM 语义审核（block隐藏/review进人工队列）
         if (newId != null) {
             moderationService.moderateAsync(1, newId.longValue(), title + "\n" + content);
         }
@@ -211,7 +208,7 @@ public class ForumController {
         return result;
     }
 
-    // ==================== 评论 ====================
+    //==================== 评论 ====================
 
     @GetMapping("/posts/{id}/comments")
     public Map<String, Object> comments(@PathVariable Long id) {
@@ -249,13 +246,13 @@ public class ForumController {
             result.put("message", "今日评论已达上限（" + COMMENT_DAILY_LIMIT + " 条/天）");
             return result;
         }
-        // 审核第一层：DFA 敏感词快筛
+        //审核第一层：DFA 敏感词快筛
         if (moderationService.containsSensitive(content)) {
             result.put("success", false);
             result.put("message", "内容含违规信息，请修改后重试");
             return result;
         }
-        // 取帖子作者，用于通知
+        //取帖子作者，用于通知
         Long postAuthor = jdbcTemplate.queryForObject(
                 "SELECT user_id FROM posts WHERE id = ?", Long.class, id);
         org.springframework.jdbc.core.PreparedStatementCreator psc = con -> {
@@ -272,12 +269,12 @@ public class ForumController {
         org.springframework.jdbc.support.KeyHolder keyHolder = new org.springframework.jdbc.support.GeneratedKeyHolder();
         jdbcTemplate.update(psc, keyHolder);
         jdbcTemplate.update("UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?", id);
-        // 审核第二层：异步 LLM 语义审核
+        //审核第二层：异步 LLM 语义审核
         Number newId = keyHolder.getKey();
         if (newId != null) {
             moderationService.moderateAsync(2, newId.longValue(), content);
         }
-        // 通知：不通知自己
+        //通知：不通知自己
         if (postAuthor != null && postAuthor != userId) {
             notify(postAuthor, 1, authorName(userId) + " 评论了你的帖子", "/post.html?id=" + id);
         }
@@ -286,7 +283,7 @@ public class ForumController {
         return result;
     }
 
-    // ==================== 点赞 / 收藏 ====================
+    //==================== 点赞 / 收藏 ====================
 
     /** 点赞（切换：点赞↔取消） */
     @PostMapping("/posts/{id}/like")
@@ -330,9 +327,9 @@ public class ForumController {
         return result;
     }
 
-    // ==================== AI 答主 / 采纳 / 举报 ====================
+    //==================== AI 答主 / 采纳 / 举报 ====================
 
-    /** 请求 AI 答主回答（仅楼主，问答版块；异步生成，入并发子池） */
+        /** 请求 AI 答主回答（仅楼主，问答版块； */
     @PostMapping("/answers/ai")
     public Map<String, Object> aiAnswer(@RequestParam Long postId, HttpSession session) {
         long userId = uid(session);
@@ -414,7 +411,7 @@ public class ForumController {
         return result;
     }
 
-    // ==================== 同款行程复制 ====================
+    //==================== 同款行程复制 ====================
 
     /** 复制帖子内嵌行程到自己账户 */
     @PostMapping("/posts/{id}/copy-trip")
@@ -430,7 +427,7 @@ public class ForumController {
         }
         Map<String, Object> post = posts.get(0);
         String planJson = (String) post.get("trip_plan_json");
-        // 从结构化 JSON 提取目的地/天数（posts.destination 结伴字段优先）
+        //从结构化 JSON 提取目的地/天数（posts.destination 结伴字段优先）
         String destination = post.get("destination") == null ? "" : String.valueOf(post.get("destination"));
         int days = 0;
         try {
@@ -451,7 +448,7 @@ public class ForumController {
         return result;
     }
 
-    // ==================== 我的内容 ====================
+    //==================== 我的内容 ====================
 
     @GetMapping("/mine")
     public Map<String, Object> mine(@RequestParam(required = false, defaultValue = "post") String type,

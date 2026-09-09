@@ -12,21 +12,18 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.util.List;
 
-/**
- * 模型安全装饰器：限速 + 429/5xx 指数退避重试 + 熔断降级
- * ★降级判断下沉到每次调用：熔断时动态切换备用模型（不再是构建时一次性判断）
- */
+/** 模型安全装饰器：限速、指数退避重试、熔断时动态切换备用模型。 */
 @Slf4j
 public class SafeModel implements Model {
 
-    // 全局限速器：每秒最多 maxQps 个请求（可通过 Nacos 配置动态调整）
+    //全局限速器：每秒最多 maxQps 个请求（可通过 Nacos 配置动态调整）
     private static volatile double maxQps = Config.getDouble("MODEL_MAX_QPS", 3);
     private static final RateLimiter LIMITER = RateLimiter.create(maxQps);
     private static volatile int maxRetries = Config.getInt("MODEL_MAX_RETRIES", 3);
     private static volatile long retryBaseMs = Config.getLong("MODEL_RETRY_BASE_MS", 1000);
 
-    // ★全局在途并发闸：限制"已发出未回完"的模型请求数（防服务端因长连接堆积而 Connection reset）
-    // 实现：原子计数 + 锁条件等待（比 Semaphore 更适合运行时任意调小上限，不会卡住配置推送线程）
+    //全局在途并发闸：限制"已发出未回完"的模型请求数（防服务端因长连接堆积而 Connection reset）
+    //实现：原子计数 + 锁条件等待（比 Semaphore 更适合运行时任意调小上限，不会卡住配置推送线程）
     private static final Object INFLIGHT_LOCK = new Object();
     private static final java.util.concurrent.atomic.AtomicInteger INFLIGHT_ACTIVE = new java.util.concurrent.atomic.AtomicInteger(0);
     private static volatile int maxInflight = Config.getInt("MODEL_MAX_INFLIGHT", 6);
@@ -78,7 +75,7 @@ public class SafeModel implements Model {
         return INFLIGHT_ACTIVE.get();
     }
 
-    /** 申请一个在途名额（阻塞等待，超时抛错）；stream 发起前调用 */
+        /** 申请一个在途名额（阻塞等待，超时抛错）； */
     private static void acquireInflight(long timeoutMs) {
         long deadline = System.currentTimeMillis() + timeoutMs;
         synchronized (INFLIGHT_LOCK) {
@@ -98,7 +95,7 @@ public class SafeModel implements Model {
         }
     }
 
-    /** 释放一个在途名额；流终止后调用 */
+        /** 释放一个在途名额； */
     private static void releaseInflight() {
         synchronized (INFLIGHT_LOCK) {
             INFLIGHT_ACTIVE.decrementAndGet();
@@ -109,53 +106,28 @@ public class SafeModel implements Model {
     private final Model primary;   // 主模型
     private final Model fallback;  // 备用模型（可空）
 
-    // ★模型调用计数器（观测用）：整个进程累计的模型调用次数（每次ReAct轮=1次）
+    //模型调用计数器（观测用）：整个进程累计的模型调用次数（每次ReAct轮=1次）
     public static final java.util.concurrent.atomic.AtomicLong MODEL_CALLS = new java.util.concurrent.atomic.AtomicLong(0);
 
-    // ==================== ★Token/成本统计（观测用，进程内存累计） ====================
+    //==================== Token/成本统计（观测用，进程内存累计） ====================
     public static final java.util.concurrent.atomic.AtomicLong TOKENS_INPUT = new java.util.concurrent.atomic.AtomicLong(0);
     public static final java.util.concurrent.atomic.AtomicLong TOKENS_OUTPUT = new java.util.concurrent.atomic.AtomicLong(0);
     /** 按维度计的调用次数与token：dimension → counters（task=规划任务/pipeline=数据管线/forum=论坛AI等） */
     private static final java.util.concurrent.ConcurrentHashMap<String, long[]> DIM_STATS = new java.util.concurrent.ConcurrentHashMap<>();
-    /** 当前线程所属维度（由各入口在调用前设置，stream 内读取；ThreadLocal 避免并发串号） */
+        /** 当前线程所属维度（由各入口在调用前设置，stream 内读取； */
     private static final ThreadLocal<String> DIMENSION = ThreadLocal.withInitial(() -> "task");
 
-    /** ★会话上下文：主管/TripOrchestrator 在调用前设置，MCP/LLM 的调用链 span 按 sessionId 归位（跨进程各自记录） */
+    /** 会话上下文：主管/TripOrchestrator 在调用前设置，MCP/LLM 的调用链 span 按 sessionId 归位（跨进程各自记录） */
     private static final ThreadLocal<String> CUR_SESSION = new ThreadLocal<>();
     public static void setSessionId(String sid) { CUR_SESSION.set(sid == null ? "" : sid); }
     public static String currentSessionId() { String s = CUR_SESSION.get(); return s == null ? "" : s; }
 
-    /** ★当前阶段标注：主管在每次模型调用前设置（解析需求/偏好分类/聚合生成…），LLM span 说明据此描述"在做什么" */
+    /** 当前阶段标注：主管在每次模型调用前设置（解析需求/偏好分类/聚合生成…），LLM span 说明据此描述"在做什么" */
     private static final ThreadLocal<String> CUR_STAGE = new ThreadLocal<>();
     public static void setStage(String stage) { CUR_STAGE.set(stage == null ? "" : stage); }
-
-    /** ★子Agent进程无显式阶段标注时（ReAct 框架内部多轮不外露阶段），按消息形态推断本轮在做什么。
-     *  只描述可确定的事实：轮次号 + 消息构成（任务起始/刚拿回工具数据/规划下一步），不猜模型意图。 */
-    private static String inferAgentRound(List<Msg> messages) {
-        if (messages == null || messages.isEmpty()) return "";
-        try {
-            int assistantRounds = 0;
-            boolean sawTool = false;
-            String lastRole = "";
-            for (Msg m : messages) {
-                if (m == null) continue;
-                io.agentscope.core.message.MsgRole r = m.getRole();
-                lastRole = r == null ? "" : r.name();
-                if ("ASSISTANT".equals(lastRole)) assistantRounds++;
-                if ("TOOL".equals(lastRole)) sawTool = true;
-            }
-            StringBuilder sb = new StringBuilder("第").append(Math.max(1, assistantRounds)).append("轮");
-            if ("TOOL".equals(lastRole)) sb.append(" · 刚拿到工具数据，整合中");
-            else if (!sawTool) sb.append(" · 任务起始（读任务/数据）");
-            else sb.append(" · 规划下一步");
-            return sb.toString();
-        } catch (Exception e) {
-            return "";
-        }
-    }
     public static String currentStage() { String st = CUR_STAGE.get(); return st == null ? "" : st; }
 
-    /** ★进程级最近 trace 标记：子Agent进程内由模型消息中的【trace:xxx】提取（A2A任务文本前缀），供工具层 span 归位 */
+    /** 进程级最近 trace 标记：子Agent进程内由模型消息中的【trace:xxx】提取（A2A任务文本前缀），供工具层 span 归位 */
     private static final java.util.concurrent.atomic.AtomicReference<String> LAST_TRACE =
             new java.util.concurrent.atomic.AtomicReference<>("");
     /** 最近一次从消息中解析到的任务 sessionId（空串=未知） */
@@ -196,7 +168,7 @@ public class SafeModel implements Model {
         TOKENS_OUTPUT.addAndGet(u.getOutputTokens());
     }
 
-    /** 单条流结束时的 token 记账（含重试的最终 usage；失败流不计 token 只计次数） */
+        /** 单条流结束时的 token 记账（含重试的最终 usage； */
     private static void recordUsage(io.agentscope.core.model.ChatUsage u) {
         if (u == null) return;
         String dim = getDimension();
@@ -242,28 +214,26 @@ public class SafeModel implements Model {
     @Override
     public Flux<ChatResponse> stream(List<Msg> messages, List<ToolSchema> tools, GenerateOptions options) {
         return Flux.defer(() -> {
-            extractTrace(messages); // ★子Agent进程：从任务文本提取【trace:xxx】，让本进程所有 span 归位到正确任务
-            // 限速：取令牌，超时返回错误流
+            extractTrace(messages); // 子Agent进程：从任务文本提取【trace:xxx】，让本进程所有 span 归位到正确任务
+            //限速：取令牌，超时返回错误流
             if (!LIMITER.tryAcquire(30_000)) {
                 return Flux.error(new RuntimeException("API请求过于频繁，限速器等待超时（超过每秒" + maxQps + "次配额）"));
             }
-            // 每次调用动态选主/备模型（熔断时降级）
+            //每次调用动态选主/备模型（熔断时降级）
             Model target = (fallback != null && CircuitBreaker.getInstance().isOpen()) ? fallback : primary;
-            // ★在途并发闸：拿到名额才发请求（重试期间占同一名额，流终止统一释放）
+            //在途并发闸：拿到名额才发请求（重试期间占同一名额，流终止统一释放）
             acquireInflight(120_000);
-            MODEL_CALLS.incrementAndGet(); // ★计数：每次模型调用+1（含重试）
-            // ★调用链：记录一次 LLM 调用 span（归到当前 sessionId，跨进程各自记录）
+            MODEL_CALLS.incrementAndGet(); // 计数：每次模型调用+1（含重试）
+            //调用链：记录一次 LLM 调用 span（归到当前 sessionId，跨进程各自记录）
             String sid = currentSessionId();
-            String stage = currentStage();
-            if (stage == null || stage.isBlank()) stage = inferAgentRound(messages); // ★子Agent无显式阶段：按消息形态推断轮次语义
             utils.CallTrace.Span llmSpan = sid.isBlank() ? null
-                    : utils.CallTrace.begin(sid, "LLM", target.getModelName(), stage);
+                    : utils.CallTrace.begin(sid, "LLM", target.getModelName(), currentStage());
             long llmStart = System.currentTimeMillis();
             java.util.concurrent.atomic.AtomicInteger retries = new java.util.concurrent.atomic.AtomicInteger(0);
-            final String dimAtCall = getDimension(); // ★调用线程先捕获维度（doOnNext在reactor信号线程跑，ThreadLocal会丢）
+            final String dimAtCall = getDimension(); // 调用线程先捕获维度（doOnNext在reactor信号线程跑，ThreadLocal会丢）
             return attempt(target, messages, tools, options, 0, retries, llmSpan, 1)
-                    .doOnNext(resp -> recordUsageAs(dimAtCall, resp.getUsage())) // ★token记账：用捕获维度，每个成功响应块累计
-                    .doOnError(err -> { // ★失败原因进调用链：区分 余额/认证/限流/5xx/连接重置/超时
+                    .doOnNext(resp -> recordUsageAs(dimAtCall, resp.getUsage())) // token记账：用捕获维度，每个成功响应块累计
+                    .doOnError(err -> { // 失败原因进调用链：区分 余额/认证/限流/5xx/连接重置/超时
                         if (llmSpan != null) {
                             utils.CallTrace.appendDetail(llmSpan,
                                     classifyLlmError(err) + (retries.get() > 0 ? "（已重试" + retries.get() + "次）" : ""));
@@ -276,7 +246,7 @@ public class SafeModel implements Model {
                                 if (retries.get() > 0) {
                                     utils.CallTrace.appendDetail(llmSpan, "重试" + retries.get() + "次后成功");
                                 } else if (llmSpan.detail == null || llmSpan.detail.isBlank()) {
-                                    utils.CallTrace.appendDetail(llmSpan, "模型调用成功"); // ★子Agent无阶段标注时兜底描述
+                                    utils.CallTrace.appendDetail(llmSpan, "模型调用成功"); // 子Agent无阶段标注时兜底描述
                                 }
                             }
                             utils.CallTrace.end(llmSpan, sig == reactor.core.publisher.SignalType.ON_COMPLETE,
@@ -286,7 +256,7 @@ public class SafeModel implements Model {
         });
     }
 
-    /** ★LLM 失败原因分类（调用链明细展示）：把底层异常转成一眼能看懂的原因 */
+    /** LLM 失败原因分类（调用链明细展示）：把底层异常转成一眼能看懂的原因 */
     private static String classifyLlmError(Throwable err) {
         String m = err.getMessage() == null ? "" : err.getMessage();
         if (m.contains("Insufficient Balance") || m.contains("402")) return "余额不足(402)";
@@ -300,30 +270,29 @@ public class SafeModel implements Model {
         return m.isBlank() ? "未知错误" : (m.length() > 80 ? m.substring(0, 80) : m);
     }
 
-    /** 带重试的调用（retryCount 从 0 开始，最多 MAX_RETRIES 次；retries 记实际重试次数供调用链展示）
-     *  ★每次尝试(含重试)成败/耗时/原因记入 span.attempts，供管理端叶子内下拉展示 */
+        /** 带重试的调用（retryCount 从 0 开始，最多 MAX_RETRIES 次； */
     private Flux<ChatResponse> attempt(Model target, List<Msg> messages, List<ToolSchema> tools, GenerateOptions options, int retryCount,
                                        java.util.concurrent.atomic.AtomicInteger retries,
                                        utils.CallTrace.Span llmSpan, int attemptNo) {
         long attemptStart = System.currentTimeMillis();
         return target.stream(messages, tools, options)
                 .doOnNext(resp -> CircuitBreaker.getInstance().onSuccess()) // 成功响应时重置熔断计数
-                .doOnComplete(() -> { // ★本次尝试成功
+                .doOnComplete(() -> { // 本次尝试成功
                     if (llmSpan != null) {
                         llmSpan.addAttempt(attemptNo, true, System.currentTimeMillis() - attemptStart, "");
                     }
                 })
                 .onErrorResume(err -> {
                     String msg = err.getMessage() == null ? "" : err.getMessage();
-                    if (llmSpan != null) { // ★本次尝试失败（含原因）
+                    if (llmSpan != null) { // 本次尝试失败（含原因）
                         llmSpan.addAttempt(attemptNo, false, System.currentTimeMillis() - attemptStart,
                                 msg.length() > 120 ? msg.substring(0, 120) : msg);
                     }
                     boolean authError = msg.contains("401") || msg.contains("403") || msg.contains("Authentication")
                             || msg.contains("authentication") || msg.contains("invalid api key")
-                            || msg.contains("402") || msg.contains("Insufficient Balance"); // ★余额耗尽也切备用模型
+                            || msg.contains("402") || msg.contains("Insufficient Balance"); // 余额耗尽也切备用模型
                     if (authError) {
-                        // 认证类错误：强制熔断并降级备用模型
+                        //认证类错误：强制熔断并降级备用模型
                         log.warn("模型认证失败({})，立即强制熔断并降级备用模型：{}", target.getModelName(), msg);
                         CircuitBreaker.getInstance().forceOpen();
                         return Flux.error(err);
@@ -331,7 +300,7 @@ public class SafeModel implements Model {
                     boolean protocolError = msg.contains("400") || msg.contains("invalid_request_error")
                             || msg.contains("must be a response to") || msg.contains("tool_calls");
                     if (protocolError) {
-                        // 协议类错误：不触发熔断
+                        //协议类错误：不触发熔断
                         log.warn("模型协议错误({})，不触发熔断（协议问题降级无效）：{}", target.getModelName(), msg);
                         return Flux.error(err);
                     }
@@ -340,12 +309,12 @@ public class SafeModel implements Model {
                     if (retryable && retryCount < maxRetries) {
                         long waitMs = retryBaseMs * (1L << retryCount); // 指数退避 1s,2s,4s
                         log.warn("模型调用失败({})，{}ms后重试({}/{})：{}", target.getModelName(), waitMs, retryCount + 1, maxRetries, msg);
-                        // 用 Mono.delay 异步退避，避免 Thread.sleep 阻塞 reactor 线程
+                        //用 Mono.delay 异步退避，避免 Thread.sleep 阻塞 reactor 线程
                         retries.incrementAndGet();
                         return Mono.delay(Duration.ofMillis(waitMs))
                                 .thenMany(Flux.defer(() -> attempt(target, messages, tools, options, retryCount + 1, retries, llmSpan, attemptNo + 1)));
                     }
-                    // 重试耗尽：上报熔断器
+                    //重试耗尽：上报熔断器
                     CircuitBreaker.getInstance().onFailure();
                     log.warn("模型调用最终失败（已上报熔断器）：{}", msg);
                     return Flux.error(err);

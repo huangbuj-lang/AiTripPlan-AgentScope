@@ -1,9 +1,4 @@
-/* ============================================================
-   漫旅 · MANLÜ — AI 旅行规划助手主样式
-   设计：森林绿 + 沙色自然系（参考 travel-planner bolt 风格）
-   沙色 #FBF8F3 / 深绿 #0F1A14 · #1D2D23 / 主绿 #3A6149
-   衬线标题 Fraunces + Noto Sans SC 正文
-   ============================================================ */
+/* style.css 主样式。 */
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap');
 
 :root {
@@ -232,11 +227,6 @@ body {
 .save-btn { margin-left: auto; border: none; background: var(--green-600); color: #fff; border-radius: 9999px; padding: 9px 22px; font-size: 13.5px; font-weight: 700; cursor: pointer; font-family: var(--sans); transition: .2s; display: inline-flex; gap: 8px; align-items: center; }
 .save-btn:hover { background: var(--green-500); }
 .save-msg { color: var(--green-600); font-size: 13px; }
-.revise-label { color: var(--forest-900); font-size: 13px; font-weight: 700; display: inline-flex; gap: 7px; align-items: center; white-space: nowrap; }
-.revise-label i { color: var(--green-600); }
-.revise-input { flex: 1; min-width: 220px; border: 1px solid var(--line); border-radius: 9999px; padding: 9px 18px; font-size: 13.5px; font-family: var(--sans); color: var(--forest-900); background: #fff; outline: none; transition: .2s; }
-.revise-input:focus { border-color: var(--green-600); box-shadow: 0 0 0 3px rgba(45,106,79,.08); }
-#reviseBar .save-btn { margin-left: 0; }
 .export-menu { position: absolute; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 6px; box-shadow: 0 14px 34px rgba(29,45,35,.18); z-index: 20; display: flex; flex-direction: column; min-width: 150px; }
 .export-menu a { padding: 9px 14px; border-radius: 9px; color: var(--forest-900); text-decoration: none; font-size: 13.5px; display: flex; gap: 9px; align-items: center; }
 .export-menu a:hover { background: var(--sand-100); }
@@ -245,7 +235,7 @@ body {
 footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; text-align: center; letter-spacing: 1px; }
 
 /* ===== 弹窗 ===== */
-.modal-mask { position: fixed; inset: 0; background: rgba(15,26,20,.55); backdrop-filter: blur(4px); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; }
+.modal-mask { position: fixed; inset: 0; background: rgba(15,26,20,.55); backdrop-filter: blur(4px); z-index: 100; display: none; align-items: center; justify-content: center; padding: 20px; }
 .modal-mask.open { display: flex; }
 .modal { background: var(--sand-50); border-radius: 22px; width: min(680px, 96vw); max-height: 84vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 30px 80px rgba(15,26,20,.4); }
 .modal-head { display: flex; align-items: center; gap: 14px; padding: 20px 24px; border-bottom: 1px solid var(--line); }
@@ -255,7 +245,7 @@ footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line
 .modal-head .x { margin-left: auto; border: none; background: var(--sand-100); width: 34px; height: 34px; border-radius: 50%; cursor: pointer; color: var(--forest-900); font-size: 14px; transition: .2s; }
 .modal-head .x:hover { background: var(--green-100); color: var(--green-600); }
 .modal-body { padding: 20px 24px 26px; overflow-y: auto; }
-.my-plans-modal { position: fixed; inset: 0; background: rgba(15,26,20,.55); backdrop-filter: blur(4px); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.my-plans-modal { position: fixed; inset: 0; background: rgba(15,26,20,.55); backdrop-filter: blur(4px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .modal-card { background: var(--sand-50); border-radius: 22px; width: min(560px, 96vw); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 30px 80px rgba(15,26,20,.4); }
 
 /* ===== 评价区（静态新增） ===== */
@@ -374,15 +364,31 @@ footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line
 .plan-meta{display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 10px;}
 .plan-meta span{font-size: 12px; color: var(--muted); padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: #FBFAF7;}
 .plan-meta span b{color: var(--ink);}
+/* ============ 预测弹窗（价格预测 + 未来7天客流） ============ */
+.plan-meta .meta-btn {
+  font-size: 12px; padding: 4px 12px; border: 1px solid var(--teal); border-radius: 999px;
+  background: rgba(58, 97, 73, .08); color: var(--teal); cursor: pointer; font-family: inherit; line-height: 1.5;
+}
+.plan-meta .meta-btn:hover { background: rgba(58, 97, 73, .16); }
+.pf-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pf-tbl th, .pf-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+.pf-tbl th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.pf-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; white-space: nowrap; }
+.pf-badge.up { background: rgba(184, 103, 79, .12); color: #9a4a35; }
+.pf-badge.down { background: rgba(58, 97, 73, .12); color: var(--teal); }
+.pf-badge.flat { background: rgba(100, 115, 110, .1); color: var(--muted); }
+.pf-bars { display: flex; align-items: flex-end; gap: 10px; padding: 16px 2px 0; min-height: 130px; }
+.pf-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.pf-bar { width: 26px; max-width: 75%; background: var(--sky); border-radius: 5px 5px 2px 2px; position: relative; }
+.pf-bar span { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--muted); white-space: nowrap; }
+.pf-bar-day { font-size: 11.5px; color: var(--ink); }
+.pf-bar-note { font-size: 10px; color: var(--muted); }
+.pf-bar.hot { background: var(--rose); }
+.pf-bar.warm { background: var(--amber); }
 .plan-section{margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 13px 16px;}
 .plan-section ul{list-style: none;}
 .plan-section li{padding: 5px 0; font-size: 13.5px; color: #3A4045; border-bottom: 1px dashed var(--line);}
 .plan-section li:last-child{border-bottom: none;}
-/* 实用贴士等提示性文字：比行程主体低一层级（小一号、浅灰），不与景点/详情正文同级 */
-.plan-section.sec-tips li{font-size: 12px; color: #6B7280; line-height: 1.7;}
-/* 天卡占位行（当日休整/无固定景点）：弱化展示 */
-.day-card .item.dim .pl{color: var(--muted); font-weight: 600;}
-.day-card .item.dim .act{font-style: normal;}
 .sec-title{font-size: 15px; font-weight: 800; color: var(--teal); border-left: 4px solid var(--teal); padding-left: 9px; margin: 4px 0 8px;}
 .sec-overview .sec-title{color: #6c5ce7; border-color: #6c5ce7;}
 .sec-timeline .sec-title{color: var(--sky); border-color: var(--sky);}
@@ -406,19 +412,8 @@ footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line
 .activity-icon { margin-right: 6px; }
 .day-card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; margin-bottom: 14px; transition: .2s; cursor: pointer; }
 .day-card:hover { border-color: var(--green-600); box-shadow: 0 10px 28px rgba(29,45,35,.1); }
-/* DAY 卡内条目：列表式行（图标+地点+活动小字），覆盖通用 .item 胶囊样式 */
-.day-card .item { display: flex; align-items: flex-start; gap: 8px; background: transparent; border-radius: 0; padding: 7px 2px; border-bottom: 1px dashed var(--sand-200); font-size: 13px; }
-.day-card .item:last-child { border-bottom: none; }
-.day-card .item .ic { flex: none; margin-top: 1px; }
-.day-card .item > span:last-child { display: flex; flex-direction: column; min-width: 0; }
-.day-card .item .pl { color: var(--forest-900); font-weight: 600; }
-.day-card .item .act { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .day-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .day-top b { font-family: var(--serif); font-size: 16.5px; color: var(--forest-900); }
-/* 当天天气：卡片头右侧纯文本（非链接不可跳转），给右侧按钮留位 */
-.day-top .day-wx { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; max-width: 55%; padding-right: 70px; }
-.day-top .day-wx::before { content: '🌤 '; font-size: 10px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green-600); display: inline-block; margin-right: 8px; }
 .route-line { position: relative; }
 .stops { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -494,25 +489,3 @@ footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line
 
 /* ★修复：打印视图平时隐藏，仅 @media print（print.css）时显示；否则日历关闭触发 buildPrintView 后整块概览+详情会显示在页面上 */
 .print-view { display: none; }
-
-/* ============ 预测弹窗（价格预测 + 未来7天客流） ============ */
-.plan-meta .meta-btn {
-  font-size: 12px; padding: 4px 12px; border: 1px solid var(--teal); border-radius: 999px;
-  background: rgba(58, 97, 73, .08); color: var(--teal); cursor: pointer; font-family: inherit; line-height: 1.5;
-}
-.plan-meta .meta-btn:hover { background: rgba(58, 97, 73, .16); }
-.pf-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.pf-tbl th, .pf-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; }
-.pf-tbl th { color: var(--muted); font-weight: 600; font-size: 12px; }
-.pf-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; white-space: nowrap; }
-.pf-badge.up { background: rgba(184, 103, 79, .12); color: #9a4a35; }
-.pf-badge.down { background: rgba(58, 97, 73, .12); color: var(--teal); }
-.pf-badge.flat { background: rgba(100, 115, 110, .1); color: var(--muted); }
-.pf-bars { display: flex; align-items: flex-end; gap: 10px; padding: 16px 2px 0; min-height: 130px; }
-.pf-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
-.pf-bar { width: 26px; max-width: 75%; background: var(--sky); border-radius: 5px 5px 2px 2px; position: relative; }
-.pf-bar span { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--muted); white-space: nowrap; }
-.pf-bar-day { font-size: 11.5px; color: var(--ink); }
-.pf-bar-note { font-size: 10px; color: var(--muted); }
-.pf-bar.hot { background: var(--rose); }
-.pf-bar.warm { background: var(--amber); }

@@ -1,14 +1,11 @@
-/* ============================================================
-   profile.js — 个人中心（profile.html）逻辑
-   Tab：资料 / 旅行偏好 / 统计 / 账号与安全
-   ============================================================ */
+/* ============================================================ profile.js — 个人中心（profile.html）逻辑 Tab：资料 / 旅行偏好 / 统计 / 账号与安全 ============================================================ */
 
 const STYLES = ['穷游', '亲子', '奢华', '徒步', '美食', '自驾', '度假'];
 let selectedStyles = [];   // 当前选中的风格标签
 let currentBudget = null;  // 当前预算档
 let currentPace = null;    // 当前节奏
 
-// 登录检查
+//登录检查
 function checkLogin() {
     fetch('/api/check-login')
         .then(r => r.json())
@@ -19,7 +16,7 @@ function checkLogin() {
         .catch(() => { location.href = 'login.html'; });
 }
 
-// Tab 切换
+//Tab 切换
 function initTabs() {
     document.querySelectorAll('.profile-tabs button').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -33,7 +30,7 @@ function initTabs() {
     });
 }
 
-// 渲染风格标签
+//渲染风格标签
 function renderStyleTags(selected) {
     const box = document.getElementById('styleTags');
     box.innerHTML = '';
@@ -50,14 +47,14 @@ function renderStyleTags(selected) {
     });
 }
 
-// 渲染分段按钮（预算/节奏）
+//渲染分段按钮（预算/节奏）
 function renderSeg(attr, value, holder) {
     document.querySelectorAll(`.seg-btn[${attr}]`).forEach(b => {
         b.classList.toggle('active', parseInt(b.getAttribute(attr)) === value);
     });
 }
 
-// 加载资料
+//加载资料
 function loadInfo() {
     fetch('/api/profile')
         .then(r => r.json())
@@ -79,7 +76,7 @@ function renderAvatar(url) {
     if (url) { box.innerHTML = '<img src="' + url + '" alt="">'; }
 }
 
-// 保存资料
+//保存资料
 function saveInfo(btn) {
     const restore = btnBusy(btn, '保存中...');
     const body = new URLSearchParams({
@@ -98,7 +95,7 @@ function saveInfo(btn) {
         .catch(() => { showMsg('infoMsg', '保存失败', false); restore(); });
 }
 
-// 加载偏好
+//加载偏好
 function loadPrefs() {
     fetch('/api/profile/preferences')
         .then(r => r.json())
@@ -123,7 +120,7 @@ function safeParseArray(v) {
     return [];
 }
 
-// 保存偏好
+//保存偏好
 function savePrefs(btn) {
     const restore = btnBusy(btn, '保存中...');
     const avoid = document.getElementById('avoidList').value.split(/[,，]/).map(s => s.trim()).filter(Boolean);
@@ -140,7 +137,7 @@ function savePrefs(btn) {
         .catch(() => { showMsg('prefsMsg', '保存失败', false); restore(); });
 }
 
-// 加载统计
+//加载统计
 function loadStats() {
     fetch('/api/my-plans')
         .then(r => r.json())
@@ -155,7 +152,7 @@ function loadStats() {
         .catch(() => {});
 }
 
-// 修改密码
+//修改密码
 function changePwd(btn) {
     const restore = btnBusy(btn, '提交中...');
     const oldPwd = document.getElementById('oldPwd').value;
@@ -172,7 +169,7 @@ function changePwd(btn) {
         .catch(() => { showMsg('pwdMsg', '修改失败', false); restore(); });
 }
 
-// 注销账号
+//注销账号
 function deleteAccount() {
     if (!confirm('确定注销账号吗？此操作不可撤销。')) return;
     fetch('/api/profile', { method: 'DELETE' })
@@ -189,14 +186,14 @@ function btnBusy(btn, busyText) {
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ' + (busyText || '处理中...');
     return () => { btn.disabled = false; btn.innerHTML = original; };
 }
-// 提示消息
+//提示消息
 function showMsg(id, text, ok) {
     const el = document.getElementById(id);
     el.textContent = (ok ? '✅ ' : '❌ ') + text;
     el.className = 'form-msg ' + (ok ? 'ok' : 'err');
 }
 
-// 分段按钮点击
+//分段按钮点击
 function initSegButtons() {
     document.querySelectorAll('.seg-btn[data-budget]').forEach(b => {
         b.addEventListener('click', () => { currentBudget = parseInt(b.dataset.budget); renderSeg('data-budget', currentBudget, 'budget'); });
@@ -206,7 +203,7 @@ function initSegButtons() {
     });
 }
 
-// 初始化
+//初始化
 checkLogin();
 initTabs();
 initSegButtons();

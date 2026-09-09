@@ -6,15 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 
-/**
- * ★Skill 统一管理（适配 AgentScope 1.0.8）：Nacos skill 源 + 定时热刷。
- *
- * 原理：
- * 1. skill 包(zip: SKILL.md)上传到 Nacos 服务端「AI → Skills」注册中心；
- * 2. 子Agent 构建时挂 SkillBox(绑定 toolkit，注入 load_skill 工具) + 本仓库；
- * 3. sysPrompt 注入 SkillBox.getSkillPrompt()——每轮推理重建 prompt 时即取最新技能清单；
- * 4. HotRefresh 线程定时对比 Nacos 版本，变化时 reload 缓存 → Agent 下轮生效（无需重启）。
- */
+/** Skill 统一管理（适配 AgentScope 1.0.8）：Nacos skill 源 + 定时热刷。 */
 @Slf4j
 public final class SkillManager {
 
@@ -37,10 +29,7 @@ public final class SkillManager {
         return repository;
     }
 
-    /**
-     * ★为 Agent 构建接线：创建 SkillBox、注册仓库内全部 skill、启动热刷线程、返回要拼进 sysPrompt 的技能说明。
-     * 失败降级：返回空串，不影响主流程。
-     */
+        /** 为 Agent 构建接线：创建 SkillBox、注册仓库内全部 skill、启动热刷线程、返回要拼进 sysPrompt 的技能说明。 */
     public static String wireAndPrompt(AgentSkillRepository repo, io.agentscope.core.tool.Toolkit toolkit, int refreshIntervalSec) {
         try {
             if (!enabled()) {
@@ -63,7 +52,7 @@ public final class SkillManager {
         }
     }
 
-    /** 供 Agent 直接调用的安全入口：传 toolkit（SkillBox 绑定必需）；任何异常都只打日志返回空串 */
+        /** 供 Agent 直接调用的安全入口：传 toolkit（SkillBox 绑定必需）； */
     public static String wireAndPromptSafely(io.agentscope.core.tool.Toolkit toolkit, int refreshIntervalSec) {
         try {
             if (toolkit == null) throw new IllegalArgumentException("Toolkit cannot be null");

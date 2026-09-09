@@ -45,14 +45,14 @@ echo "$R3" | grep -q "已接收" && ok "任务已提交" || bad "任务提交失
 
 echo "== ⑤ 轮询思考过程（/events 应有 用户输入/思考/调用工具）=="
 EVENT_OK=0
-for i in $(seq 1 80); do   # 最多等 ~240 秒（三域候选架构下首轮含 Nacos A2A 发现，事件出现较慢）
+for i in $(seq 1 40); do   # 最多等 ~130 秒
     sleep 3
     E=$(curl -s -m 5 -b "$COOKIE" "${BASE}/events" 2>/dev/null)
     echo "$E" | grep -q '"type":"用户输入"' && echo "$E" | grep -q '"type":"思考"' && echo "$E" | grep -q '"type":"调用工具"' && { EVENT_OK=1; break; }
     # 完成事件也算思考过程正常
     echo "$E" | grep -q '"type":"完成"' && { EVENT_OK=1; break; }
 done
-[ "$EVENT_OK" = "1" ] && ok "思考过程事件流正常（用户输入/思考/调用工具）" || bad "思考过程为空（事件未上报？）"
+[ "$EVENT_OK" = "1" ] && ok "思考过程事件流正常（用户输入/思考/调用工具）" || bad "思考过程为空（planHook 事件未上报？）"
 
 echo "== ⑥ 轮询最终结果（/result）=="
 RESULT_OK=0

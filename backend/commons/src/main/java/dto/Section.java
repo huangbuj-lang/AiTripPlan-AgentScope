@@ -6,9 +6,7 @@ import lombok.NoArgsConstructor;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * 行程的一个区块（时间轴/交通/住宿餐饮/实用信息）。
- */
+/** 行程的一个区块（时间轴/交通/住宿餐饮/实用信息）。 */
 @Data
 @NoArgsConstructor
 public class Section {

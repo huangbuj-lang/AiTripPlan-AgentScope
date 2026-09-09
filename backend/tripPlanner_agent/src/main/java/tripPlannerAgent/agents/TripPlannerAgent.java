@@ -12,9 +12,7 @@ import utils.LimitedMemory;
 import utils.mcp.AmapEnhancedToolFactory;
 import utils.mcp.AmapEnhancedToolFactory.AgentType;
 
-/**
- * 行程规划Agent
- */
+/** 行程规划Agent */
 @Component
 public class TripPlannerAgent {
 
@@ -34,11 +32,11 @@ public class TripPlannerAgent {
 
         Toolkit toolkit = new Toolkit();
 
-        // 只暴露综合工具 query_trip（一次调用拿全部行程数据）
-        // 模型只调1次即得天气/景点/酒店/美食，不自由ReAct撮合散工具，砍掉多余轮次
+        //只暴露综合工具 query_trip（一次调用拿全部行程数据）
+        //模型只调1次即得天气/景点/酒店/美食，不自由ReAct撮合散工具，砍掉多余轮次
         AmapEnhancedToolFactory.register(toolkit, AgentType.TRIP);
 
-        // ★Skill 热更：拉取 Nacos skill 仓库，把技能说明拼进 sysPrompt（失败降级为无skill）
+        //Skill 热更：拉取 Nacos skill 仓库，把技能说明拼进 sysPrompt（失败降级为无skill）
         String skillPrompt = utils.SkillManager.wireAndPromptSafely(toolkit,
                 Config.getInt("SKILL_REFRESH_SEC", 30));
         ReActAgent.Builder builder = AgentUtils.getReActAgentBuilder( // 行程规划Agent Builder

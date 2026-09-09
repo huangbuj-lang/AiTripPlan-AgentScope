@@ -6,7 +6,7 @@ import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** ★观测：综合工具失败时能从输出里提取内部 ⚠️ 失败片段（调用链明细内部归因） */
+/** 观测：综合工具失败时能从输出里提取内部 ⚠️ 失败片段（调用链明细内部归因） */
 class AmapCompositeToolTest {
 
     private String extractWarn(String out) throws Exception {

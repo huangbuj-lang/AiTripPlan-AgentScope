@@ -1,8 +1,6 @@
 package utils;
 
-/**
- * 环境变量读取工具：带默认值，配置可配（可选覆盖，未设置时用默认值）
- */
+/** 环境变量读取工具：带默认值，配置可配（可选覆盖，未设置时用默认值） */
 public final class Config {
 
     private Config() {}

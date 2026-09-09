@@ -11,9 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
-/**
- * 内存事件库：按会话保存Agent运行事件，供 /events 查询
- */
+/** 内存事件库：按会话保存Agent运行事件，供 /events 查询 */
 public class EventStore {
 
     /** 单会话状态：事件队列 + 最终结果 + 取消标志 */
@@ -23,13 +21,11 @@ public class EventStore {
         volatile boolean cancelRequested = false; // 中断请求标志
         volatile Runnable interruptCallback = null; // 取消时回调（用于中断A2A远程调用）
         volatile long lastAccessMs = System.currentTimeMillis(); // 最后访问时间（TTL清理用）
-        public final java.util.concurrent.ConcurrentHashMap<String, Object> extras =
-                new java.util.concurrent.ConcurrentHashMap<>(); // 结构化观测数据（REVISE汇总/聚类统计）
     }
 
     private static final ConcurrentHashMap<String, SessionState> SESSIONS = new ConcurrentHashMap<>(); // 会话隔离容器
 
-    // ==================== 任务监控注册表 ====================
+    //==================== 任务监控注册表 ====================
 
     /** 单条任务的监控元数据 */
     public static class TaskMeta {
@@ -41,8 +37,6 @@ public class EventStore {
         public volatile String currentStep = "排队中"; // 当前步骤（取最近一条事件的类型）
         public final long modelCallsStart = utils.SafeModel.MODEL_CALLS.get(); // 任务开始时的模型调用总数
         public volatile long modelCallsUsed = -1;  // 本任务消耗的模型调用轮数（结束时=结束值-开始值，-1=未统计）
-        public volatile int reviseRounds = 0;      // Reviewer 闭环实际返工轮数（0=首轮通过）
-        public volatile String reviseOutcome = ""; // pass/maxed/parse_error/rework_failed/rework_no_improvement
 
         TaskMeta(String sessionId) { this.sessionId = sessionId; }
     }
@@ -66,7 +60,7 @@ public class EventStore {
         TASKS.put(meta.sessionId, meta);
     }
 
-    /** 任务结束：更新状态、计数并移入历史（AppController finally 调用；返回 meta 供观测落库） */
+        /** 任务结束：更新状态、计数并移入历史（AppController finally 调用； */
     public static TaskMeta finishTask(String sessionId, String status) {
         String k = key(sessionId);
         TaskMeta meta = TASKS.remove(k);
@@ -97,7 +91,7 @@ public class EventStore {
     /** sessionId → 归属用户ID（/app 提交时绑定，防止跨用户越权读取/取消） */
     private static final ConcurrentHashMap<String, Long> OWNERS = new ConcurrentHashMap<>();
 
-    /** 会话是否登记过（任务曾提交）；false = 服务重启后状态丢失 / 从未提交过该 sessionId */
+        /** 会话是否登记过（任务曾提交）； */
     public static boolean isKnown(String sessionId) {
         return sessionId != null && (SESSIONS.containsKey(sessionId) || OWNERS.containsKey(sessionId));
     }
@@ -115,17 +109,6 @@ public class EventStore {
     /** 规范化会话键（空/未传 → default） */
     private static String key(String sessionId) {
         return (sessionId == null || sessionId.isBlank()) ? DEFAULT_SESSION : sessionId;
-    }
-
-    /** 写入会话级结构化观测数据（REVISE 汇总/聚类统计等，会话结束随 TTL 清理） */
-    public static void putExtra(String sessionId, String key, Object value) {
-        state(sessionId).extras.put(key, value);
-    }
-
-    /** 读取会话级结构化观测数据；无记录返回 null */
-    public static Object getExtra(String sessionId, String key) {
-        SessionState s = SESSIONS.get(key(sessionId));
-        return s == null ? null : s.extras.get(key);
     }
 
     /** 获取（不存在则创建）指定会话的状态 */
@@ -180,8 +163,8 @@ public class EventStore {
     }
 
     /** 校验 sessionId 是否属于该用户（无归属视为允许——此时无数据） */
-    /** 任务提交时间（供调用链过滤子Agent残留 span）；无记录返回 0 */
-    /** 取任务元数据（观测落库用）；无记录返回 null */
+        /** 任务提交时间（供调用链过滤子Agent残留 span）； */
+        /** 取任务元数据（观测落库用）； */
     public static TaskMeta metaOf(String sessionId) {
         return sessionId == null ? null : TASKS.get(sessionId);
     }
@@ -196,37 +179,29 @@ public class EventStore {
         return owner == null || owner == userId;
     }
 
-    /**
-     * 保存任务最终结果（按会话）
-     */
+        /** 保存任务最终结果（按会话） */
     public static void setResult(String sessionId, String result) {
         state(sessionId).result = result;
     }
 
-    /**
-     * 获取任务最终结果（null=未完成）
-     */
+        /** 获取任务最终结果（null=未完成） */
     public static String getResult(String sessionId) {
         return state(sessionId).result;
     }
 
-    /**
-     * 添加一条事件记录（按会话）
-     */
+        /** 添加一条事件记录（按会话） */
     public static void add(String sessionId, String type, String content) {
         SessionState s = state(sessionId);
-        long nowMs = System.currentTimeMillis();
         Map<String, String> event = Map.of(
                 "time", LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")),
                 "type", type,
-                "content", content == null ? "" : content,
-                "ts", String.valueOf(nowMs) // ★2026-09-05 供终态落库 task_events（重启后历史事件流从库恢复）
+                "content", content == null ? "" : content
         );
         s.events.add(event);
         while (s.events.size() > MAX_EVENTS) { // 超出上限丢弃最旧事件
             s.events.poll();
         }
-        // 同步任务监控：更新当前步骤与最后活动时间
+        //同步任务监控：更新当前步骤与最后活动时间
         TaskMeta meta = TASKS.get(key(sessionId));
         if (meta != null) {
             meta.currentStep = type;
@@ -235,24 +210,12 @@ public class EventStore {
         notify(sessionId, event); // 实时推送给 SSE 订阅者
     }
 
-    /**
-     * 获取全部事件（最新的在后面）（按会话）
-     */
+        /** 获取全部事件（最新的在后面）（按会话） */
     public static List<Map<String, String>> all(String sessionId) {
         return state(sessionId).events.stream().collect(Collectors.toList());
     }
 
-    /**
-     * 只读查询事件（不创建会话）：会话不存在返回 null（管理端查询历史任务时避免凭空注册新会话）。
-     */
-    public static List<Map<String, String>> allQuiet(String sessionId) {
-        SessionState s = SESSIONS.get(key(sessionId));
-        return s == null ? null : s.events.stream().collect(Collectors.toList());
-    }
-
-    /**
-     * 清空会话的事件、结果与取消标志
-     */
+        /** 清空会话的事件、结果与取消标志 */
     public static void clear(String sessionId) {
         SessionState s = state(sessionId);
         s.events.clear();
@@ -260,9 +223,7 @@ public class EventStore {
         s.cancelRequested = false;
     }
 
-    /**
-     * 请求中断当前任务
-     */
+        /** 请求中断当前任务 */
     public static void requestCancel(String sessionId) {
         SessionState s = state(sessionId);
         s.cancelRequested = true;
@@ -282,16 +243,12 @@ public class EventStore {
         state(sessionId).interruptCallback = null;
     }
 
-    /**
-     * 检查是否有中断请求
-     */
+        /** 检查是否有中断请求 */
     public static boolean isCancelRequested(String sessionId) {
         return state(sessionId).cancelRequested;
     }
 
-    /**
-     * 列出全部会话的概览（管理端任务监控用）：会话ID、事件数、是否有结果、取消标志、归属用户、运行中状态
-     */
+        /** 列出全部会话的概览（管理端任务监控用）：会话ID、事件数、是否有结果、取消标志、归属用户、运行中状态 */
     public static java.util.List<java.util.Map<String, Object>> listSessions() {
         java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
         for (java.util.Map.Entry<String, SessionState> e : SESSIONS.entrySet()) {

@@ -1,17 +1,14 @@
-/* ============================================================
-   edit.js — 行程二次编辑页（edit.html）
-   加载结构化 plan_json → 编辑每天行程 → 保存 / 增量重排某一天
-   ============================================================ */
+/* ============================================================ edit.js — 行程二次编辑页（edit.html） 加载结构化 plan_json → 编辑每天行程 → 保存 / 增量重排某一天 ============================================================ */
 
 const tripId = new URLSearchParams(location.search).get('id');
 let plan = null; // 内存中的 TripPlanData 对象（编辑时直接改，保存时序列化）
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-// 判断一个 section 是否为“某一天”的 timeline 区块
+//判断一个 section 是否为“某一天”的 timeline 区块
 function isDaySection(sec) { return sec.type === 'timeline'; }
 
-// 加载行程
+//加载行程
 function load() {
     fetch('/api/trips/' + tripId + '/edit').then(r => r.json()).then(d => {
         if (!d.success) { alert(d.message || '加载失败'); location.href = 'index.html'; return; }
@@ -22,7 +19,7 @@ function load() {
     }).catch(() => alert('加载失败'));
 }
 
-// 渲染可编辑的每天行程 + 只读的其他区块
+//渲染可编辑的每天行程 + 只读的其他区块
 function render() {
     const body = document.getElementById('editBody');
     let html = '';
@@ -38,7 +35,7 @@ function render() {
     body.innerHTML = html || '<div class="empty">该行程没有可编辑的日程</div>';
 }
 
-// 渲染某一天的卡片（可编辑 + 添加 + 重排）
+//渲染某一天的卡片（可编辑 + 添加 + 重排）
 function renderDay(sec, si, dayIdx) {
     const title = sec.title || ('第' + (dayIdx + 1) + '天');
     const items = (sec.items || []).map((it, ii) =>
@@ -60,7 +57,7 @@ function renderDay(sec, si, dayIdx) {
         '</div>';
 }
 
-// 渲染非 timeline 区块（只读展示）
+//渲染非 timeline 区块（只读展示）
 function renderOther(sec) {
     const items = (sec.items || []).map(it => {
         let txt = '';
@@ -69,7 +66,7 @@ function renderOther(sec) {
         } else if (it.from || it.to) {
             txt = (it.from || '') + ' → ' + (it.to || '');
         } else if (it.kind && (it.name || it.price)) {
-            // stay（住宿/餐饮推荐）：kind + name + price + note
+            //stay（住宿/餐饮推荐）：kind + name + price + note
             txt = (it.kind ? it.kind + '：' : '') + (it.name || '') + (it.price ? '（' + it.price + '）' : '') + (it.note ? ' ' + it.note : '');
         } else if (it.kind || it.text) {
             txt = (it.kind ? it.kind + '：' : '') + (it.text || '');
@@ -91,7 +88,7 @@ function delItem(si, ii) {
     render();
 }
 
-// 保存修改（忙碌态防连点）
+//保存修改（忙碌态防连点）
 function save(btn) {
     if (!plan) return;
     if (btn && btn.disabled) return;
@@ -108,7 +105,7 @@ function save(btn) {
     }).catch(() => { document.getElementById('saveMsg').textContent = '保存失败'; restore(); });
 }
 
-// 增量重排某一天（LLM 重排较慢：按钮忙碌态防连点；点「取消」不再误触发重排）
+//增量重排某一天
 function regen(si, dayIdx, btn) {
     const instruction = prompt('可输入调整要求（如“换成美食主题”），留空则按原背景重排：');
     if (instruction === null) return; /* 用户点了取消 */

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 Python 侧统一模型配置读取（唯一出口）：
 - 配置文件 data-pipeline/llm_config.json（管理端保存时由 AdminController 写入）
@@ -64,9 +64,10 @@ def get_llm_config():
                 v = data.get(k)
                 if v:
                     cfg[k] = v
+            return cfg
+        _CACHE.update(at=now, cfg=cfg)
     except Exception:
         pass
-    # 本地文件配置后仍允许 .env 覆盖：本地 json 里的模型可能已下线（404），env 里的可用 key 优先级应更高
     env = _load_env()
     if env.get("MODEL_API_KEY"):
         cfg["url"] = env.get("MODEL_BASE_URL", cfg["url"])

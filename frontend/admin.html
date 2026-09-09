@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理控制台 · AI旅行规划</title>
-    <link rel="stylesheet" href="css/admin.css?v=20260826b">
+    <link rel="stylesheet" href="css/admin.css?v=20260907c">
 </head>
 <body>
 <div class="shell">
@@ -102,13 +102,8 @@
             <div id="taskHistoryBody" class="table-wrap" style="max-height:380px"><div class="state-box"><div class="big">⏳</div>加载中...</div></div>
 
             <details class="adv-fold" id="traceFold" style="margin-top:14px">
-                <summary>调用链明细：<span id="traceSessionId">—</span><span class="fold-note">模型 / 子Agent / 工具 各层成败与耗时 + 审查返工与聚类质量观测 · 点击行展开</span></summary>
-                <div id="traceBody" style="margin-top:12px"><div class="empty" style="color:var(--faint);font-size:13px;padding:10px">在上方任务表中点击一行查看该任务的调用链</div></div>
-            </details>
-
-            <details class="adv-fold" id="eventFold" style="margin-top:14px">
-                <summary>事件明细：<span id="eventSessionId">—</span><span class="fold-note">解析 / 路线 / 候选 / 定稿 / 校验 / 评分 / 审查 / 修订 全阶段事件 · 点击任务行即显示 · 事件在进程内存，仅保留近期会话</span></summary>
-                <div id="eventBody" style="margin-top:12px"><div class="empty" style="color:var(--faint);font-size:13px;padding:10px">在任务表中点击一行查看该任务的阶段事件</div></div>
+                <summary>调用链明细：<span id="traceSessionId">—</span><span class="fold-note">模型 / 子Agent / 工具 各层成败、耗时与失败原因 · 点击行展开</span></summary>
+                <div id="traceBody" style="margin-top:12px"><div class="empty" style="color:var(--faint);font-size:13px;padding:10px">在上方历史任务表中点击一行查看该任务的调用链</div></div>
             </details>
         </section>
 
@@ -338,6 +333,6 @@
 </div>
 
 <script src="js/echarts.min.js"></script>
-<script src="js/admin.js?v=20260827a"></script>
+<script src="js/admin.js?v=20260907c"></script>
 </body>
 </html>

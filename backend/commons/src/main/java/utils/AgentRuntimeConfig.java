@@ -13,11 +13,7 @@ import java.util.Properties;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Nacos-driven runtime switches and resources shared by Java agents.
- * Nacos is the source of truth after the first snapshot arrives; absent
- * sections fall back to code defaults.
- */
+/** Nacos-driven runtime switches and resources shared by Java agents. */
 @Slf4j
 public final class AgentRuntimeConfig {
 

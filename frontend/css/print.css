@@ -1,9 +1,4 @@
-/* ============================================================
-   print.css — 打印专用样式（@media print）
-   PDF 导出走 window.print()，流程：
-   exportPDF → buildPrintView() 生成 #printView（概览+详情）
-   本文件只显示 #printView，隐藏页面其余全部内容，A4 排版
-   ============================================================ */
+/* print.css 打印专用样式。 */
 
 @media print {
 

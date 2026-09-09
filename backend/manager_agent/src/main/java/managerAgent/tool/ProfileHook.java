@@ -1,10 +1,6 @@
 package managerAgent.tool;
 
-/**
- * ★画像增量维护钩子：数据源变动时异步触发该用户画像全量重算。
- * 数据源：trip_plans(保存/删除行程) / posts(发帖删帖) / user_preferences(个人中心设置)
- * 实现：异步调 data-pipeline/profile.py --user <id>（剩余数据全量聚合，共同偏好不误删），失败静默。
- */
+/** 画像增量维护钩子：数据源变动时异步触发该用户画像全量重算。 */
 public final class ProfileHook {
 
     private ProfileHook() {}

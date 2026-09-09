@@ -19,11 +19,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * 内容审核服务（阶段三）：DFA 敏感词快筛 + LLM 语义审核，双层 + 降级链。
- * verdict：0=pass 正常 / 1=review 存疑(人工队列) / 2=block 明确违规(隐藏)。
- * ★降级：LLM 审核失败（熔断/超时/解析失败）时只保留敏感词快筛结果，不阻塞内容发布。
- */
+/** 内容审核服务（阶段三）：DFA 敏感词快筛 + LLM 语义审核，双层 + 降级链。 */
 @Slf4j
 @Component
 public class ModerationService {
@@ -64,7 +60,7 @@ public class ModerationService {
             try {
                 int verdict = llmVerdict(content);
                 String reason = "AI 审核";
-                // 落库
+                //落库
                 jdbcTemplate.update(
                         "INSERT INTO moderation_records(target_type, target_id, verdict, reason, model) VALUES (?, ?, ?, ?, ?)",
                         targetType, targetId, verdict, reason, "deepseek");
@@ -73,7 +69,7 @@ public class ModerationService {
                     log.info("审核拦截 {}#{}：违规内容已隐藏", targetType == 1 ? "帖子" : "评论", targetId);
                 }
             } catch (Exception e) {
-                // ★降级：LLM 审核失败仅保留敏感词快筛，不阻塞、进入人工队列兜底
+                //降级：LLM 审核失败仅保留敏感词快筛，不阻塞、进入人工队列兜底
                 log.warn("LLM 审核失败（降级为仅敏感词 + 人工队列）：{}", e.getMessage());
             }
         });
