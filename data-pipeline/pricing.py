@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 ③ 动态定价基础版：热度因子(trip_plans) × 节假日因子(holidays) × 天气因子(weather_history)
    → 输出各城市酒店/餐饮/门票定价系数与基准价、现价
@@ -33,7 +33,7 @@ def sql(query, fetch=True):
     if not fetch: return []
     return [line.split("\t") for line in r.stdout.strip().splitlines()] if r.stdout.strip() else []
 
-# 2026 主要节假日
+#2026 主要节假日
 HOLIDAYS = {"2026-01-01": "元旦", "2026-02-16": "春节", "2026-02-17": "春节", "2026-02-18": "春节",
             "2026-04-05": "清明", "2026-05-01": "劳动节", "2026-06-19": "端午",
             "2026-09-25": "中秋", "2026-10-01": "国庆", "2026-10-02": "国庆", "2026-10-03": "国庆"}
@@ -41,7 +41,7 @@ HOLIDAYS = {"2026-01-01": "元旦", "2026-02-16": "春节", "2026-02-17": "春�
 def holiday_factor(date_str):
     return get_pricing_config().get("holidayFactor", 1.3) if date_str in HOLIDAYS else 1.0
 
-# 用户输入城市归一化："成都三日"/"成都七日自行车"→"成都"；匹配标准城市库前缀优先，无匹配返回None
+#用户输入城市归一化："成都三日"/"成都七日自行车"->"成都"；
 def normalize_city(raw, std_cities):
     if not raw:
         return None
@@ -51,11 +51,11 @@ def normalize_city(raw, std_cities):
     cands = [c for c in std_cities if raw.startswith(c)]
     if cands:
         return max(cands, key=len)
-    # 剥离 "14日"/"0.5周" 前缀 + 旅行词尾 → "香港"/"西藏"；不在标准库也保留（用户测过就显示）
+    #剥离 "14日"/"0.5周" 前缀 + 旅行词尾 -> "香港"/"西藏"；
     import re as _re
     stripped = _re.sub(r'^\d+(\.\d+)?(日|天|周)?', '', raw)
-    stripped = _re.sub(r'\d+(\.\d+)?(日|天|周)', '', stripped)  # 中间的数字日/周：西藏14日→西藏
-    stripped = _re.sub(r'[两三四五六七八九十]+(日|天|周)', '', stripped)  # 中文数字：西藏两周→西藏
+    stripped = _re.sub(r'\d+(\.\d+)?(日|天|周)', '', stripped)  # 中间的数字日/周：西藏14日->西藏
+    stripped = _re.sub(r'[两三四五六七八九十]+(日|天|周)', '', stripped)  # 中文数字：西藏两周->西藏
     stripped = _re.sub(r'(自行车|自驾|自驾车|游|行|旅|旅行|美食|蜜月|漫游|朝圣|深度游|周末|亲子游|行程|计划)$', '', stripped)
     if stripped:
         if stripped in std_cities:
@@ -66,7 +66,7 @@ def normalize_city(raw, std_cities):
         return stripped if len(stripped) >= 2 else raw
     return raw
 
-# 提取价格文本里的数字（"54元"→54.0，"约20元"→20.0，非数字→None）
+#提取价格文本里的数字（"54元"->54.0，"约20元"->20.0，非数字->None）
 def parse_price(text):
     if not text: return None
     m = re.search(r"\d+(\.\d+)?", str(text))
@@ -82,31 +82,31 @@ def main():
         ticket_base DECIMAL(8,1), ticket_price DECIMAL(8,1), factors JSON,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", fetch=False)
-    # 三行定价：餐饮两列平滑迁移（已存在则跳过）
+    #三行定价：餐饮两列平滑迁移（已存在则跳过）
     sql("ALTER TABLE pricing_output ADD COLUMN food_base DECIMAL(8,1) NULL AFTER ticket_price", fetch=False)
     sql("ALTER TABLE pricing_output ADD COLUMN food_price DECIMAL(8,1) NULL AFTER food_base", fetch=False)
-    # 热度：各城市近90天行程数
+    #热度：各城市近90天行程数
     std_cities = {r[0] for r in sql("SELECT DISTINCT city FROM attractions WHERE city IS NOT NULL AND city!=''")}
     heat = {}
     for r in sql("SELECT city, COUNT(*) FROM trip_plans WHERE city IS NOT NULL AND create_time >= DATE_SUB(NOW(), INTERVAL 90 DAY) GROUP BY city"):
         std = normalize_city(r[0], std_cities)
         if std:
             heat[std] = heat.get(std, 0) + int(r[1])
-    # 天气因子，缺数据=1.0
+    #天气因子，缺数据=1.0
     weather = {r[0]: r[1] for r in sql("SELECT city, weather FROM weather_history WHERE day = CURDATE()")}
     today = datetime.date.today().isoformat()
     hf = holiday_factor(today)
     cities = set(heat) | {r[0] for r in sql("SELECT DISTINCT city FROM attractions_features")}
-    # 餐饮基准：foods.cost 真实人均城市均值，无数据回退50
+    #餐饮基准：foods.cost 真实人均城市均值，无数据回退50
     food_avg = {r[0]: float(r[1]) for r in sql(
         "SELECT city, AVG(CAST(cost AS DECIMAL(10,2))) FROM foods WHERE cost REGEXP '^[0-9.]+$' GROUP BY city")}
-    # 门票基准：ticket_price 真实挂牌价城市均值（只取数字），无数据回退60
+    #门票基准：ticket_price 真实挂牌价城市均值（只取数字），无数据回退60
     ticket_avg = {}
     for r in sql("SELECT city, ticket_price FROM attractions_features WHERE ticket_price IS NOT NULL AND ticket_price != ''"):
         p = parse_price(r[1])
         if p is not None and p > 0:
             ticket_avg.setdefault(r[0], []).append(p)
-    # 清历史脏行：city 不在标准库的旧记录
+    #清历史脏行：city 不在标准库的旧记录
     std_all = std_cities | {r[0] for r in sql("SELECT DISTINCT city FROM foods WHERE city IS NOT NULL")}
     for r in sql("SELECT city FROM pricing_output"):
         if r[0] not in std_all:

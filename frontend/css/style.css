@@ -1,9 +1,4 @@
-/* ============================================================
-   漫旅 · MANLÜ — AI 旅行规划助手主样式
-   设计：森林绿 + 沙色自然系（参考 travel-planner bolt 风格）
-   沙色 #FBF8F3 / 深绿 #0F1A14 · #1D2D23 / 主绿 #3A6149
-   衬线标题 Fraunces + Noto Sans SC 正文
-   ============================================================ */
+/* style.css 主样式。 */
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap');
 
 :root {
@@ -79,6 +74,8 @@ body {
 /* Hero 搜索条：毛玻璃胶囊 */
 .hero-search {
   margin-top: 30px; display: flex; align-items: stretch; gap: 0; width: min(48vw, 1200px); max-width: 100%;
+  /*★用户口径：下拉面板不能伸进下方白色内容区被挡住 → 给搜索条自己的层叠上下文（先修根因）*/
+  position: relative; z-index: 6;
   background: rgba(255,255,255,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255,255,255,.4);
   background: rgba(251,248,243,.96); border-radius: 20px; padding: 8px;
@@ -100,11 +97,18 @@ body {
   position: absolute; top: calc(100% + 9px); left: 0; min-width: 100%; z-index: 80;
   background: #fff; border: 1px solid var(--sand-200); border-radius: 13px;
   box-shadow: 0 14px 36px rgba(10,20,14,.18); padding: 6px; display: none;
+  /*★用户口径：选项多时不能一路撑到盖住下面的白色内容区 → 限高 + 内部滑动 */
+  max-height: min(180px, 17vh); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
 }
+/* 细滚动条（Chrome/Edge，桌面端生效） */
+.hs-menu::-webkit-scrollbar { width: 8px; }
+.hs-menu::-webkit-scrollbar-thumb { background: rgba(63,140,90,.28); border-radius: 8px; }
+.hs-menu::-webkit-scrollbar-thumb:hover { background: rgba(63,140,90,.45); }
+.hs-menu::-webkit-scrollbar-track { background: transparent; }
 .hs-select.open .hs-menu { display: block; animation: hsMenuIn .16s ease; }
 @keyframes hsMenuIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
 .hs-opt {
-  padding: 8px 13px; border-radius: 9px; font-size: 13.5px; color: var(--ink);
+  padding: 5px 13px; border-radius: 9px; font-size: 13.5px; color: var(--ink);
   cursor: pointer; transition: background .12s, color .12s; white-space: nowrap;
 }
 .hs-opt:hover { background: rgba(63,140,90,.1); color: var(--green-600); }
@@ -369,6 +373,27 @@ footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line
 .plan-meta{display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 10px;}
 .plan-meta span{font-size: 12px; color: var(--muted); padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: #FBFAF7;}
 .plan-meta span b{color: var(--ink);}
+/* ============ 预测弹窗（价格预测 + 未来7天客流） ============ */
+.plan-meta .meta-btn {
+  font-size: 12px; padding: 4px 12px; border: 1px solid var(--teal); border-radius: 999px;
+  background: rgba(58, 97, 73, .08); color: var(--teal); cursor: pointer; font-family: inherit; line-height: 1.5;
+}
+.plan-meta .meta-btn:hover { background: rgba(58, 97, 73, .16); }
+.pf-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pf-tbl th, .pf-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+.pf-tbl th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.pf-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; white-space: nowrap; }
+.pf-badge.up { background: rgba(184, 103, 79, .12); color: #9a4a35; }
+.pf-badge.down { background: rgba(58, 97, 73, .12); color: var(--teal); }
+.pf-badge.flat { background: rgba(100, 115, 110, .1); color: var(--muted); }
+.pf-bars { display: flex; align-items: flex-end; gap: 10px; padding: 16px 2px 0; min-height: 130px; }
+.pf-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.pf-bar { width: 26px; max-width: 75%; background: var(--sky); border-radius: 5px 5px 2px 2px; position: relative; }
+.pf-bar span { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--muted); white-space: nowrap; }
+.pf-bar-day { font-size: 11.5px; color: var(--ink); }
+.pf-bar-note { font-size: 10px; color: var(--muted); }
+.pf-bar.hot { background: var(--rose); }
+.pf-bar.warm { background: var(--amber); }
 .plan-section{margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 13px 16px;}
 .plan-section ul{list-style: none;}
 .plan-section li{padding: 5px 0; font-size: 13.5px; color: #3A4045; border-bottom: 1px dashed var(--line);}
@@ -473,3 +498,39 @@ footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line
 
 /* ★修复：打印视图平时隐藏，仅 @media print（print.css）时显示；否则日历关闭触发 buildPrintView 后整块概览+详情会显示在页面上 */
 .print-view { display: none; }
+
+/* 天卡片的当天概览（由后端聚合 LLM 写好、前端只显示；详细逐条在弹窗里） */
+.day-ov { font-size: 13.5px; line-height: 1.75; color: var(--text-2, #5b6b61); padding: 4px 2px 2px; }
+.day-card.active .day-ov { color: var(--text, #24332a); }
+
+/* ★酒店行可点（用户口径：只加可点击提示，不改原布局/原样式） */
+.poi-row { cursor: pointer; }
+.poi-row:hover { background: rgba(31,174,143,.06); }
+.poi-go { margin-left: 6px; font-size: 12px; opacity: .75; }
+
+/* ★详情/区块里的酒店名：和景点名一样带虚线，提示可点击（用户口径） */
+.poi-name { color: inherit; cursor: pointer; border-bottom: 1px dotted rgba(31,174,143,.45); }
+.poi-name:hover { color: #D4880F; border-bottom-color: #D4880F; }
+
+/* ★点酒店弹出的高德信息卡片 */
+.poi-card table { width: 100%; border-collapse: collapse; }
+.poi-card td { padding: 9px 4px; border-bottom: 1px dashed var(--line, #e6e6e6); font-size: 13.5px; color: var(--ink, #24332a); vertical-align: top; }
+.poi-card td.pk { width: 108px; color: var(--muted, #7A8A80); white-space: nowrap; }
+.poi-hit { margin-top: 10px; font-size: 12px; color: var(--muted, #7A8A80); }
+.poi-src { margin-top: 12px; font-size: 11.5px; color: var(--muted, #7A8A80); }
+
+/* ★区域天气弹窗（行程涉及城市 × 未来三天，城市级，来自高德） */
+.wx-wrap { display: flex; flex-direction: column; gap: 14px; }
+.wx-city { border: 1px solid var(--line, #e6ece8); border-radius: 12px; padding: 12px 14px; background: #fbfcfa; }
+.wx-city-name { font-weight: 700; font-size: 14px; color: var(--ink, #24332a); margin-bottom: 10px; }
+.wx-days { display: flex; gap: 10px; flex-wrap: wrap; }
+.wx-day { flex: 1 1 96px; min-width: 96px; text-align: center; border: 1px solid var(--line, #e6ece8);
+  border-radius: 10px; padding: 8px 6px; background: #fff; }
+.wx-date { font-size: 11.5px; color: var(--muted, #74857f); margin-bottom: 4px; }
+.wx-txt { font-size: 13.5px; color: var(--ink, #24332a); margin-bottom: 4px; }
+.wx-temp { font-size: 12.5px; font-weight: 600; color: #1a8a72; }
+/* ★高德参考价小表格 */
+.wx-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.wx-table td { padding: 7px 10px; border-bottom: 1px solid var(--line, #eef2f1); color: var(--ink, #24332a); }
+.wx-table td:first-child { color: var(--text-2, #5b6b61); }
+.wx-table td:last-child { text-align: right; font-weight: 600; }

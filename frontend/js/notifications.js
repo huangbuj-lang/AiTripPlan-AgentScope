@@ -1,7 +1,4 @@
-/* ============================================================
-   notifications.js — 通知中心（notifications.html）
-   列表 + 标记已读 + SSE 实时推送
-   ============================================================ */
+/* ============================================================ notifications.js - 通知中心（notifications.html） 列表 + 标记已读 + SSE 实时推送 ============================================================ */
 
 const TYPE_ICON = { 1: '💬', 2: '👍', 3: '⭐', 4: '🤖', 5: '📢' };
 const TYPE_COLOR = { 1: '#e8f4fd', 2: '#fdf0e8', 3: '#fff8e1', 4: '#f0f9f6', 5: '#fdecea' };
@@ -36,7 +33,7 @@ function readAll() {
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-// SSE 实时推送：收到新通知时刷新列表
+//SSE 实时推送：收到新通知时刷新列表
 function subscribe() {
     if (typeof EventSource === 'undefined') return;
     const es = new EventSource('/api/notifications/stream');

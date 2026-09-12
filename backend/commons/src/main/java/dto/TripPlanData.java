@@ -6,15 +6,12 @@ import lombok.NoArgsConstructor;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * 完整结构化行程数据契约（阶段三主线产物）。
- * 前后端、段间都传此 DTO，替代自由文本 + 正则清洗。
- */
+/** 完整结构化行程数据契约（阶段三主线产物）。 */
 @Data
 @NoArgsConstructor
 public class TripPlanData {
 
-    /** 行程标题（如 "深圳—惠州 3 日自驾游"） */
+    /** 行程标题（如 "深圳-惠州 3 日自驾游"） */
     private String title = "";
 
     /** 目的地 */

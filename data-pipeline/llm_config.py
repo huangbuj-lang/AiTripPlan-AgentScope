@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 Python 侧统一模型配置读取（唯一出口）：
 - 配置文件 data-pipeline/llm_config.json（管理端保存时由 AdminController 写入）
@@ -155,7 +155,7 @@ def chat(messages, temperature=0.3, max_tokens=2000, timeout=120, dimension="pip
     with urllib.request.urlopen(req, timeout=timeout) as r:
         resp = json.loads(r.read().decode())
     msg = (resp.get("choices") or [{}])[0].get("message") or {}
-    _report_usage(resp.get("usage"), dimension)  # ★按维度记账
+    _report_usage(resp.get("usage"), dimension)  # 按维度记账
     return msg.get("content") or ""
 
 

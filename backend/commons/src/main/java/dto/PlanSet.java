@@ -6,10 +6,7 @@ import lombok.NoArgsConstructor;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * 多方案行程集合（功能4：多方案盲测对比）。
- * 一份需求产出多套差异化方案，供用户左右对比、选中后再细化。
- */
+/** 多方案行程集合（功能4：多方案盲测对比）。 */
 @Data
 @NoArgsConstructor
 public class PlanSet {

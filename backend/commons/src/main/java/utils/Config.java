@@ -1,13 +1,11 @@
 package utils;
 
-/**
- * 环境变量读取工具：带默认值，配置可配（可选覆盖，未设置时用默认值）
- */
+/** 环境变量读取工具：带默认值，配置可配（可选覆盖，未设置时用默认值） */
 public final class Config {
 
     private Config() {}
 
-    /** 读取字符串配置（空/未设置 → 默认值） */
+    /** 读取字符串配置（空/未设置 -> 默认值） */
     public static String get(String key, String def) {
         String v = System.getenv(key);
         return (v == null || v.isBlank()) ? def : v.trim();

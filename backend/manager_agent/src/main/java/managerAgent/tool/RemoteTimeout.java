@@ -32,9 +32,9 @@ public final class RemoteTimeout {
     private static int initialSeconds() {
         try {
             return normalize(Integer.parseInt(
-                    System.getenv().getOrDefault("REMOTE_TIMEOUT_SECONDS", "300").trim()));
+                    System.getenv().getOrDefault("REMOTE_TIMEOUT_SECONDS", "480").trim()));
         } catch (NumberFormatException e) {
-            return 300;
+            return 480;
         }
     }
 

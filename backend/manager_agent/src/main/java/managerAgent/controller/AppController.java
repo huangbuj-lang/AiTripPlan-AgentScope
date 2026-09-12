@@ -19,9 +19,7 @@ import utils.JsonUtils;
 import utils.SafeModel;
 import utils.ExternalServices;
 
-/**
- * 用户与Agent互动的HTTP接口
- */
+/** 用户与Agent互动的HTTP接口 */
 @Slf4j
 @RestController
 public class AppController {
@@ -29,12 +27,12 @@ public class AppController {
     @Resource
     private JdbcTemplate jdbcTemplate;
 
-    // 异步任务线程池：并发数量由 TASK_GATE 控制，线程空闲后自动回收
+    //异步任务线程池：并发数量由 TASK_GATE 控制，线程空闲后自动回收
     private static final java.util.concurrent.ExecutorService TASK_POOL =
             new java.util.concurrent.ThreadPoolExecutor(0, Integer.MAX_VALUE, 60L,
                     java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.SynchronousQueue<>());
 
-    // 并发闸门：支持 Nacos 运行时调整，非法值不生效
+    //并发闸门：支持 Nacos 运行时调整，非法值不生效
     private static final ConcurrencyGate TASK_GATE = new ConcurrencyGate(initialMax());
 
     /** 并发上限（管理端任务监控展示） */
@@ -46,9 +44,7 @@ public class AppController {
     /** 当前占用的并发槽数（管理端任务监控展示） */
     public static int inUseSlots() { return TASK_GATE.active(); }
 
-    /**
-     * HTTP入口：提交任务给主管Agent异步处理
-     */
+    /** HTTP入口：提交任务给主管Agent异步处理 */
     @RequestMapping(value = "/app", method = RequestMethod.POST)
     public String app(@RequestParam(name = "prompt", required = false, defaultValue = "帮我制定2026年元旦,深圳到惠州3日游自驾游计划，请包含吃住行，天气，酒店，餐饮美食。") String prompt,
                       @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
@@ -56,27 +52,27 @@ public class AppController {
                       @RequestParam(name = "skipPrefs", required = false, defaultValue = "false") boolean skipPrefs,
                       HttpSession session) {
 
-        // 获取并发槽位，失败则拒绝
+        //获取并发槽位，失败则拒绝
         syncConcurrency();
         if (!TASK_GATE.tryAcquire()) {
             return "⚠️ 有任务正在执行中（最多同时 " + TASK_GATE.max() + " 个），请等当前任务完成后再试！";
         }
 
-        // 绑定会话归属：防止他人凭 sessionId 越权读取/取消本用户任务
+        //绑定会话归属：防止他人凭 sessionId 越权读取/取消本用户任务
         Object userIdObj = session.getAttribute("userId");
         if (userIdObj != null) {
             EventStore.bindOwner(sessionId, ((Number) userIdObj).longValue());
         }
 
         EventStore.clear(sessionId); // 清空该会话的旧事件
-        utils.CallTrace.clear(sessionId); // ★清空调用链旧span，防重复提交时新旧混染
+        utils.CallTrace.clear(sessionId); // 清空调用链旧span，防重复提交时新旧混染
         EventStore.startTask(sessionId, userIdObj instanceof Number n ? n.longValue() : -1); // 任务监控：登记开始
 
         TASK_POOL.submit(() -> {
             String taskStatus = "DONE"; // 任务最终状态（异常路径改写）
             try {
                 TripOrchestrator orchestrator = new TripOrchestrator(sessionId); // 确定性编排器（会话隔离）
-                // 用户画像注入：与用户输入放一起
+                //用户画像注入：与用户输入放一起
                 String profileLine = (userIdObj != null && !skipPrefs)
                         ? loadProfileTags(((Number) userIdObj).longValue()) : "";
                 String finalPrompt = profileLine + prompt;
@@ -89,7 +85,7 @@ public class AppController {
                         TripRequest.Preferences prefs = loadPreferences(((Number) userIdObj).longValue());
                         plan = orchestrator.run(finalPrompt, prefs);
                     } else {
-                        plan = orchestrator.run(finalPrompt); // 解析→偏好分类→并行DAG→聚合
+                        plan = orchestrator.run(finalPrompt); // 解析->偏好分类->并行DAG->聚合
                     }
                     EventStore.setResult(sessionId, JsonUtils.toJson(plan)); // 缓存结构化 JSON 结果（含降级 markdown 字段）
                 }
@@ -103,14 +99,14 @@ public class AppController {
             } finally {
                 TASK_GATE.release(); // 释放并发槽位
                 managerAgent.hook.EventStore.TaskMeta doneMeta = EventStore.finishTask(sessionId, taskStatus); // 登记结束并计数
-                persistObservation(sessionId, taskStatus, userIdObj, doneMeta); // ★观测落库：任务历史 + 调用链span
+                persistObservation(sessionId, taskStatus, userIdObj, doneMeta); // 观测落库：任务历史 + 调用链span
             }
         });
 
         return "✅ 任务已接收，正在后台执行中！请查看思考过程，完成后结果自动显示。";
     }
 
-    /** ★观测落库（任务终态）：task_history upsert + 调用链span合并三进程落库（异步线程，失败不影响主流程） */
+    /** 观测落库（任务终态）：task_history upsert + 调用链span合并三进程落库（异步线程，失败不影响主流程） */
     private static void persistObservation(String sessionId, String taskStatus, Object userIdObj,
                                            managerAgent.hook.EventStore.TaskMeta meta) {
         try {
@@ -119,7 +115,7 @@ public class AppController {
             int modelCalls = meta.modelCallsUsed > 0 ? (int) meta.modelCallsUsed : 0;
             utils.TracePersistence.upsertTask(sessionId, userId, taskStatus, meta.currentStep,
                     meta.submitMs, meta.lastActiveMs, modelCalls, "");
-            // ★成本落库：任务终态把主管内存累计+两子Agent tokens 写当日维度表
+            //成本落库：任务终态把主管内存累计+两子Agent tokens 写当日维度表
             try {
                 for (var e : utils.SafeModel.dimensionStatsSnapshot().entrySet()) {
                     long[] st = e.getValue();
@@ -141,7 +137,7 @@ public class AppController {
                     } catch (Exception ignore) { }
                 }
             } catch (Exception ignored) { }
-            // 调用链 span：合并主管(内存) + 两子Agent(/trace)，终态后一次性落库
+            //调用链 span：合并主管(内存) + 两子Agent(/trace)，终态后一次性落库
             java.util.List<Map<String, Object>> spans = new java.util.ArrayList<>(
                     utils.CallTrace.traceAsMaps(sessionId));
             for (String[] agent : new String[][]{{"路线", "8082"}, {"行程", "8085"}}) {
@@ -196,9 +192,7 @@ public class AppController {
         }
     }
 
-    /**
-     * 获取任务最终结果（未完成时返回提示）（按会话隔离）
-     */
+    /** 获取任务最终结果（未完成时返回提示）（按会话隔离） */
     @RequestMapping(value = "/result", method = RequestMethod.GET)
     public String result(@RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
                          HttpSession session) {
@@ -213,9 +207,7 @@ public class AppController {
         return r == null ? "⏳ 任务还在执行中..." : r;
     }
 
-    /**
-     * 中断当前任务
-     */
+    /** 中断当前任务 */
     @RequestMapping(value = "/cancel", method = RequestMethod.POST)
     public String cancel(@RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
                          HttpSession session) {
@@ -227,9 +219,7 @@ public class AppController {
         return "✅ 已发送中断请求，任务将在下一步停止。";
     }
 
-    /**
-     * 观测接口：返回本进程的模型调用次数（临时调试用）
-     */
+    /** 观测接口：返回本进程的模型调用次数（临时调试用） */
     @RequestMapping(value = "/stats", method = RequestMethod.GET)
     public java.util.Map<String, Object> stats() {
         java.util.Map<String, Object> m = new java.util.HashMap<>();
@@ -237,11 +227,7 @@ public class AppController {
         return m;
     }
 
-    /**
-     * 高德地名→经纬度代理（前端点击景点直接定位用）：
-     * 前端传景点名，后端调高德 Web服务 place/text 搜索，取第一个 POI 的经纬度返回。
-     * key 只在后端 .env 里，不暴露给前端。
-     */
+    /** 高德地名->经纬度代理（前端点击景点直接定位用）： 前端传景点名，后端调高德 Web服务 place/text 搜索，取第一个 POI 的经纬度返回。 */
     @RequestMapping(value = "/amap/geocode", method = RequestMethod.GET)
     public java.util.Map<String, Object> amapGeocode(
             @RequestParam(name = "name", required = false, defaultValue = "") String name,
@@ -258,7 +244,7 @@ public class AppController {
             return resp;
         }
         try {
-            // 高德 Web服务 place/text 关键词搜索
+            //高德 Web服务 place/text 关键词搜索
             String qs = "keywords=" + java.net.URLEncoder.encode(name.trim(), "UTF-8")
                     + "&output=json&key=" + key + "&offset=1&extensions=base";
             if (city != null && !city.isBlank()) {
@@ -276,7 +262,7 @@ public class AppController {
                 resp.put("error", "高德返回 HTTP " + code);
                 return resp;
             }
-            // 解析 pois[0].location（"经度,纬度"）
+            //解析 pois[0].location（"经度,纬度"）
             @SuppressWarnings("unchecked")
             java.util.Map<String, Object> json = new com.fasterxml.jackson.databind.ObjectMapper()
                     .readValue(body, java.util.Map.class);
@@ -312,7 +298,7 @@ public class AppController {
             return resp;
         }
     }
-/** 读用户沉淀偏好（user_preferences 表；关闭默认注入或无记录返回 null） */
+/** 读用户沉淀偏好（user_preferences 表； */
     private TripRequest.Preferences loadPreferences(long userId) {
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
@@ -336,10 +322,7 @@ public class AppController {
         }
     }
 
-    /**
- * 读用户画像标签，拼成"【用户画像】..."行注入主管。
-     * 无画像/异常返回空串，不影响主流程。
-     */
+    /** 读用户画像标签，拼成"【用户画像】..."行注入主管。 */
     private String loadProfileTags(Long userId) {
         if (userId == null) return "";
         try {

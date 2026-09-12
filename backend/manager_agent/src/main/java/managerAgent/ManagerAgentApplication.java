@@ -5,9 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import utils.NacosModelConfig;
 import utils.AgentRuntimeConfig;
 
-/**
- * 启动类：启动 Spring Boot Web 应用（HTTP入口 POST /app）
- */
+/** 启动类：启动 Spring Boot Web 应用（HTTP入口 POST /app） */
 @SpringBootApplication
 public class ManagerAgentApplication {
 

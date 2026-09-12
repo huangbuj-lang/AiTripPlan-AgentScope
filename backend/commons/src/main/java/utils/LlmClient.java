@@ -11,11 +11,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
-/**
- * ★项目统一大模型客户端（唯一出口）：
- * - 所有裸 LLM 调用（解析/分类/聚合/提取等）都走这里，改模型只动这一处
- * - 底层复用 AgentUtils.buildModel()（读 .env 的 MODEL_BASE_URL/MODEL_NAME/MODEL_API_KEY）
- */
+/** 项目统一大模型客户端（唯一出口）： - 所有裸 LLM 调用（解析/分类/聚合/提取等）都走这里，改模型只动这一处 - 底层复用 AgentUtils.buildModel()（读 .env 的 MODEL_BASE_URL/MODEL_NAME/MODEL_API_KEY） */
 public final class LlmClient {
 
     private LlmClient() {}
@@ -34,10 +30,7 @@ public final class LlmClient {
         return sharedModel;
     }
 
-    /**
-     * 同步调用：sysPrompt + userPrompt → 文本。失败返回空串。
-     * timeoutMillis 默认 120000；jsonMode=true 时附加 response_format: json_object
-     */
+    /** 同步调用：sysPrompt + userPrompt -> 文本。 */
     public static String chat(String sysPrompt, String userPrompt, boolean jsonMode, long timeoutMillis) {
         Msg system = Msg.builder().role(MsgRole.SYSTEM)
                 .content(TextBlock.builder().text(sysPrompt).build()).build();
@@ -63,7 +56,7 @@ public final class LlmClient {
         }
     }
 
-    /** ★热更后调用：丢弃缓存模型实例，下次 model() 用 ModelConfigHolder 新配置重建 */
+    /** 热更后调用：丢弃缓存模型实例，下次 model() 用 ModelConfigHolder 新配置重建 */
     public static void reset() {
         sharedModel = null;
     }

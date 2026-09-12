@@ -24,6 +24,24 @@
   .form-msg { font-size:13px; margin-top:10px; } .form-msg.ok { color:#00b894; } .form-msg.err { color:#e17055; }
   .hint { font-size:12px; color:#b2bec3; margin-top:4px; }
   .back-link { display:inline-block; margin-bottom:16px; color:#0984e3; font-size:14px; text-decoration:none; }
+  /* ---- 下拉框美化（仅本页）：版块 / 关联行程 → 圆角自定义下拉（原生 <select> 只留取值，不改任何 JS 逻辑）---- */
+  .np-dd { position: relative; }
+  .np-dd select { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
+  .np-dd-btn { width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:11px 14px; border:1px solid #dfe6e9; border-radius:12px; background:#fff; color:#2d3436;
+    font-size:14px; cursor:pointer; text-align:left; transition:border-color .15s, box-shadow .15s; }
+  .np-dd-btn:hover { border-color:#cfe0da; }
+  .np-dd.open .np-dd-btn { border-color:#00b894; box-shadow:0 0 0 4px rgba(0,184,148,.10); }
+  .np-dd-ar { color:#74857F; font-size:12px; transition:transform .16s; }
+  .np-dd.open .np-dd-ar { transform:rotate(180deg); color:#00b894; }
+  .np-dd-menu { display:none; position:absolute; z-index:30; left:0; right:0; top:calc(100% + 6px);
+    max-height:280px; overflow:auto; background:#fff; border:1px solid #eef2f1; border-radius:12px;
+    box-shadow:0 10px 28px rgba(9,132,227,.12); padding:6px; }
+  .np-dd.open .np-dd-menu { display:block; }
+  .np-dd-item { padding:9px 12px; border-radius:9px; font-size:14px; color:#2d3436; cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .np-dd-item:hover { background:#f2f7f5; }
+  .np-dd-item.on { background:#e9f7f2; color:#1a8a72; font-weight:600; }
 </style>
 <link rel="stylesheet" href="css/travel-theme.css?v=20260828a">
 </head>

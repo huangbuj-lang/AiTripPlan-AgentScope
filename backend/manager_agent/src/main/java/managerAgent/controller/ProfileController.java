@@ -11,10 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 个人中心接口（P0）：资料编辑 / 修改密码 / 旅行偏好 / 注销账号。
- * 资料（昵称/头像/邮箱/简介）存 user_profiles，认证核心仍在 users 表。
- */
+/** 个人中心接口（P0）：资料编辑 / 修改密码 / 旅行偏好 / 注销账号。 */
 @RestController
 @RequestMapping("/api/profile")
 public class ProfileController {
@@ -66,7 +63,7 @@ public class ProfileController {
         ensureProfile(uid);
         Map<String, Object> result = new HashMap<>();
         try {
-            // 邮箱去重（非空才唯一）；空串转 NULL
+            //邮箱去重（非空才唯一）
             String em = (email == null || email.isBlank()) ? null : email.trim();
             if (em != null) {
                 Integer cnt = jdbcTemplate.queryForObject(
@@ -114,9 +111,9 @@ public class ProfileController {
             return result;
         }
         String newHashed = passwordEncoder.encode(newPassword);
-        // bump pwd_version → 其它会话在 LoginInterceptor 校验失败被强制下线
+        //bump pwd_version -> 其它会话在 LoginInterceptor 校验失败被强制下线
         jdbcTemplate.update("UPDATE users SET password = ?, pwd_version = pwd_version + 1 WHERE id = ?", newHashed, uid);
-        // 当前会话同步新版本号，保持登录
+        //当前会话同步新版本号，保持登录
         session.setAttribute("pwdVersion", ((Number) jdbcTemplate.queryForMap(
                 "SELECT pwd_version FROM users WHERE id = ?", uid).get("pwd_version")).intValue());
         result.put("success", true);
@@ -159,7 +156,7 @@ public class ProfileController {
                                                  HttpSession session) {
         long uid = userId(session);
         Map<String, Object> result = new HashMap<>();
-        // 校验 JSON 数组合法性
+        //校验 JSON 数组合法性
         if (travelStyle != null && !travelStyle.isBlank() && JsonUtils.parseStringList(travelStyle) == null) {
             result.put("success", false);
             result.put("message", "风格标签格式非法");
@@ -178,7 +175,7 @@ public class ProfileController {
                 "ON DUPLICATE KEY UPDATE travel_style=VALUES(travel_style), budget_level=VALUES(budget_level), " +
                 "pace=VALUES(pace), avoid_list=VALUES(avoid_list), use_by_default=VALUES(use_by_default)",
                 uid, style, budgetLevel, pace, avoid, useByDefault == null ? 1 : useByDefault);
-        managerAgent.tool.ProfileHook.trigger(uid); // ★主动偏好变化→画像即时更新
+        managerAgent.tool.ProfileHook.trigger(uid); // 主动偏好变化->画像即时更新
         result.put("success", true);
         result.put("message", "偏好已保存");
         return result;

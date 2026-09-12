@@ -13,10 +13,7 @@ import java.util.Properties;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Nacos model configuration. Nacos is the source of truth after publishing;
- * local .env values are only bootstrap fallbacks.
- */
+/** Nacos model configuration. */
 @Slf4j
 public final class NacosModelConfig {
 
@@ -108,11 +105,7 @@ public final class NacosModelConfig {
         return fallback;
     }
 
-    /**
-     * Returns the python section from the latest Nacos snapshot. An empty map means
-     * Nacos was loaded but does not define a python section yet; null means no
-     * Nacos snapshot has been received.
-     */
+    /** Returns the python section from the latest Nacos snapshot. */
     public static Map<String, Object> pythonConfig() {
         Map<String, Object> root = latestConfig;
         if (root == null) return null;
@@ -124,10 +117,7 @@ public final class NacosModelConfig {
         return python;
     }
 
-    /**
-     * Returns the orchestration section from the latest Nacos snapshot. The same
-     * null/empty contract as {@link #pythonConfig()} applies.
-     */
+    /** Returns the orchestration section from the latest Nacos snapshot. */
     public static Map<String, Object> orchestrationConfig() {
         Map<String, Object> root = latestConfig;
         if (root == null) return null;
@@ -139,10 +129,7 @@ public final class NacosModelConfig {
         return orchestration;
     }
 
-    /**
-     * Returns direct LLM call timeouts. These are separate from the A2A
-     * orchestration timeout because a remote agent may make many model calls.
-     */
+    /** Returns direct LLM call timeouts. */
     public static Map<String, Object> timeoutsConfig() {
         Map<String, Object> root = latestConfig;
         if (root == null) return new LinkedHashMap<>();
@@ -180,7 +167,7 @@ public final class NacosModelConfig {
             Double qps = num(section.get("qps"));
             if (qps != null) SafeModel.setMaxQps(qps);
             Integer inflight = intVal(section.get("maxInflight"));
-            if (inflight != null) SafeModel.setMaxInflight(inflight); // ★在途并发上限热更
+            if (inflight != null) SafeModel.setMaxInflight(inflight); // 在途并发上限热更
             Integer retries = intVal(section.get("maxRetries"));
             if (retries != null) SafeModel.setMaxRetries(retries);
             Long retryBase = longVal(section.get("retryBaseMs"));

@@ -10,10 +10,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Subscribes named prompts from Nacos Prompt management. Missing prompts fall
- * back to the compiled defaults until they are created in Nacos.
- */
+/** Subscribes named prompts from Nacos Prompt management. */
 @Slf4j
 public final class AgentPromptStore {
 

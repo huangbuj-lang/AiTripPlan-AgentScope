@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 LLM 补数据：用 py 侧统一模型（llm_config）生成
   景点: ticket_price门票/is_free免费/visit_duration时长/intro简介/booking_required预约/suitable_tags适合人群
@@ -21,8 +21,8 @@ RDS_HOST = ENV.get("RDS_HOST", "127.0.0.1:3306")
 RDS_USER = ENV.get("RDS_USER", "root")
 RDS_PASS = ENV.get("RDS_PASSWORD", "")
 
-# 模型走 llm_config 统一配置（管理端可热更）
-from llm_config import get_llm_config  # ★统一模型配置（管理端可热更）
+#模型走 llm_config 统一配置（管理端可热更）
+from llm_config import get_llm_config  # 统一模型配置（管理端可热更）
 _CFG = get_llm_config()
 OR_KEY, OR_URL, OR_MODEL = _CFG["key"], _CFG["url"].rstrip("/") + "/chat/completions", _CFG["name"]
 
@@ -65,7 +65,7 @@ def main():
     force = "--force" in sys.argv
     cities = [a for a in sys.argv[1:] if not a.startswith("--")]
     where_city = f" AND city IN ({','.join(chr(39)+c+chr(39) for c in cities)})" if cities else ""
-    # 只补头部：景点 rating>=4.0 且缺 intro；美食酒店全部（量小按需扩）
+    #只补头部：景点 rating>=4.0 且缺 intro；
     cond = "" if force else " AND (intro IS NULL OR intro='')"
     spots = sql(f"SELECT src_id, name, city, types FROM attractions_features WHERE rating>=4.0{cond}{where_city} ORDER BY rating DESC LIMIT 400")
     print(f"待补景点: {len(spots)}")

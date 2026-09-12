@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 一键数据更新管线：采集 → 预处理 → 高德v5经验 → 景区等级 → LLM补充
 - 幂等可重复跑；LLM 步骤只补缺失字段（不覆盖已有）
@@ -16,7 +16,7 @@ STEPS = [
     ("高德v5经验(rectag/开放时间)", "enrich.py", True),
     ("景区等级(5A名录)", "enrich_grade.py", True),
     ("LLM补充(门票/时长/简介等)", "enrich_llm.py", "--skip-llm" not in sys.argv),
-    # 看板派生数据刷新（extract_pref单用户按需，由PlanController.savePlan异步调用，不在此列）
+    #看板派生数据刷新（extract_pref单用户按需，由PlanController.savePlan异步调用，不在此列）
     ("动态定价(三行基准:酒店/餐饮/门票)", "pricing.py", True),
     ("客流预测(未来7天指数)", "forecast.py", True),
     ("用户画像聚合(行为→标签)", "profile.py", True),

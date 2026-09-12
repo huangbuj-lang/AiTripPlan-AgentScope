@@ -1,12 +1,4 @@
-/* ============================================================
-   admin.js — 管理控制台 v2（admin.html）
-   侧边栏页签 + 系统脉搏条 + 全部接口渲染
-   交互纪律：
-   · 点击逻辑 —— 所有写操作按钮点击即进入忙碌态（spinner+disabled），
-     完成后恢复；危险操作二次确认；失败给出可重试出口。
-   · 等待逻辑 —— 数据区加载先显示骨架屏；自动刷新页签显示
-     「每 Ns 自动刷新」标签；请求失败显示带「重试」按钮的状态盒。
-   ============================================================ */
+/** admin.js 管理控制台全部前端逻辑。 */
 
 let currentTab = 'status';
 let statusTimer = null, tasksTimer = null;
@@ -133,6 +125,25 @@ function renderPulseFromAgents(agents) {
     });
 }
 
+/* 指标卡溢出跑马灯：数据左靠齐单行不换行，内容装不下时注入右→左无缝循环动画（两段等宽副本 -50% 位移） */
+function applyCardMarquee(root) {
+    if (!root) return;
+    root.querySelectorAll('.metric .num, .metric .label').forEach(el => {
+        if (el.dataset.mqDone || el.scrollWidth <= el.clientWidth + 1) return;
+        el.dataset.mqDone = '1';
+        const t = el.textContent;
+        el.textContent = '';
+        const tr = document.createElement('div');
+        tr.className = 'mq-track';
+        [0, 1].forEach(() => {
+            const s = document.createElement('span');
+            s.textContent = t;
+            tr.appendChild(s);
+        });
+        el.appendChild(tr);
+    });
+}
+
 /* ============ 系统状态 ============ */
 function loadStatus(btn) {
     const done = btnBusy(btn, '刷新中...');
@@ -140,6 +151,7 @@ function loadStatus(btn) {
         done();
         const b = document.getElementById('statusBody');
         if (!d.success) { b.innerHTML = '<div class="state-box">加载失败</div>'; return; }
+        if (btn) toast('系统状态已刷新');
         renderPulseFromStatus(d);
         const nacosBadge = d.nacos.connected ? '<span class="badge ok">已连接</span>' : '<span class="badge bad">未连接</span>';
         let agentsHtml = d.agents.map(a => {
@@ -182,6 +194,7 @@ function loadTasks(btn) {
             '<div class="card metric"><div class="num teal">' + (d.countDone || 0) + '</div><div class="label">已完成（本次进程运行）</div></div>' +
             '<div class="card metric"><div class="num' + ((d.countFailed || 0) > 0 ? ' red' : '') + '">' + (d.countFailed || 0) + '</div><div class="label">失败次数</div></div>' +
             '<div class="card metric"><div class="num' + ((d.failRate || 0) > 20 ? ' red' : ' teal') + '">' + (d.failRate || 0) + '%</div><div class="label">失败率</div></div>';
+        applyCardMarquee(s);
 
         // 运行中任务表（当前步骤列是核心：回答"它卡在哪了"）
         const b = document.getElementById('taskBody');
@@ -216,7 +229,8 @@ function loadTasks(btn) {
                 '<td>' + esc(x.currentStep || '—') + '</td></tr>').join('') +
               '</tbody></table>'
             : '<div class="state-box"><div class="big">📭</div>暂无历史任务<br><span style="font-size:12px">任务结束后自动归档到这里</span></div>';
-    }).catch(() => { if (btn) btn.disabled = false; errBox('taskHistoryBody', '任务监控加载失败', 'loadTasks'); });
+        if (btn) toast('任务监控已刷新');
+    }).catch(() => { done(); errBox('taskHistoryBody', '任务监控加载失败', 'loadTasks'); });
 }
 
 function forceCancel(sessionId) {
@@ -231,8 +245,14 @@ function forceCancel(sessionId) {
 
 /* ============ 子Agent健康 ============ */
 function loadAgentsHealth(btn) {
-    const done = btnBusy(btn, '检测中...');
-    fetchJson('/api/admin/agents/health').then(d => {
+    const done = btnBusy(btn, '刷新中...');
+    // 两请求并行：健康状态 + 工具统计一次拿齐后同帧渲染（原 tools 二次插入导致刷新时卡片先矮后高、页面抖动）
+    // 另并行取 /costs 的缓存命中统计（主管进程 PlanCache）-> 并进主管卡展示
+    Promise.all([
+        fetchJson('/api/admin/agents/health'),
+        fetchJson('/api/admin/tools').catch(() => null),
+        fetchJson('/api/admin/costs').catch(() => null)
+    ]).then(([d, td, cd]) => {
         done();
         const b = document.getElementById('agentsHealthBody');
         const el = document.getElementById('agentsRefreshTime');
@@ -258,12 +278,13 @@ function loadAgentsHealth(btn) {
                   '<div class="kv"><span>在途并发</span><b class="num-cell">' + a.inflightActive + '/' + a.maxInflight + '</b></div>' +
                   '<div class="kv"><span>熔断器</span><b style="color:' + (a.breakerOpen ? '#F87171' : 'var(--ok)') + '">' + (a.breakerOpen ? '已熔断' : '正常') + '</b></div>' +
                   '<div class="kv"><span>QPS 限速</span><b class="num-cell">' + a.qps + '/s</b></div>' +
-                  '<div class="kv"><span>Token 消耗</span><b class="num-cell">入' + (a.tokensIn / 10000).toFixed(1) + '万 · 出' + (a.tokensOut / 10000).toFixed(1) + '万</b></div>'
+                  '<div class="kv"><span>Token 消耗</span><b class="num-cell">入' + (a.tokensIn / 10000).toFixed(1) + '万 · 出' + (a.tokensOut / 10000).toFixed(1) + '万</b></div>' +
+                  (cd && cd.cache ? '<div class="kv"><span>结果缓存命中率</span><b style="color:var(--teal)" title="命中 ' + (cd.cache.hits || 0) + ' 次 · 未中 ' + (cd.cache.misses || 0) + ' 次 · 存量 ' + (cd.cache.size || 0) + ' 条（进程内存，重启清零）">' + (cd.cache.hitRate != null ? cd.cache.hitRate : 0) + '%</b></div>' : '')
                 : '<div class="kv"><span>模型调用次数</span><b class="num-cell">' + (a.modelCalls >= 0 ? a.modelCalls : '—') + '</b></div>') +
             (!isMgr(a) ? lkBlock(a) : '') + '</div>'
         ).join('');
-        // ★工具层细粒度成功率（/api/admin/tools）：折叠块注入各健康卡片
-        fetchJson('/api/admin/tools').then(td => {
+        // 工具层细粒度成功率：td 已与主数据并行取回，同步注入（同帧渲染）
+        if (td) {
             (td.agents || []).forEach(ta => {
                 if (!ta.alive) return;
                 const card = b.querySelector('[data-agent="' + CSS.escape(ta.label) + '"]');
@@ -280,11 +301,12 @@ function loadAgentsHealth(btn) {
                 html += '</table>';
                 card.insertAdjacentHTML('beforeend', html);
             });
-        }).catch(() => {});
+        }
         // 页签圆点：有不健康 Agent 时提示
         const dotEl = document.getElementById('dot-agents');
         if (dotEl) dotEl.classList.toggle('on', d.agents.some(a => !a.alive || a.light === 'yellow'));
-    }).catch(() => { if (btn) btn.disabled = false; errBox('agentsHealthBody', '健康检测失败', 'loadAgentsHealth'); });
+        if (btn) toast('Agent健康已刷新');
+    }).catch(() => { done(); errBox('agentsHealthBody', '健康检测失败', 'loadAgentsHealth'); });
 }
 
 
@@ -307,7 +329,8 @@ function lkBlock(a) {
 }
 
 /* ============ 模型监控 ============ */
-function loadBreaker() {
+function loadBreaker(btn) {
+    const done = btnBusy(btn, '刷新中...');
     const b = document.getElementById('breakerBody');
     fetchJson('/api/admin/breaker').then(d => {
         loadModelConfig();
@@ -324,7 +347,7 @@ function loadBreaker() {
         const stateCn = { CLOSED: '正常（CLOSED）', OPEN: '熔断中（OPEN）', HALF_OPEN: '半开试探（HALF_OPEN）' }[d.state] || d.state;
         b.innerHTML =
             '<div class="breaker-banner ' + d.state + '">熔断器状态：<b>' + stateCn + '</b></div>' +
-            '<div class="card-grid cols-metric">' +
+            '<div class="card-grid cols-3">' +
             '<div class="card metric"><div class="num' + (d.consecutiveFailures > 0 ? ' red' : ' teal') + '">' + d.consecutiveFailures + '</div><div class="label">窗口内失败次数</div></div>' +
             '<div class="card metric"><div class="num">' + d.maxQps + '</div><div class="label">限速 QPS</div></div>' +
             '<div class="card metric"><div class="num' + (d.inflightActive >= d.maxInflight ? ' red' : '') + '">' + d.inflightActive + '/' + d.maxInflight + '</div><div class="label">模型在途/上限</div></div>' +
@@ -333,7 +356,10 @@ function loadBreaker() {
             '<div class="card metric"><div class="num model-name">' + esc(d.fallbackModel) + '</div><div class="label">备用模型（熔断降级）</div></div>' +            '</div>';
         const dotEl = document.getElementById('dot-breaker');
         if (dotEl) dotEl.classList.toggle('on', d.state !== 'CLOSED');
-    }).catch(() => errBox('breakerBody', '熔断器状态加载失败', 'loadBreaker'));
+        applyCardMarquee(b);
+        done();
+        if (btn) toast('模型配置已刷新');
+    }).catch(() => { done(); errBox('breakerBody', '熔断器状态加载失败', 'loadBreaker'); });
 }
 
 /* ============ LLM 成本观测 ============ */
@@ -345,19 +371,11 @@ function fmtTok(n) {
 }
 function loadCosts() {
     fetchJson('/api/admin/costs').then(d => {
+        // 结果缓存命中率已并入「Agent健康-主管Agent卡」（进程级指标），模型监控不再单独设卡
         const sum = document.getElementById('costsSummary');
-        const t = d.total || {};
-        const c = d.cache || {};
-        const hitRate = (c.hitRate != null ? c.hitRate : 0) + '%';
-        sum.innerHTML =
-            '<div class="card metric"><div class="num teal">' + (t.calls || 0) + '</div><div class="label">主管模型调用次数</div></div>' +
-            '<div class="card metric"><div class="num">' + fmtTok(t.inputTokens) + '</div><div class="label">输入 tokens</div></div>' +
-            '<div class="card metric"><div class="num">' + fmtTok(t.outputTokens) + '</div><div class="label">输出 tokens</div></div>' +
-            '<div class="card metric"><div class="num teal">' + (d.calls_RouteMakingAgent != null && d.calls_RouteMakingAgent >= 0 ? d.calls_RouteMakingAgent : '—') + '</div><div class="label">路线Agent调用次数</div></div>' +
-            '<div class="card metric"><div class="num teal">' + (d.calls_TripPlannerAgent != null && d.calls_TripPlannerAgent >= 0 ? d.calls_TripPlannerAgent : '—') + '</div><div class="label">行程Agent调用次数</div></div>' +
-            '<div class="card metric" title="结果缓存：命中 ' + (c.hits || 0) + ' 次 / 未中 ' + (c.misses || 0) + ' 次，当前存量 ' + (c.size || 0) + ' 条（重启清零）"><div class="num teal">' + hitRate + '</div><div class="label">结果缓存命中率</div><div class="sub">命中 ' + (c.hits || 0) + ' · 未中 ' + (c.misses || 0) + ' · 存量 ' + (c.size || 0) + '</div></div>';
-        // ★维度表固定显示全部已知维度（任务/管线/论坛AI + 后端实际返回的子Agent行），无数据补 0，不再空缺
-        // ★数据管线是py侧独立模型处理，不经主管，不在本表展示
+        if (sum) sum.innerHTML = '';
+        // 维度表固定显示全部已知维度（任务/管线/论坛AI + 后端实际返回的子Agent行），无数据补 0，不再空缺
+        // 数据管线是py侧独立模型处理，不经主管，不在本表展示
         const FIXED_DIMS = [['任务(用户行程)', 'task'], ['论坛AI答主', 'forum']];
         const dims = d.dimensions || [];
         const byName = {};
@@ -369,7 +387,7 @@ function loadCosts() {
             rows.map(x => '<tr><td>' + esc(x.dimension) + '</td><td class="num-cell">' + x.calls + '</td>' +
                 '<td class="num-cell">' + fmtTok(x.inputTokens) + '</td><td class="num-cell">' + fmtTok(x.outputTokens) + '</td></tr>').join('') +
             '</tbody></table>';
-        // ★近7日成本趋势（DB 落库历史）
+        // 近7日成本趋势（DB 落库历史）
         const trend = d.trend || [];
         const trendEl = document.getElementById('costsTrend');
         if (trendEl) {
@@ -408,7 +426,7 @@ function aggState(items) {
     return 'warn';
 }
 
-/* ★尝试折叠成说明文字：第1次调用失败(原因)/第2次调用成功 */
+/* 尝试折叠成说明文字：第1次调用失败(原因)/第2次调用成功 */
 function attemptsText(atts) {
     if (!atts || !atts.length) return '';
     return atts.map(a => {
@@ -482,7 +500,7 @@ function showTrace(sessionId) {
         const buckets = { '': [], '行程': [], '路线': [] };
         spans.forEach(sp => { (buckets[sp.agent || ''] || buckets['']).push(sp); });
         const nodes = [];
-        // 主管Agent → LLM调用
+        // 主管Agent -> LLM调用
         const mgrLlm = buckets[''].filter(x => x.layer === 'LLM');
         if (mgrLlm.length) {
             nodes.push({
@@ -517,7 +535,7 @@ function showTrace(sessionId) {
         nodes.forEach((n, i) => { html += agentRow(n, i); });
         html += '</tbody></table></div>';
         b.innerHTML = html;
-        // ★标准树折叠：初始全部展开；点父行=收起整个子树；再点=展开下一层（子层重置为收起）
+        // 标准树折叠：初始全部展开；
         b.querySelectorAll('tr.trace-agent, tr.trace-group').forEach(tr => {
             tr.classList.add('open'); // 初始展开态
             tr.addEventListener('click', () => {
@@ -543,10 +561,13 @@ function showTrace(sessionId) {
 }
 
 /* ============ 数据管理 ============ */
-function loadData() { loadUsers(); loadPlans(); }
+function loadData(btn) {
+    const done = btnBusy(btn, '刷新中...');
+    Promise.allSettled([loadUsers(), loadPlans()]).then(() => { done(); if (btn) toast('数据管理已刷新'); });
+}
 
 function loadUsers() {
-    fetchJson('/api/admin/users').then(d => {
+    return fetchJson('/api/admin/users').then(d => {
         const b = document.getElementById('usersBody');
         if (!d.users.length) { b.innerHTML = '<div class="state-box"><div class="big">👤</div>暂无用户</div>'; return; }
         const rows = d.users.map(u => {
@@ -559,7 +580,7 @@ function loadUsers() {
 }
 
 function loadPlans() {
-    fetchJson('/api/admin/plans').then(d => {
+    return fetchJson('/api/admin/plans').then(d => {
         const b = document.getElementById('plansBody');
         if (!d.plans.length) { b.innerHTML = '<div class="state-box"><div class="big">🗺️</div>暂无行程</div>'; return; }
         const rows = d.plans.map(p =>
@@ -585,9 +606,11 @@ function deletePlan(id) {
 }
 
 /* ============ 内容审核 ============ */
-function loadModeration() {
+function loadModeration(btn) {
+    const done = btnBusy(btn, '刷新中...');
     const b = document.getElementById('moderationBody');
     fetchJson('/api/admin/moderation/queue').then(d => {
+        done();
         if (!d.success) { b.innerHTML = '<div class="state-box">加载失败</div>'; return; }
         const typeCn = t => t === 1 ? '帖子' : '评论';
         const reportsHtml = (d.reports || []).map(x =>
@@ -622,7 +645,8 @@ function loadModeration() {
                 : '<div class="state-box">无被隐藏帖子</div>') +
             (hiddenCommentsHtml
                 ? '<div class="table-wrap" style="margin-top:10px"><table><tbody>' + hiddenCommentsHtml + '</tbody></table></div>' : '');
-    }).catch(() => errBox('moderationBody', '审核队列加载失败', 'loadModeration'));
+        if (btn) toast('内容审核已刷新');
+    }).catch(() => { done(); errBox('moderationBody', '审核队列加载失败', 'loadModeration'); });
 }
 
 function resolveReport(id) {
@@ -640,14 +664,16 @@ function modAction(type, id, action) {
 }
 
 /* ============ 业务看板 ============ */
-function loadBusiness() {
+function loadBusiness(btn) {
+    const done = btnBusy(btn, '刷新中...');
     fetchJson('/api/admin/stats/business').then(d => {
+        done();
         const b = document.getElementById('businessBody');
         if (!d.success) { b.innerHTML = '<div class="state-box">加载失败</div>'; return; }
         const hot = (d.hotDestinations || []).map((x, i) =>
             '<tr><td>' + (i < 3 ? '<b style="color:var(--teal)">#' + (i + 1) + '</b>&nbsp;&nbsp;' : '') + esc(x.destination) + '</td><td class="num-cell">' + x.cnt + '</td></tr>').join('');
         b.innerHTML =
-            '<div class="card-grid cols-metric">' +
+            '<div class="card-grid cols-3">' +
             '<div class="card metric"><div class="num teal">' + d.totalUsers + '</div><div class="label">总用户</div></div>' +
             '<div class="card metric"><div class="num">' + d.dau + '</div><div class="label">今日活跃（DAU）</div></div>' +
             '<div class="card metric"><div class="num">' + d.totalPlans + '</div><div class="label">累计行程</div></div>' +
@@ -659,7 +685,9 @@ function loadBusiness() {
             (hot
                 ? '<div class="table-wrap"><table><thead><tr><th>目的地</th><th>生成次数</th></tr></thead><tbody>' + hot + '</tbody></table></div>'
                 : '<div class="state-box"><div class="big">🏔️</div>暂无数据</div>');
-    }).catch(() => errBox('businessBody', '业务看板加载失败', 'loadBusiness'));
+        applyCardMarquee(b);
+        if (btn) toast('业务看板已刷新');
+    }).catch(() => { done(); errBox('businessBody', '业务看板加载失败', 'loadBusiness'); });
 }
 
 /* ============ 公告发布 ============ */
@@ -691,18 +719,29 @@ function publishAnnouncement(btn) {
 }
 
 /* ============ 数据中心 ============ */
-/** 只跑 pricing.py（秒级），完成后刷新定价表（点击逻辑：按钮忙碌→完成恢复） */
+/** 只跑 pricing.py（秒级），完成后刷新定价表（点击逻辑：按钮忙碌->完成恢复） */
 function runPricing() {
-    const restore = btnBusy(document.getElementById('pricingRunBtn'), '定价更新中...');
+    const restore = btnBusy(document.getElementById('pricingRunBtn'), '更新中...');
     fetchJson('/api/admin/pricing/run', { method: 'POST' }).then(d => {
-        toast(d.message || (d.success ? '定价已更新' : '更新失败'), !d.success);
+        toast(d.success ? '定价已更新' : (d.message || '更新失败'), !d.success);
         restore();
         if (d.success) loadDataCenter();
     }).catch(() => { restore(); toast('请求失败', true); });
 }
 
-function loadDataCenter() {
-    // 统计卡片（可点击 → 明细弹窗）
+/* 客流预测专用：只跑本地统计（forecast.py 读 trip_plans 生成 forecast_output），不碰采集/定价管线。 */
+function runForecastLocal(btn) {
+    const restore = btnBusy(document.getElementById('forecastRunBtn'), '统计中...');
+    fetchJson('/api/admin/forecast/run', { method: 'POST' }).then(d => {
+        toast(d.success ? '客流预测已完成' : (d.message || '重算失败'), !d.success);
+        restore();
+        if (d.success) loadDataCenter();
+    }).catch(() => { restore(); toast('请求失败', true); });
+}
+
+function loadDataCenter(btn) {
+    const done = btnBusy(btn, '刷新中...');
+    // 统计卡片（可点击 -> 明细弹窗）
     fetchJson('/api/admin/data-stats').then(d => {
         const s = document.getElementById('centerStats');
         if (!d.success) { s.innerHTML = '<div class="state-box">加载失败</div>'; return; }
@@ -713,6 +752,7 @@ function loadDataCenter() {
         s.innerHTML = cards.map(c =>
             '<div class="card metric clickable" title="点击查看明细" onclick="showDataDetail(\'' + c[2] + '\')">' +
             '<div class="num teal">' + c[1] + '</div><div class="label">' + c[0] + '</div></div>').join('');
+        applyCardMarquee(s);
     }).catch(() => errBox('centerStats', '统计加载失败', 'loadDataCenter'));
 
     // 定价表
@@ -746,7 +786,9 @@ function loadDataCenter() {
     fetchJson('/api/admin/forecast').then(d => {
         window._fcRows = d.rows || [];
         renderFcTable();
-    }).catch(() => {});
+        done();
+        if (btn) toast('数据中心已刷新');
+    }).catch(() => { done(); });
 
     let _fcChart = null;
     function renderFcTable() {
@@ -911,7 +953,7 @@ function renderDetailTable(kw) {
     });
     bodyEl.innerHTML = html + '</tbody></table>';
 }
-/* 行内编辑：整行单元格变输入框（点击逻辑：编辑→保存/取消 两态切换） */
+/* 行内编辑：整行单元格变输入框（点击逻辑：编辑->保存/取消 两态切换） */
 function editDetailRow(type, id, btn) {
     const tr = btn.closest('tr');
     const tds = [...tr.querySelectorAll('td')];
@@ -1055,7 +1097,7 @@ function stopPipeline(btn) {
     }).catch(() => { restore(); toast('请求失败', true); });
 }
 
-/* ============ ★模型配置热更 ============ */
+/* ============ 模型配置热更 ============ */
 const KEY_MASK = '••••••••';
 function applyKeyField(inputId, masked, placeholderWhenSet) {
     const input = document.getElementById(inputId);
@@ -1151,7 +1193,7 @@ function saveModelConfig() {
         .catch(() => { restore(); msg.textContent = '网络错误，配置未确认保存'; msg.className = 'msg-line err'; });
 }
 
-/* ============ ★Agent工具开关 ============ */
+/* ============ Agent工具开关 ============ */
 let agentConfig = null;
 
 function readAgentConfigInputs() {
@@ -1206,7 +1248,7 @@ function saveAgentConfig() {
         ? confirm('确认修改工具开关？\n\n保存后将重启 8082/8085 两个子Agent，路线和行程功能会短暂不可用。')
         : confirm('确认修改远程Agent调用开关？修改会立即保存并热生效。');
     if (!confirmed) {
-        renderAgentConfig(agentConfig); /* 取消 → 回滚勾选状态 */
+        renderAgentConfig(agentConfig); /* 取消 -> 回滚勾选状态 */
         return;
     }
 
@@ -1230,7 +1272,7 @@ function saveAgentConfig() {
         .finally(() => setAgentConfigBusy(false));
 }
 
-/* ============ ★高德凭证 ============ */
+/* ============ 高德凭证 ============ */
 let amapCredentials = null;
 
 function loadAmapCredentials() {

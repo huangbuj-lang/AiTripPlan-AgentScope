@@ -35,3 +35,7 @@ desktop.ini
 node_modules/
 __pycache__/
 *.pyc
+
+# ===== 敏感/大文件（含密钥或用户数据，绝不提交；本地存档不受影响） =====
+scripts/nacos-init/model-config.json
+database/data.sql

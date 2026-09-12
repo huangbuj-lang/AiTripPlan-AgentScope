@@ -15,9 +15,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * 模型安全装饰器单元测试
- */
+/** 模型安全装饰器单元测试 */
 class SafeModelTest {
 
     /** 可编排错误的桩模型 */
@@ -72,7 +70,7 @@ class SafeModelTest {
         assertEquals(1, primary.callCount);
     }
 
-    /** ★观测：LLM 失败时 span 说明里带分类后的原因（余额不足/认证/限流/5xx/连接重置/超时） */
+    /** 观测：LLM 失败时 span 说明里带分类后的原因（余额不足/认证/限流/5xx/连接重置/超时） */
     @Test
     void llmFailSpanCarriesClassifiedReason() {
         SafeModel.setSessionId("test-llm-fail");
@@ -89,7 +87,7 @@ class SafeModelTest {
         CallTrace.clear("test-llm-fail");
     }
 
-    /** ★观测：重试后成功的 LLM span 说明里标注重试次数 */
+    /** 观测：重试后成功的 LLM span 说明里标注重试次数 */
     @Test
     void llmRetrySuccessSpanMentionsRetries() {
         SafeModel.setSessionId("test-llm-retry");
@@ -113,7 +111,7 @@ class SafeModelTest {
                 new RuntimeException("500 Internal Server Error"),
                 new RuntimeException("500 Internal Server Error"));
         SafeModel safe = new SafeModel(primary, null);
-        // 默认重试3次：1次初始 + 3次重试 = 4次调用（指数退避约7秒）
+        //默认重试3次：1次初始 + 3次重试 = 4次调用（指数退避约7秒）
         assertThrows(RuntimeException.class, () -> safe.stream(null, null, null).blockLast());
         assertEquals(4, primary.callCount);
     }

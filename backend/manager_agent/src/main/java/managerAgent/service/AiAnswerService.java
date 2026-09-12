@@ -19,10 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 
-/**
- * AI 答主服务（阶段三）：问答版块异步生成 AI 候选回答，标注「AI 生成」，楼主可采纳。
- * ★并发子池：AI 回答任务进独立小闸门，不抢占主生成任务并发槽。
- */
+/** AI 答主服务（阶段三）：问答版块异步生成 AI 候选回答，标注「AI 生成」，楼主可采纳。 */
 @Slf4j
 @Component
 public class AiAnswerService {
@@ -37,11 +34,11 @@ public class AiAnswerService {
     /** AI 回答作为评论落库的保留用户 ID（无真实用户，前端按 is_ai 显示「AI答主」） */
     public static final long AI_USER_ID = 0L;
 
-    /** 异步生成 AI 回答：读帖子 → 生成 → 落评论(is_ai=1) → 通知楼主 */
+    /** 异步生成 AI 回答：读帖子 -> 生成 -> 落评论(is_ai=1) -> 通知楼主 */
     public void answerAsync(long postId, long requesterId) {
         AI_POOL.submit(() -> {
             if (!AI_SLOTS.tryAcquire()) {
-                // 并发子池满：直接返回，避免排队积压
+                //并发子池满：直接返回，避免排队积压
                 return;
             }
             try {
@@ -60,13 +57,13 @@ public class AiAnswerService {
                     log.warn("AI 答主生成空回答，postId={}", postId);
                     return;
                 }
-                String safe = answer.trim(); // ★兜底截断：老库content仍是varchar(1000)时不至于写失败丢回答
+                String safe = answer.trim(); // 兜底截断：老库content仍是varchar(1000)时不至于写失败丢回答
                 if (safe.length() > 900) safe = safe.substring(0, 900);
                 jdbcTemplate.update(
                         "INSERT INTO comments(post_id, user_id, content, is_ai) VALUES (?, ?, ?, 1)",
                         postId, AI_USER_ID, safe);
                 jdbcTemplate.update("UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?", postId);
-                // 通知楼主（type=4 AI 回答完成）
+                //通知楼主（type=4 AI 回答完成）
                 if (authorId != requesterId) {
                     notifyUser(authorId, 4, "AI 答主已回复你的问题", "/post.html?id=" + postId);
                 }
@@ -78,7 +75,7 @@ public class AiAnswerService {
         });
     }
 
-    /** 生成回答文本（★成本维度=forum：AI答主的LLM消耗单独记账） */
+    /** 生成回答文本（成本维度=forum：AI答主的LLM消耗单独记账） */
     private String generate(String title, String content) {
         return utils.CostDimension.runAs(utils.CostDimension.FORUM, () -> generate0(title, content));
     }

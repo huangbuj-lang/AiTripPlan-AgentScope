@@ -23,10 +23,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 行程二次编辑（阶段四 P2）：读取/保存结构化 TripPlanData，支持手动微调 + 增量重排某一天。
- * 复用第0步落库的 plan_json 作为编辑数据源，markdown 仅作降级兼容。
- */
+/** 行程二次编辑（阶段四 P2）：读取/保存结构化 TripPlanData，支持手动微调 + 增量重排某一天。 */
 @Slf4j
 @RestController
 @RequestMapping("/api/trips")
@@ -56,7 +53,7 @@ public class TripEditController {
         if (row.get("plan_json") != null) {
             plan = JsonUtils.parse(String.valueOf(row.get("plan_json")), TripPlanData.class);
         }
-        // ★plan_json 列可能为空（旧数据/前端早期版本只把 JSON 追加在 plan_content 尾部）——从 plan_content 兜底解析
+        //plan_json 列可能为空（旧数据/前端早期版本只把 JSON 追加在 plan_content 尾部）--从 plan_content 兜底解析
         if (plan == null && row.get("plan_content") != null) {
             String content = String.valueOf(row.get("plan_content"));
             final String mark = "<!--ATPLAN_JSON_START-->";
@@ -69,7 +66,7 @@ public class TripEditController {
                     Object parsed = JsonUtils.parse(raw, Map.class);
                     if (parsed instanceof Map<?, ?> m && m.containsKey("__planSet") && m.get("set") instanceof Map<?, ?> setMap
                             && setMap.get("plans") instanceof List<?> plans && !plans.isEmpty()) {
-                        // PlanSet（多方案）：编辑页用第一个方案
+                        //PlanSet（多方案）：编辑页用第一个方案
                         plan = JsonUtils.parse(JsonUtils.toJson(plans.get(0)), TripPlanData.class);
                     } else {
                         plan = JsonUtils.parse(raw, TripPlanData.class);
@@ -130,7 +127,7 @@ public class TripEditController {
         if (plan == null) {
             plan = new TripPlanData();
         }
-        // 定位第 dayIndex 天的 timeline 区块
+        //定位第 dayIndex 天的 timeline 区块
         int timelineIdx = 0;
         Section target = null;
         int targetSectionIdx = -1;
@@ -150,7 +147,7 @@ public class TripEditController {
             result.put("message", "未找到第 " + (dayIndex + 1) + " 天的行程");
             return result;
         }
-        // 调 LLM 重排该天
+        //调 LLM 重排该天
         String dayTitle = target.getTitle().isBlank() ? ("第" + (dayIndex + 1) + "天") : target.getTitle();
         String newJson = regenerateDaySection(plan, dayTitle, instruction);
         Section newSection = parseSection(newJson);
@@ -216,7 +213,7 @@ public class TripEditController {
         }
     }
 
-    /** 结构化行程 → markdown（降级字段，保持 plan_content 与 plan_json 一致） */
+    /** 结构化行程 -> markdown（降级字段，保持 plan_content 与 plan_json 一致） */
     private String renderMarkdown(TripPlanData plan) {
         StringBuilder sb = new StringBuilder();
         sb.append("# ").append(plan.getTitle()).append("\n\n");

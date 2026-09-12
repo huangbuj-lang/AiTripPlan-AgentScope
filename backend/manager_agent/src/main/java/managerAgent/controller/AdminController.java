@@ -25,10 +25,7 @@ import java.util.Map;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * 管理端接口（均需 admin 角色，由 AdminInterceptor 校验）。
- * 提供系统状态 / 任务监控 / 模型监控 / 数据管理四个维度的可观测与运营能力。
- */
+/** 管理端接口（均需 admin 角色，由 AdminInterceptor 校验）。 */
 @Slf4j
 @RestController
 @RequestMapping("/api/admin")
@@ -38,7 +35,7 @@ public class AdminController {
     private JdbcTemplate jdbcTemplate;
     private final AtomicBoolean agentRestarting = new AtomicBoolean();
 
-    // ==================== 系统状态 ====================
+    //==================== 系统状态 ====================
 
     /** 各 Agent 健康/注册状态、端口、Nacos 连接情况 */
     @GetMapping("/status")
@@ -93,7 +90,7 @@ public class AdminController {
         return a;
     }
 
-    // ==================== 任务监控 ====================
+    //==================== 任务监控 ====================
 
     /** 并发槽位占用 + 全部会话概览 */
     @GetMapping("/tasks")
@@ -102,13 +99,13 @@ public class AdminController {
         r.put("maxConcurrent", AppController.maxConcurrent());
         r.put("inUse", AppController.inUseSlots());
         r.put("sessions", EventStore.listSessions());
-        // 任务监控扩展：结果计数（本次进程运行以来）
+        //任务监控扩展：结果计数（本次进程运行以来）
         r.put("countDone", EventStore.COUNT_DONE.get());
         r.put("countFailed", EventStore.COUNT_FAILED.get());
         r.put("countCancelled", EventStore.COUNT_CANCELLED.get());
         long total = EventStore.COUNT_DONE.get() + EventStore.COUNT_FAILED.get() + EventStore.COUNT_CANCELLED.get();
         r.put("failRate", total > 0 ? Math.round(EventStore.COUNT_FAILED.get() * 1000.0 / total) / 10.0 : 0);
-        // 历史任务列表：内存(近期) + DB(落库历史) 合并去重，新的在前最多200条
+        //历史任务列表：内存(近期) + DB(落库历史) 合并去重，新的在前最多200条
         java.util.List<Map<String, Object>> history = new ArrayList<>();
         java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
         for (EventStore.TaskMeta meta : EventStore.listHistory()) {
@@ -136,7 +133,7 @@ public class AdminController {
             if (history.size() >= 200) break;
         }
         r.put("history", history);
-        // 正在运行任务的当前步骤
+        //正在运行任务的当前步骤
         java.util.List<Map<String, Object>> runningList = new ArrayList<>();
         for (Map<String, String> sessionInfo : listRunningSteps()) {
             runningList.add(new HashMap<>(sessionInfo));
@@ -146,7 +143,7 @@ public class AdminController {
         return r;
     }
 
-    /** 正在运行会话的当前步骤列表（sessionId → 最近事件类型） */
+    /** 正在运行会话的当前步骤列表（sessionId -> 最近事件类型） */
     private List<Map<String, String>> listRunningSteps() {
         List<Map<String, String>> out = new ArrayList<>();
         for (Map<String, Object> s : EventStore.listSessions()) {
@@ -177,11 +174,11 @@ public class AdminController {
         r.put("sessionId", sessionId);
         java.util.List<Map<String, Object>> spans = new java.util.ArrayList<>(utils.CallTrace.traceAsMaps(sessionId));
         boolean fromDb = false;
-        if (spans.isEmpty()) { // ★内存无（进程重启后）：从库恢复历史 span
+        if (spans.isEmpty()) { // 内存无（进程重启后）：从库恢复历史 span
             spans = utils.TracePersistence.loadSpans(sessionId);
             if (!spans.isEmpty()) fromDb = true;
         }
-        // 任务开始时间：过滤掉子Agent进程里同 sessionId 上次执行残留的旧 span
+        //任务开始时间：过滤掉子Agent进程里同 sessionId 上次执行残留的旧 span
         long taskStartMs = managerAgent.hook.EventStore.taskStartMs(sessionId);
         if (!fromDb) { // 库中已有完整合并结果，不再实时拉子Agent
         for (String[] agent : new String[][]{{"路线", "8082"}, {"行程", "8085"}}) {
@@ -206,7 +203,7 @@ public class AdminController {
             } catch (Exception ignored) { }
         }
         } // end if(!fromDb)
-        // 只保留关键层：LLM/A2A/TOOL（MCP 底层每轮 ReAct 都调、量大刷屏，且成败已反映在外层 TOOL 行）
+        //只保留关键层：LLM/A2A/TOOL（MCP 底层每轮 ReAct 都调、量大刷屏，且成败已反映在外层 TOOL 行）
         spans.removeIf(s -> !"LLM".equals(s.get("layer")) && !"A2A".equals(s.get("layer")) && !"TOOL".equals(s.get("layer")));
         spans.sort((a, b) -> Long.compare(
                 ((Number) a.getOrDefault("ts", 0L)).longValue(),
@@ -246,12 +243,12 @@ public class AdminController {
         }
         r.put("dimensions", dims);
         Map<String, Object> total = new HashMap<>();
-        // ★total 先=主管内存值；下方子Agent探活聚合后再累加合并
+        //total 先=主管内存值
         total.put("calls", totCalls);
         total.put("inputTokens", totIn);
         total.put("outputTokens", totOut);
         r.put("total", total);
-        // ★成本落库：把内存累计值 upsert 到当日维度表（历史趋势基础；重启后内存清零但DB保留当日已写值）
+        //成本落库：把内存累计值 upsert 到当日维度表
         try {
             for (var e : utils.SafeModel.dimensionStatsSnapshot().entrySet()) {
                 long[] st = e.getValue();
@@ -259,7 +256,7 @@ public class AdminController {
             }
         } catch (Exception ignored) { }
         r.put("trend", utils.TracePersistence.costTrend(7)); // 近7日按天趋势
-        // ★子Agent成本聚合：探活 /stats 拉 tokens 并进 total 与 dimensions
+        //子Agent成本聚合：探活 /stats 拉 tokens 并进 total 与 dimensions
         for (String[] agent : new String[][]{{"RouteMakingAgent", "路线Agent", "8082"}, {"TripPlannerAgent", "行程Agent", "8085"}}) {
             try {
                 java.net.URL u = new java.net.URL("http://localhost:" + agent[2] + "/stats");
@@ -290,7 +287,7 @@ public class AdminController {
             }
         }
         r.put("note", "进程内存值，重启清零");
-        // ★缓存监控回显：命中/未中/命中率/存量（PlanCache 内存计数，重启清零）
+        //缓存监控回显：命中/未中/命中率/存量（PlanCache 内存计数，重启清零）
         try {
             r.put("cache", utils.cache.PlanCache.stats());
         } catch (Exception ignored) {
@@ -300,7 +297,7 @@ public class AdminController {
         return r;
     }
 
-    /** ★Agent健康度：主管(本进程指标) + 子Agent(探活8082/8085 + 主管侧A2A成功率) 三卡综合 */
+    /** Agent健康度：主管(本进程指标) + 子Agent(探活8082/8085 + 主管侧A2A成功率) 三卡综合 */
     @GetMapping("/agents/health")
     public Map<String, Object> agentsHealth() {
         Map<String, Object> r = new HashMap<>();
@@ -327,7 +324,7 @@ public class AdminController {
         m.put("qps", utils.SafeModel.getMaxQps());
         m.put("tokensIn", utils.SafeModel.TOKENS_INPUT.get());
         m.put("tokensOut", utils.SafeModel.TOKENS_OUTPUT.get());
-        // A2A 字段默认值（主管不发起 A2A 调用）：与子Agent卡片一致显示 0/0/—
+        //A2A 字段默认值（主管不发起 A2A 调用）：与子Agent卡片一致显示 0/0/-
         m.put("a2aCalls", 0L);
         m.put("a2aFails", 0L);
         m.put("a2aSuccessRate", -1.0);
@@ -342,7 +339,7 @@ public class AdminController {
         a.put("name", name);
         a.put("label", label);
         a.put("port", port);
-        // 1. 探活：HTTP GET /stats，2s 连接/读取超时即视为挂
+        //1. 探活：HTTP GET /stats，2s 连接/读取超时即视为挂
         boolean alive = false;
         long uptimeMs = -1;
         int modelCalls = -1;
@@ -397,7 +394,7 @@ public class AdminController {
         a.put("toolCalls", a_toolCalls[0]);
         a.put("toolFails", a_toolFails[0]);
         a.put("toolAvgMs", a_toolCalls[0] > 0 ? a_toolCostMs[0] / a_toolCalls[0] : -1);
-        // 2. 主管侧 A2A 调用统计（RemoteAgentTool 埋点累计）
+        //2. 主管侧 A2A 调用统计（RemoteAgentTool 埋点累计）
         long calls = managerAgent.tool.RemoteAgentTool.AGENT_CALLS
                 .getOrDefault(name, new java.util.concurrent.atomic.AtomicLong()).get();
         long fails = managerAgent.tool.RemoteAgentTool.AGENT_FAILS
@@ -408,7 +405,7 @@ public class AdminController {
         a.put("a2aFails", fails);
         a.put("a2aSuccessRate", calls > 0 ? Math.round((calls - fails) * 1000.0 / calls) / 10.0 : -1); // 百分比，-1=无调用
         a.put("a2aAvgCostMs", calls > 0 ? costMs / calls : -1);
-        // 3. 综合灯色：绿=存活且成功率≥90%；黄=存活但失败率高；红=探活不通；灰=存活但从未被调用
+        //综合灯色：按存活与成功率分绿/黄/红/灰四级
         String light;
         if (!alive) light = "red";
         else if (calls == 0) light = "gray";
@@ -417,7 +414,7 @@ public class AdminController {
         return a;
     }
 
-    /** ★工具层细粒度观测：各子Agent的综合工具/知识库/内部MCP工具 调用数与成功率（探活 /stats 聚合） */
+    /** 工具层细粒度观测：各子Agent的综合工具/知识库/内部MCP工具 调用数与成功率（探活 /stats 聚合） */
     @GetMapping("/tools")
     public Map<String, Object> tools() {
         Map<String, Object> r = new HashMap<>();
@@ -479,12 +476,12 @@ public class AdminController {
         return o instanceof Number n ? n.longValue() : -1;
     }
 
-    // ==================== 模型监控 ====================
+    //==================== 模型监控 ====================
 
     /** 熔断器状态 / 失败计数 / 主备模型 / 限速 QPS */
-    // ==================== 模型配置热更 ====================
+    //==================== 模型配置热更 ====================
 
-    /** 读当前模型配置（key 打码显示；含主模型/备用模型/Python侧三组） */
+    /** 读当前模型配置（key 打码显示； */
     @GetMapping("/model-config")
     public Map<String, Object> getModelConfig() {
         Map<String, Object> r = new java.util.HashMap<>();
@@ -614,7 +611,7 @@ public class AdminController {
             config.put("python", python);
             Map<String, Object> limits = new java.util.LinkedHashMap<>();
             limits.put("qps", qps != null ? qps : utils.SafeModel.getMaxQps());
-            limits.put("maxInflight", maxInflight != null ? maxInflight : utils.SafeModel.getMaxInflight()); // ★在途并发
+            limits.put("maxInflight", maxInflight != null ? maxInflight : utils.SafeModel.getMaxInflight()); // 在途并发
             limits.put("maxRetries", maxRetries != null ? maxRetries : utils.SafeModel.getMaxRetries());
             limits.put("retryBaseMs", retryBaseMs != null ? retryBaseMs : utils.SafeModel.getRetryBaseMs());
             limits.put("breakerFailureThreshold", breakerFailureThreshold != null ? breakerFailureThreshold : utils.CircuitBreaker.getFailureThreshold());
@@ -676,10 +673,7 @@ public class AdminController {
         return new java.io.File(projectRoot(), "data-pipeline/llm_config.json");
     }
 
-    /**
-     * 项目根目录不能依赖 user.dir：IDE 或手动启动 jar 时，工作目录可能在 target。
-     * 向上查找同时包含 backend 与 data-pipeline 的目录，本地和云端部署都适用。
-     */
+    /** 项目根目录不能依赖 user.dir：IDE 或手动启动 jar 时，工作目录可能在 target。 */
     private java.io.File projectRoot() {
         try {
             String configured = Config.get("PROJECT_ROOT", "");
@@ -740,7 +734,7 @@ public class AdminController {
         r.put("primaryModel", utils.ModelConfigHolder.modelName());
         r.put("fallbackModel", utils.ModelConfigHolder.fbModelName());
         r.put("maxQps", utils.SafeModel.getMaxQps());
-        r.put("maxInflight", utils.SafeModel.getMaxInflight()); // ★在途并发上限
+        r.put("maxInflight", utils.SafeModel.getMaxInflight()); // 在途并发上限
         r.put("inflightActive", utils.SafeModel.getInflightActive()); // 当前在途数
         r.put("maxRetries", utils.SafeModel.getMaxRetries());
         r.put("retryBaseMs", utils.SafeModel.getRetryBaseMs());
@@ -751,9 +745,9 @@ public class AdminController {
         return r;
     }
 
-    // ==================== Agent 工具开关 ====================
+    //==================== Agent 工具开关 ====================
 
-    /** Read effective agent runtime switches. Missing Nacos config means all defaults are on. */
+    /** Read effective agent runtime switches. */
     @GetMapping("/agent-config")
     public Map<String, Object> getAgentConfig() {
         Map<String, Object> r = new HashMap<>();
@@ -769,7 +763,7 @@ public class AdminController {
         return r;
     }
 
-    /** Save switches to Nacos. Registration-time switches require rebuilding child toolkits. */
+    /** Save switches to Nacos. */
     @PostMapping("/agent-config")
     public Map<String, Object> saveAgentConfig(@RequestParam Boolean amap,
                                                @RequestParam Boolean localKnowledge,
@@ -816,7 +810,7 @@ public class AdminController {
         return r;
     }
 
-    // ==================== Agent 提示词与工具描述 ====================
+    //==================== Agent 提示词与工具描述 ====================
 
     /** Read prompts managed by Nacos Prompt management; the admin UI is read-only. */
     @GetMapping("/agent-prompts")
@@ -839,7 +833,7 @@ public class AdminController {
         r.put("success", true);
         return r;
     }
-    // ==================== 高德凭证 ====================
+    //==================== 高德凭证 ====================
 
     /** Show masked AMap keys; blank inputs on save mean "keep the current key". */
     @GetMapping("/amap-credentials")
@@ -859,7 +853,7 @@ public class AdminController {
         return r;
     }
 
-    /** Save AMap keys to Nacos. A changed MCP key requires rebuilding child MCP clients. */
+    /** Save AMap keys to Nacos. */
     @PostMapping("/amap-credentials")
     public Map<String, Object> saveAmapCredentials(
             @RequestParam(required = false) String webKey,
@@ -1054,7 +1048,7 @@ public class AdminController {
         return null;
     }
 
-    // ==================== 数据管理 ====================
+    //==================== 数据管理 ====================
 
     /** 用户列表（含角色） */
     @GetMapping("/users")
@@ -1092,7 +1086,7 @@ public class AdminController {
                 "SELECT p.id, p.user_id, u.username, p.city, p.days, " +
                         "LEFT(p.plan_content, 200) AS preview, p.create_time " +
                         "FROM trip_plans p LEFT JOIN users u ON p.user_id = u.id ORDER BY p.id DESC");
-        // 城市归一化："成都三日"→"成都"，匹配标准城市库
+        //城市归一化："成都三日"->"成都"，匹配标准城市库
         java.util.List<String> stdCities = jdbcTemplate.queryForList(
                 "SELECT DISTINCT city FROM attractions WHERE city IS NOT NULL AND city != ''", String.class);
         for (Map<String, Object> pl : plans) {
@@ -1121,7 +1115,7 @@ public class AdminController {
         r.put("message", rows > 0 ? "已删除行程" : "行程不存在");
         return r;
     }
-    // ==================== 内容审核（阶段三） ====================
+    //==================== 内容审核（阶段三） ====================
 
     /** 审核队列：待处理举报 + AI 审核 review/block 记录 + 被隐藏内容 */
     @GetMapping("/moderation/queue")
@@ -1154,7 +1148,7 @@ public class AdminController {
         return r;
     }
 
-    /** 隐藏/恢复内容（targetType: 1帖子 2评论；action: hide|restore） */
+    /** 隐藏/恢复内容（targetType: 1帖子 2评论； */
     @PostMapping("/moderation/action")
     public Map<String, Object> moderationAction(@RequestParam int targetType,
                                                 @RequestParam Long targetId,
@@ -1168,7 +1162,7 @@ public class AdminController {
         return r;
     }
 
-    // ==================== 业务看板（阶段三） ====================
+    //==================== 业务看板（阶段三） ====================
 
     /** 业务统计：用户/行程/DAU/热门目的地/论坛活跃 */
     @GetMapping("/stats/business")
@@ -1195,7 +1189,7 @@ public class AdminController {
         return v == null ? 0 : v;
     }
 
-    // ==================== 公告发布（阶段三） ====================
+    //==================== 公告发布（阶段三） ====================
 
     /** 公告列表 */
     @GetMapping("/announcements")
@@ -1208,7 +1202,7 @@ public class AdminController {
         return r;
     }
 
-    /** 发布公告 → 全员通知（type=5） + SSE 实时推送 */
+    /** 发布公告 -> 全员通知（type=5） + SSE 实时推送 */
     @PostMapping("/announcements")
     public Map<String, Object> createAnnouncement(@RequestParam String title,
                                                   @RequestParam String content,
@@ -1223,7 +1217,7 @@ public class AdminController {
         jdbcTemplate.update(
                 "INSERT INTO announcements(title, content, created_by) VALUES (?, ?, ?)",
                 title.trim(), content, adminId);
-        // 全员推送：所有正常用户各发一条通知 + SSE 实时推
+        //全员推送：所有正常用户各发一条通知 + SSE 实时推
         List<Long> userIds = jdbcTemplate.queryForList("SELECT id FROM users WHERE status = 1", Long.class);
         for (Long uid : userIds) {
             try {
@@ -1238,7 +1232,7 @@ public class AdminController {
         r.put("message", "公告已发布并推送给 " + userIds.size() + " 位用户");
         return r;
     }
-// ==================== 数据中心 ====================
+//==================== 数据中心 ====================
 
     /** 表存在性容错查询：表不存在返回空列表 */
     private java.util.List<Map<String, Object>> qRowsSafe(String sql) {
@@ -1249,10 +1243,7 @@ public class AdminController {
         }
     }
 
-    /**
-     * 数据统计明细（type=attractions/foods/hotels/cities/profiles）。
-     * 返回 {success, title, columns:[...], rows:[[...],...]}，前端弹窗渲染表格。
-     */
+    /** 数据统计明细（type=attractions/foods/hotels/cities/profiles）。 */
     @GetMapping("/data-detail")
     public Map<String, Object> dataDetail(@RequestParam String type) {
         Map<String, Object> r = new HashMap<>();
@@ -1265,7 +1256,7 @@ public class AdminController {
                 case "attractions":
                     title = "景点数据明细";
                     columns = List.of("名称", "城市", "评分", "参考费用", "地址");
-                    // 参考费用优先取特征表真实票价（高德enrich），无则退主表cost
+                    //参考费用优先取特征表真实票价（高德enrich），无则退主表cost
                     rows = jdbcTemplate.queryForList(
                             "SELECT a.id AS id, a.name AS name, a.city AS city, a.rating AS rating, "
                           + "COALESCE(NULLIF(af.ticket_price, ''), NULLIF(a.cost, '')) AS cost, a.address AS address "
@@ -1281,7 +1272,7 @@ public class AdminController {
                 case "hotels":
                     title = "酒店数据明细";
                     columns = List.of("名称", "城市", "评分", "参考价", "地址");
-                    // 参考价取特征表cost（高德biz_ext，仅少量有值），其余显示"-"（OTA无公开房价源）
+                    //参考价取特征表cost（高德biz_ext，仅少量有值），其余显示"-"（OTA无公开房价源）
                     rows = jdbcTemplate.queryForList(
                             "SELECT h.id AS id, h.name AS name, h.city AS city, h.rating AS rating, "
                           + "COALESCE(NULLIF(hf.cost, ''), NULLIF(h.cost, '')) AS cost, h.address AS address "
@@ -1311,11 +1302,11 @@ public class AdminController {
             }
             r.put("success", true);
             r.put("title", title);
-            // 行转对象数组，前端按 key 显示（keySet 无序不可靠）
+            //行转对象数组，前端按 key 显示（keySet 无序不可靠）
             List<List<Object>> aligned = new ArrayList<>();
             for (Map<String, Object> row : rows) {
                 List<Object> line = new ArrayList<>();
-                // 首格=主键id（前端编辑用），columns 展示时跳过
+                //首格=主键id（前端编辑用），columns 展示时跳过
                 line.add(row.get("id") == null ? "-" : row.get("id").toString());
                 for (String col : columns) {
                     Object v = row.get(colKey(type, col));
@@ -1324,13 +1315,13 @@ public class AdminController {
                 aligned.add(line);
             }
             r.put("columns", columns);
-            // 画像明细：标签JSON转"标签×次数"串，时间只留秒级
+            //画像明细：标签JSON转"标签x次数"串，时间只留秒级
             if ("profiles".equals(type)) {
                 List<List<Object>> pretty = new ArrayList<>();
                 for (List<Object> line : aligned) {
                     List<Object> out = new ArrayList<>(line); // [用户名, 用户ID, tagsJSON, updatedAt]
                     if (out.size() >= 4) {
-                        // tags 保留原始JSON（前端标签云渲染），只去掉时间毫秒
+                        //tags 保留原始JSON（前端标签云渲染），只去掉时间毫秒
                         out.set(3, String.valueOf(out.get(3)).replaceAll("\\.\\d+$", ""));
                     }
                     pretty.add(out);
@@ -1345,7 +1336,7 @@ public class AdminController {
         return r;
     }
 
-    /** 明细列名 → SQL 返回 key 映射（中文列头对应数据库字段） */
+    /** 明细列名 -> SQL 返回 key 映射（中文列头对应数据库字段） */
     private String colKey(String type, String col) {
         switch (col) {
             case "名称": return "name";
@@ -1369,10 +1360,7 @@ public class AdminController {
         }
     }
 
-    /**
-     * 手动编辑数据明细（景点/美食/酒店）。
-     * type=attractions/foods/hotels，field=name/city/rating/cost/address；cost 写特征表，其余写主表。
-     */
+    /** 手动编辑数据明细（景点/美食/酒店）。 */
     @PostMapping("/data-detail/edit")
     public Map<String, Object> editDataDetail(@RequestParam String type, @RequestParam Long id,
                                               @RequestParam String field, @RequestParam String value) {
@@ -1440,6 +1428,28 @@ public class AdminController {
             if (!done) { p.destroyForcibly(); r.put("success", false); r.put("message", "定价更新超时"); return r; }
             r.put("success", p.exitValue() == 0);
             r.put("message", p.exitValue() == 0 ? "定价已更新" : "定价脚本退出码 " + p.exitValue());
+        } catch (Exception e) {
+            r.put("success", false);
+            r.put("message", "执行失败: " + e.getMessage());
+        }
+        return r;
+    }
+
+    /** 客流预测专用刷新：只跑 forecast.py（本地统计 trip_plans 生成 forecast_output，秒级，不调高德/采集管线） */
+    @PostMapping("/forecast/run")
+    public Map<String, Object> runForecast() {
+        Map<String, Object> r = new HashMap<>();
+        try {
+            java.io.File script = new java.io.File(projectRoot(), "data-pipeline/forecast.py");
+            if (script == null) { r.put("success", false); r.put("message", "找不到 forecast.py"); return r; }
+            ProcessBuilder pb = new ProcessBuilder(utils.Config.get("PYTHON_BIN", "python"), script.getCanonicalPath());
+            pb.directory(new java.io.File(script.getCanonicalPath()).getParentFile().getParentFile());
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            boolean done = p.waitFor(180, java.util.concurrent.TimeUnit.SECONDS);
+            if (!done) { p.destroyForcibly(); r.put("success", false); r.put("message", "客流预测超时"); return r; }
+            r.put("success", p.exitValue() == 0);
+            r.put("message", p.exitValue() == 0 ? "客流预测已重算（基于全部已保存行程的本地统计）" : "预测脚本退出码 " + p.exitValue());
         } catch (Exception e) {
             r.put("success", false);
             r.put("message", "执行失败: " + e.getMessage());

@@ -10,9 +10,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.util.concurrent.TimeUnit;
 
-/**
- * 拦截器注册与静态资源缓存配置
- */
+/** 拦截器注册与静态资源缓存配置 */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
@@ -26,7 +24,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/save-plan", "/api/my-plans", "/api/delete-plan", "/api/logout", "/api/insights",
                         "/api/profile/**", "/api/trips/**", "/api/forum/**", "/api/notifications/**", "/api/admin/**")
                 .excludePathPatterns("/api/login", "/api/register", "/api/check-login", "/api/share/**");
-        // 管理接口：登录拦截器先拦（未登录401），再校验管理员角色（非管理员403）
+        //管理接口：登录拦截器先拦（未登录401），再校验管理员角色（非管理员403）
         registry.addInterceptor(new AdminInterceptor())
                 .addPathPatterns("/api/admin/**");
     }

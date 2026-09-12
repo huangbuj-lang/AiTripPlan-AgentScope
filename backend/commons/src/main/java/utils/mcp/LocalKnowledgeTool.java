@@ -11,28 +11,18 @@ import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * ★本地知识库工具：直接查询预处理打标后的特征表（attractions_features/foods_features/hotels_features）
- *    供行程Agent与高德 query_trip 并行调用，融合"本地真实数据(评分/档次/类型)" + 高德实时数据。
- *
- * ★偏好下推（相似度归一）：自由文本偏好经 PrefSynonyms 同义词表归一成标准标签，
- *    两段式查询——先按 label/suitable_tags 过滤（命中0条回退该城评分top），保证有数据返回。
- *
- * 数据源：MySQL aitripplan 库（连接信息从环境变量 RDS_HOST/RDS_USER/RDS_PASSWORD 读取，
- *    由 start-local.sh source .env 注入）。直接 JDBC 直连，不依赖 8090 Python 中转。
- * 表缺失/连接失败时返回降级标记，不影响高德主链路。
- */
+/** 本地知识库工具：直接查询预处理打标后的特征表（attractions_features/foods_features/hotels_features） 供行程Agent与高德 query_trip 并行调用，融合"本地真实数据(评分/档次/类型)" + 高德实时数据。 */
 public class LocalKnowledgeTool {
 
     private static final String DB = "aitripplan";
 
-    // ==================== ★观测埋点：知识库查询成败/次数/耗时（管理端子Agent健康展示） ====================
+    //==================== 观测埋点：知识库查询成败/次数/耗时（管理端子Agent健康展示） ====================
     public static final java.util.concurrent.atomic.AtomicLong LK_CALLS = new java.util.concurrent.atomic.AtomicLong(0);
     public static final java.util.concurrent.atomic.AtomicLong LK_FAILS = new java.util.concurrent.atomic.AtomicLong(0);
     /** 累计耗时（ms），配合 CALLS 算平均 */
     public static final java.util.concurrent.atomic.AtomicLong LK_COST_MS = new java.util.concurrent.atomic.AtomicLong(0);
 
-    // 知识点/美食/酒店 特征表
+    //知识点/美食/酒店 特征表
     private static final String[][] TABLES = {
         {"景点", "attractions_features"},
         {"美食", "foods_features"},
@@ -82,10 +72,10 @@ public class LocalKnowledgeTool {
     /** 原查询逻辑（观测埋点拆出的主体） */
     private String doQuery(String city, String preference) {
         String p = preference == null ? "" : preference.trim();
-        // ★偏好归一：自由文本 → 标准标签（同义词表）
+        //偏好归一：自由文本 -> 标准标签（同义词表）
         List<String> prefTags = PrefSynonyms.normalize(p);
 
-        // 意图（查哪几类）：优先按归一标签映射；无标签则按原关键词；默认全查
+        //意图（查哪几类）：优先按归一标签映射
         List<String> intents = new ArrayList<>();
         String[] allIntentWords = {"美食", "吃", "餐厅", "火锅", "小吃", "地方菜", "异国料理", "海鲜", "素食", "饮品甜点",
                                    "酒店民宿", "住", "住宿", "宾馆", "经济型", "豪华型"};
@@ -100,7 +90,7 @@ public class LocalKnowledgeTool {
                 || tag.equals("温泉") || tag.equals("购物") || tag.equals("演艺") || tag.equals("骑行")) spotHit = true;
         }
         if (!foodHit && !hotelHit && !spotHit) {
-            // 归一未命中 → 用原始关键词判断
+            //归一未命中 -> 用原始关键词判断
             if (p.contains("美食") || p.contains("吃") || p.contains("餐厅") || p.contains("火锅") || p.contains("小吃")) foodHit = true;
             if (p.contains("酒店") || p.contains("住") || p.contains("住宿") || p.contains("宾馆")) hotelHit = true;
             if (p.contains("景点") || p.contains("景区") || p.contains("亲子") || p.contains("自然") || p.contains("人文") || p.contains("儿童")) spotHit = true;
@@ -125,12 +115,12 @@ public class LocalKnowledgeTool {
                 }
                 if (table == null) continue;
                 boolean isAttraction = "attractions_features".equals(table);
-                boolean hasSuitableTags = isAttraction || "foods_features".equals(table); // ★hotels_features 无 suitable_tags 列
+                boolean hasSuitableTags = isAttraction || "foods_features".equals(table); // hotels_features 无 suitable_tags 列
                 String sel = isAttraction
                         ? "SELECT name, label, rating, level, suggest_duration, tips, best_time FROM " + table
                         : "SELECT name, label, rating, level, NULL AS suggest_duration, NULL AS tips, NULL AS best_time FROM " + table;
 
-                // 两段式：先带偏好标签过滤；命中0条回退该城评分top
+                //两段式：先带偏好标签过滤
                 List<String> rows = new ArrayList<>();
                 if (!prefTags.isEmpty() && hasSuitableTags) {
                     StringBuilder cond = new StringBuilder();
@@ -155,7 +145,7 @@ public class LocalKnowledgeTool {
                 if (!rows.isEmpty()) {
                     mode = "";
                 } else {
-                    // 回退：偏好无命中（或无偏好）→ 该城评分top
+                    //回退：偏好无命中（或无偏好）-> 该城评分top
                     String sqlAll = sel + " WHERE city = ? ORDER BY rating DESC LIMIT 6";
                     try (PreparedStatement ps = conn.prepareStatement(sqlAll)) {
                         ps.setString(1, city);

@@ -6,9 +6,7 @@ import io.agentscope.core.message.Msg;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * 有限条数记忆：最多保留最近 maxSize 条消息
- */
+/** 有限条数记忆：最多保留最近 maxSize 条消息 */
 public class LimitedMemory implements Memory {
 
     private final List<Msg> messages = new ArrayList<>(); // 消息列表

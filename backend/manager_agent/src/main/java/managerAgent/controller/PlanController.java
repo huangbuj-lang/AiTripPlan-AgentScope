@@ -10,9 +10,7 @@ import java.util.List;
 import java.util.Map;
 import utils.JsonUtils;
 
-/**
- * 行程保存接口（规划结果存入MySQL）
- */
+/** 行程保存接口（规划结果存入MySQL） */
 @RestController
 @RequestMapping("/api")
 public class PlanController {
@@ -20,9 +18,7 @@ public class PlanController {
     @Resource
     private JdbcTemplate jdbcTemplate;
 
-    /**
-     * 保存行程到数据库
-     */
+    /** 保存行程到数据库 */
     @PostMapping("/save-plan")
     public Map<String, Object> savePlan(@RequestParam String city,
                                         @RequestParam int days,
@@ -37,12 +33,12 @@ public class PlanController {
             return result;
         }
         long userId = (Long) userIdObj;
-        // 空串/非法 JSON 存 NULL（JSON 列不接受空串，非法 JSON 会触发 MySQL 500）
+        //空串/非法 JSON 存 NULL（JSON 列不接受空串，非法 JSON 会触发 MySQL 500）
         String json = (planJson == null || planJson.isBlank()) ? null : planJson;
         if (json != null && JsonUtils.parse(json, Map.class) == null) {
             json = null; // 非法 JSON：放弃结构化字段，仍保存 markdown
         }
-        // 插入行程记录，取回自增 id 供画像提取/反馈使用
+        //插入行程记录，取回自增 id 供画像提取/反馈使用
         final String jsonF = json;
         org.springframework.jdbc.support.KeyHolder kh =
                 new org.springframework.jdbc.support.GeneratedKeyHolder();
@@ -58,16 +54,14 @@ public class PlanController {
         result.put("success", true);
         result.put("message", "保存成功！可在「我的行程」中查看");
         result.put("planId", newPlanId);
-        // 异步用 LLM 从行程内容提取偏好标签，追加到该用户画像
+        //异步用 LLM 从行程内容提取偏好标签，追加到该用户画像
         triggerPreferenceExtract(userId, newPlanId, planContent);
-        // 保存行程 → 重算"常去-城市"标签
+        //保存行程 -> 重算"常去-城市"标签
         managerAgent.tool.ProfileHook.trigger(userId);
         return result;
     }
 
-    /**
-     * 查询当前用户保存的所有行程（按时间倒序）
-     */
+    /** 查询当前用户保存的所有行程（按时间倒序） */
     @GetMapping("/my-plans")
     public Map<String, Object> myPlans(HttpSession session) {
         Map<String, Object> result = new HashMap<>();
@@ -85,9 +79,7 @@ public class PlanController {
         return result;
     }
 
-    /**
-     * 删除自己的行程（id + user_id 双重条件）
-     */
+    /** 删除自己的行程（id + user_id 双重条件） */
     @PostMapping("/delete-plan")
     public Map<String, Object> deletePlan(@RequestParam Long id, HttpSession session) {
         Map<String, Object> result = new HashMap<>();
@@ -108,10 +100,7 @@ public class PlanController {
         return result;
     }
 
-    /**
-     * 异步调用 data-pipeline/extract_pref.py，
-     * 用 LLM 从保存的行程内容提取偏好标签并写入该用户画像（用户无感，失败静默）。
-     */
+    /** 异步调用 data-pipeline/extract_pref.py， 用 LLM 从保存的行程内容提取偏好标签并写入该用户画像（用户无感，失败静默）。 */
     private void triggerPreferenceExtract(long userId, long planId, String planContent) {
         try {
             if (planContent == null || planContent.isBlank()) return;

@@ -37,18 +37,32 @@
         <input id="prompt" type="text" placeholder="你想去哪里?" onkeydown="if(event.key==='Enter') send()">
       </div>
       <div class="hs-field hs-pax">
-        <label><i class="fa-solid fa-user-group"></i> 出行人数</label>
-        <div class="hs-select" id="paxSelect" tabindex="0">
-          <span class="hs-select-val" id="paxVal">2 人出行</span>
+        <label><i class="fa-solid fa-calendar-days"></i> 天数</label>
+        <div class="hs-select" id="daySelect" tabindex="0">
+          <span class="hs-select-val" id="dayVal">5 天</span>
           <i class="fa-solid fa-chevron-down hs-arrow"></i>
-          <div class="hs-menu" id="paxMenu">
-            <div class="hs-opt" data-v="1 人出行">1 人出行</div>
-            <div class="hs-opt" data-v="2 人出行">2 人出行</div>
-            <div class="hs-opt" data-v="3 人出行">3 人出行</div>
-            <div class="hs-opt" data-v="4 人及以上">4 人及以上</div>
+          <div class="hs-menu" id="dayMenu">
+            <div class="hs-opt" data-v="1 天">1 天</div>
+            <div class="hs-opt" data-v="2 天">2 天</div>
+            <div class="hs-opt" data-v="3 天">3 天</div>
+            <div class="hs-opt" data-v="4 天">4 天</div>
+            <div class="hs-opt" data-v="5 天">5 天</div>
+            <div class="hs-opt" data-v="6 天">6 天</div>
+            <div class="hs-opt" data-v="7 天">7 天</div>
+            <div class="hs-opt" data-v="8 天">8 天</div>
+            <div class="hs-opt" data-v="9 天">9 天</div>
+            <div class="hs-opt" data-v="10 天">10 天</div>
+            <div class="hs-opt" data-v="11 天">11 天</div>
+            <div class="hs-opt" data-v="12 天">12 天</div>
+            <div class="hs-opt" data-v="13 天">13 天</div>
+            <div class="hs-opt" data-v="14 天">14 天</div>
+            <div class="hs-opt" data-v="15 天">15 天</div>
           </div>
-          <select id="paxSel" class="hs-native" tabindex="-1" aria-hidden="true">
-            <option>1 人出行</option><option selected>2 人出行</option><option>3 人出行</option><option>4 人及以上</option>
+          <select id="daySel" class="hs-native" tabindex="-1" aria-hidden="true">
+            <option>1 天</option><option>2 天</option><option>3 天</option><option>4 天</option>
+            <option selected>5 天</option><option>6 天</option><option>7 天</option><option>8 天</option>
+            <option>9 天</option><option>10 天</option><option>11 天</option><option>12 天</option>
+            <option>13 天</option><option>14 天</option><option>15 天</option>
           </select>
         </div>
       </div>
@@ -80,7 +94,7 @@
       </div>
     </div>
     <style>
-      .scheme-modal{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(8,20,14,.55);backdrop-filter:blur(3px)}
+      .scheme-modal{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(8,20,14,.55);backdrop-filter:blur(3px)}
       .scheme-card{width:min(480px,92vw);background:#fff;border-radius:18px;padding:30px 28px 24px;box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center}
       .scheme-title{margin:0 0 6px;font-size:21px;font-weight:800;color:#0B3D2E;letter-spacing:1px}
       .scheme-sub{margin:0 0 20px;font-size:13px;color:#7A8A80;line-height:1.6}
@@ -195,15 +209,15 @@
 </div>
 
 <script src="js/purify.min.js"></script>
-<script src="js/app.js?v=20260828c"></script>
+<script src="js/app.js?v=20260907a"></script>
 <script>
-/* 出行人数自定义下拉（纯交互：展开/选中/外部点击关闭，paxSel 同步保持兼容） */
+/* 天数自定义下拉（纯交互：展开/选中/外部点击关闭；选中的天数会拼进需求文本） */
 (function () {
-  var sel = document.getElementById('paxSelect');
+  var sel = document.getElementById('daySelect');
   if (!sel) return;
-  var menu = document.getElementById('paxMenu');
-  var val = document.getElementById('paxVal');
-  var native = document.getElementById('paxSel');
+  var menu = document.getElementById('dayMenu');
+  var val = document.getElementById('dayVal');
+  var native = document.getElementById('daySel');
   function closeMenu() { menu.classList.remove('open'); sel.classList.remove('open'); }
   sel.addEventListener('click', function (e) {
     var opt = e.target.closest ? e.target.closest('.hs-opt') : null;
@@ -221,6 +235,8 @@
   document.addEventListener('click', function (e) { if (!sel.contains(e.target)) closeMenu(); });
   menu.querySelectorAll('.hs-opt').forEach(function (o) { o.classList.toggle('sel', o.dataset.v === native.value); });
 })();
+
+
 </script>
 <script>
 /* ===== 精选目的地数据 + 渲染 + 筛选（纯前端新增） ===== */

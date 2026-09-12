@@ -1,11 +1,9 @@
-/* ============================================================
-   forum.js — 论坛首页（forum.html）：版块 Tab + 帖子流 + 搜索
-   ============================================================ */
+/* ============================================================ forum.js - 论坛首页（forum.html）：版块 Tab + 帖子流 + 搜索 ============================================================ */
 
 let currentBoard = null;  // null = 全部
 let me = { id: null, role: 'user' }; // 当前登录者（控制删帖键可见性）
 
-// 登录检查 + 未读通知数
+//登录检查 + 未读通知数
 function init() {
     fetch('/api/check-login').then(r => r.json()).then(d => {
         if (!d.success) { location.href = 'login.html'; return; }
@@ -27,7 +25,7 @@ function renderDelBtns() {
     });
 }
 
-// 加载版块 Tab
+//加载版块 Tab
 function loadBoards() {
     fetch('/api/forum/boards').then(r => r.json()).then(d => {
         if (!d.success) return;
@@ -46,7 +44,7 @@ function selectBoard(id) {
     reload();
 }
 
-// 发帖：带上当前浏览的版块，发帖页自动预选（在问答版发帖→AI答主入口不再踩空）
+//发帖：带上当前浏览的版块，发帖页自动预选（在问答版发帖->AI答主入口不再踩空）
 function goNewPost() {
     location.href = currentBoard ? 'new-post.html?boardId=' + currentBoard : 'new-post.html';
 }
@@ -66,7 +64,7 @@ function reload() {
         list.innerHTML = d.posts.map(p => {
             const dest = p.destination ? '<span class="post-badge"><i class="fa-solid fa-location-dot"></i> ' + p.destination + '</span>' : '';
             const trip = p.has_trip ? '<span class="post-badge"><i class="fa-solid fa-route"></i> 含行程</span>' : '';
-            // 删除键：默认隐藏，等登录信息回来后按身份显示（自己的帖子 or 管理员）
+            //删除键：默认隐藏，等登录信息回来后按身份显示（自己的帖子 or 管理员）
             const del = '<span class="post-del" data-pid="' + p.id + '" data-uid="' + (p.user_id || '') + '" style="display:none" onclick="event.stopPropagation();delPost(' + p.id + ')"><i class="fa-regular fa-trash-can"></i></span>';
             return '<div class="post-card" onclick="location.href=\'post.html?id=' + p.id + '\'">' +
                 '<h3>' + esc(p.title) + del + '</h3>' +
@@ -84,7 +82,7 @@ function reload() {
     }).catch(() => { document.getElementById('postList').innerHTML = '<div class="empty">加载失败</div>'; });
 }
 
-/** 删帖：本人→真删接口；管理员删别人的→管理端下架接口（status=0 可恢复） */
+/** 删帖：本人->真删接口； */
 function delPost(id) {
     const btn = document.querySelector('.post-del[data-pid="' + id + '"]');
     const isMine = me.id != null && btn && String(btn.dataset.uid) === String(me.id);

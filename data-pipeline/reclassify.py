@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 待办①："其他"类别 LLM 二次分类（混合两步）：规则按名称强信号直标，剩余模糊项分批交LLM兜底。
 标签体系与 preprocess.py 一致；幂等只处理 label='其他'。
@@ -9,7 +9,7 @@ import json, os, re, subprocess, sys, time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from llm_config import chat  # ★py侧统一模型配置（与管理端热更同源）
+from llm_config import chat  # py侧统一模型配置（与管理端热更同源）
 
 ENV = {}
 for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
@@ -35,7 +35,7 @@ LABELS = {
     "foods":       ["火锅", "地方菜", "小吃快餐", "饮品甜点", "异国料理"],
 }
 
-# 第1步：名称强信号确定性规则（顺序即优先级）
+#第1步：名称强信号确定性规则（顺序即优先级）
 ATTR_NAME_RULES = [
     (r"森林公园|地质公园|国家公园|自然保护区", "自然风光"),      # 自然类公园优先于城市公园
     (r"山|峡谷|瀑布|温泉|草原|雪场|滑雪|海滨|海滩|海湾|半岛|洞穴|溶洞|冰川|沙漠|梯田", "自然风光"),
@@ -58,7 +58,7 @@ def pre_rule(name, table):
             return lab
     return None
 
-# 第2步：LLM 兜底（模糊名称）
+#第2步：LLM 兜底（模糊名称）
 def build_prompt(table, items_json):
     labs = " / ".join(LABELS[table])
     kind = "景点" if table == "attractions" else "美食店铺"
@@ -94,7 +94,7 @@ def _parse_labels(out, valid):
         except json.JSONDecodeError:
             pass  # 落入下方正则兜底
     if not got:
-        # 推理模型长输出可能截断数组：逐对象正则抢救
+        #推理模型长输出可能截断数组：逐对象正则抢救
         for pm in re.finditer(r'\{\s*"id"\s*:\s*(\d+)\s*,\s*"label"\s*:\s*"([^"]+)"', out):
             lid, lab = int(pm.group(1)), pm.group(2).strip()
             if lab in valid:
@@ -110,13 +110,13 @@ def classify_batch(table, items, depth=0):
     last_err = None
     for attempt in (1, 2):
         try:
-            # max_tokens 8000防推理烧尽致content空；timeout 90s快速失败进重试/拆批
+            #max_tokens 8000防推理烧尽致content空；
             out = chat([{"role": "user", "content": build_prompt(table, payload)}],
                        temperature=0.3, max_tokens=8000, timeout=90)
             got = _parse_labels(out, valid)
             if not got:
                 raise ValueError(f"无可用JSON: {out[:80]}")
-            # 防标签坍缩：≥15条批单一标签>80%视为偷懒，弃用
+            #防标签坍缩：>=15条批单一标签>80%视为偷懒，弃用
             if len(items_min) >= 15 and got:
                 from collections import Counter
                 top_lab, top_n = Counter(got.values()).most_common(1)[0]
@@ -127,7 +127,7 @@ def classify_batch(table, items, depth=0):
             last_err = e
             print(f"  [WARN] 批次第{attempt}次失败: {str(e)[:100]}" + ("，重试..." if attempt == 1 else ""))
             time.sleep(3)
-    # 对半拆批递归：大批推理易空返回/截断，拆小成功率高
+    #对半拆批递归：大批推理易空返回/截断，拆小成功率高
     if len(items) > 5:
         mid = len(items) // 2
         print(f"  [SPLIT] 对半拆批 {len(items)} → {mid}+{len(items)-mid}")
@@ -148,7 +148,7 @@ def main():
                    f"WHERE label='其他' AND name IS NOT NULL AND name!=''")
         print(f"\n=== {table}: 待二次分类 {len(rows)} 条 ===")
         moved = 0
-        # 第1步：确定性规则
+        #第1步：确定性规则
         llm_rows = []
         for r in rows:
             lab = pre_rule(r[1], table)
@@ -159,7 +159,7 @@ def main():
             else:
                 llm_rows.append(r)
         print(f"  规则打标 {moved} 条，剩模糊项 {len(llm_rows)} 条交LLM")
-        # 第2步：LLM 兜底
+        #第2步：LLM 兜底
         done = set()
         batches = [llm_rows[i:i+batch_size] for i in range(0, len(llm_rows), batch_size)]
         for bi, bat in enumerate(batches, 1):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 ⑥ 用户画像：全量 LLM 提取（不再用关键词词典/计数规则）
 - 汇总该用户原始数据：行程(trip_plans)/发帖(posts)/点赞(post_likes)/主动偏好(user_preferences)
@@ -19,8 +19,8 @@ for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
     if m:
         ENV[m.group(1)] = m.group(2).strip().strip('"').strip("'")
 
-from llm_config import chat as _llm_chat  # ★统一模型配置（管理端可热更）
-from pipeline_config import get_profile_config  # ★数据管线配置（Nacos 可热更）
+from llm_config import chat as _llm_chat  # 统一模型配置（管理端可热更）
+from pipeline_config import get_profile_config  # 数据管线配置（Nacos 可热更）
 
 RDS_HOST = ENV.get("RDS_HOST", "127.0.0.1:3306")
 RDS_USER = ENV.get("RDS_USER", "root")

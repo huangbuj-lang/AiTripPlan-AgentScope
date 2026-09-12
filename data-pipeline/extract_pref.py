@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 保存行程 → LLM 提取偏好标签 → 追加写入用户画像（用户无感）
 - 由 PlanController.savePlan 异步调用：python extract_pref.py --user <id> --content <行程文本>
@@ -15,7 +15,7 @@ for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
     if m:
         ENV[m.group(1)] = m.group(2).strip().strip('"').strip("'")
 
-from llm_config import chat as _llm_chat  # ★统一模型配置（管理端可热更）
+from llm_config import chat as _llm_chat  # 统一模型配置（管理端可热更）
 RDS_HOST = ENV.get("RDS_HOST", "127.0.0.1:3306")
 RDS_USER = ENV.get("RDS_USER", "root")
 RDS_PASS = ENV.get("RDS_PASSWORD", "")
@@ -67,7 +67,7 @@ def main():
     if not tags:
         print("no tags extracted")
         return
-    # 读现有画像
+    #读现有画像
     rows = sql(f"SELECT tags FROM user_profiles_tags WHERE user_id={uid}")
     cur = {}
     if rows and rows[0][0] and rows[0][0] != "NULL":
@@ -75,7 +75,7 @@ def main():
             cur = json.loads(rows[0][0])
         except Exception:
             cur = {}
-    # 追加 内容-标签（带时间序权重，重复提取则+1），上限压缩：每键最大5，总键数最多20
+    #追加 内容-标签（带时间序权重，重复提取则+1），上限压缩：每键最大5，总键数最多20
     for tg in tags:
         key = f"内容-{tg}"
         cur[key] = min(cur.get(key, 0) + 1, 5)

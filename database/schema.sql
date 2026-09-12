@@ -271,3 +271,79 @@ CREATE TABLE IF NOT EXISTS pricing_output (
   factors JSON,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+
+-- ============================================================
+-- ★补全：运行时/观测类表（原 schema.sql 漏写；2026-09-12 从实际库 SHOW CREATE TABLE 导出）
+--   缺这几张会导致换电脑照本文件建库后，任务历史/事件/链路/成本统计等功能报错
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `llm_cost_daily` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `day` date NOT NULL,
+  `dimension` varchar(20) NOT NULL,
+  `calls` int NOT NULL DEFAULT '0',
+  `input_tokens` bigint NOT NULL DEFAULT '0',
+  `output_tokens` bigint NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_day_dim` (`day`,`dimension`)
+) ENGINE=InnoDB AUTO_INCREMENT=483 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='LLMɱάȻ';
+
+CREATE TABLE IF NOT EXISTS `plan_feedback` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL DEFAULT '0',
+  `plan_id` bigint DEFAULT NULL,
+  `action` varchar(20) NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS `task_events` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `session_id` varchar(64) NOT NULL,
+  `ts` bigint NOT NULL,
+  `type` varchar(32) NOT NULL DEFAULT '',
+  `content` text,
+  PRIMARY KEY (`id`),
+  KEY `idx_session` (`session_id`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS `task_history` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `session_id` varchar(80) NOT NULL,
+  `user_id` bigint NOT NULL DEFAULT '0',
+  `status` varchar(20) NOT NULL,
+  `current_step` varchar(100) NOT NULL DEFAULT '',
+  `submit_ms` bigint NOT NULL,
+  `last_active_ms` bigint NOT NULL,
+  `model_calls_used` int NOT NULL DEFAULT '0',
+  `prompt` text,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `session_id` (`session_id`),
+  KEY `idx_submit` (`submit_ms`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB AUTO_INCREMENT=138 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='ʷ(۲)';
+
+CREATE TABLE IF NOT EXISTS `task_obs` (
+  `session_id` varchar(64) NOT NULL,
+  `obs_json` text,
+  `updated_ms` bigint NOT NULL,
+  PRIMARY KEY (`session_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS `trace_span` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `session_id` varchar(80) NOT NULL,
+  `agent` varchar(20) NOT NULL DEFAULT '',
+  `layer` varchar(10) NOT NULL,
+  `name` varchar(80) NOT NULL,
+  `detail` text,
+  `success` tinyint NOT NULL DEFAULT '1',
+  `cost_ms` bigint NOT NULL DEFAULT '-1',
+  `ts` bigint NOT NULL,
+  `attempts` text,
+  PRIMARY KEY (`id`),
+  KEY `idx_sid` (`session_id`),
+  KEY `idx_ts` (`ts`)
+) ENGINE=InnoDB AUTO_INCREMENT=15099 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='ϸ(۲)';

@@ -1,9 +1,4 @@
-/* ============================================================
-   print.css — 打印专用样式（@media print）
-   PDF 导出走 window.print()，流程：
-   exportPDF → buildPrintView() 生成 #printView（概览+详情）
-   本文件只显示 #printView，隐藏页面其余全部内容，A4 排版
-   ============================================================ */
+/* print.css 打印专用样式。 */
 
 @media print {
 
@@ -36,6 +31,17 @@
         display: none !important;
     }
     .wrap { max-width: none !important; width: 100% !important; padding: 0 !important; }
+
+    /* ★打印/导出与分享页保持一致：交互按钮不进纸面（关闭 / 导出 / 每天的地图与编辑按钮） */
+    .print-view .meta-btn,
+    .print-view .expand,
+    .print-view .export-menu,
+    .print-view .save-bar,
+    .print-view .poi-go { display: none !important; }
+    /* 纸面上不带卡片阴影/悬浮效果，保留与分享页相同的区块结构 */
+    .print-view .plan-sheet,
+    .print-view .plan-section,
+    .print-view .day-card { box-shadow: none !important; }
 
     /* ===== 打印视图 ===== */
     .print-view {

@@ -11,16 +11,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 事件查询接口：按会话查询Agent运行事件（供前端轮询）
- */
+/** 事件查询接口：按会话查询Agent运行事件（供前端轮询） */
 @RestController
 @RequestMapping("/events")
 public class EventController {
 
-    /**
-     * 查询该会话的事件列表
-     */
+    /** 查询该会话的事件列表 */
     @GetMapping
     public List<Map<String, String>> events(
             @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
@@ -32,9 +28,7 @@ public class EventController {
         return EventStore.all(sessionId);
     }
 
-    /**
-     * SSE 实时事件流（替代前端轮询，阶段四 F-3）
-     */
+    /** SSE 实时事件流（替代前端轮询，阶段四 F-3） */
     @GetMapping("/stream")
     public SseEmitter stream(
             @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
@@ -47,7 +41,7 @@ public class EventController {
         }
         SseEmitter emitter = new SseEmitter(30 * 60 * 1000L); // 30 分钟超时
 
-        // 先快照历史事件，再订阅，避免漏推/重复推
+        //先快照历史事件，再订阅，避免漏推/重复推
         List<Map<String, String>> history = EventStore.all(sessionId);
         EventStore.subscribe(sessionId, emitter);
         for (Map<String, String> ev : history) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 景区等级回填：5A/4A 名单（维基百科"国家5A级旅游景区"词条表格 + 文旅部公告）
 匹配策略：特征表 name 与名单名称 双向包含匹配（处理"承德避暑山庄及周围寺庙景区"这类全称差异）
@@ -45,7 +45,7 @@ def fetch_wiki_names():
             t = re.sub(r'&[a-z]+;', '', t)
             for part in re.split(r'\n+', t):
                 p = part.strip().strip('（）()·、 ')
-                # 景区名特征：含地名后缀词，无日期数字
+                #景区名特征：含地名后缀词，无日期数字
                 if re.search(r'(景区|旅游区|风景名胜区)$', p) and 5 <= len(p) <= 30 \
                    and not re.search(r'\d{4}|\d+月|\d+日|^[-·、]', p):
                     names.add(p)
@@ -66,7 +66,7 @@ def main():
         for w in wiki:
             if len(w) < 6:
                 continue
-            # 名单词在POI名中（POI为名单简称/全称）；POI名更长含子园名的不标（如"东湖梨园"≠东湖5A）
+            #名单词在POI名中（POI为名单简称/全称）；
             if w in name and len(name) - len(w) <= 2:
                 hit = "5A"; break
             if name in w and len(w) - len(name) <= 2:

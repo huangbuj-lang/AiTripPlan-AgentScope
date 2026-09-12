@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 ② 数据预处理：读取①采集的原始表 → 清洗/特征提取/分类打标 → 写特征表
 - 独立脚本，不碰 Java 核心链路
@@ -30,7 +30,7 @@ def sql(query, fetch=True):
         return []
     return [line.split("\t") for line in r.stdout.strip().splitlines()] if r.stdout.strip() else []
 
-# ---------- 类型分类打标 ----------
+#---------- 类型分类打标 ----------
 ATTR_RULES = [  # (关键词, 标签)
     (["风景名胜;自然", "自然保护区", "森林公园", "海滩", "湖泊", "山岳", "峡谷", "湿地"], "自然风光"),
     (["博物馆", "古迹", "寺庙", "古镇", "遗址", "故居", "纪念馆", "教堂", "陵园", "古城"], "人文历史"),
@@ -63,7 +63,7 @@ def build(table, out_table, rules, use_rating=False):
         if not name or not city:
             continue
         cleaned += 1
-    # 逐行生成 INSERT（直接构造 SQL，避免参数化依赖）
+    #逐行生成 INSERT（直接构造 SQL，避免参数化依赖）
     inserts = []
     for r in rows:
         if len(r) < 6:
@@ -83,7 +83,7 @@ def build(table, out_table, rules, use_rating=False):
         name_s = name.replace("'", "''"); city_s = city.replace("'", "''")
         types_s = (types or "").replace("'", "''")[:190]
         inserts.append(f"({_id},'{name_s}','{city_s}','{types_s}',{rating_f},'{label}','{level}','{cost or ''}')")
-    # 增量更新：表带UNIQUE(name,city)，ODKU刷新基础字段、保留扩展字段
+    #增量更新：表带UNIQUE(name,city)，ODKU刷新基础字段、保留扩展字段
     sql(f"""CREATE TABLE IF NOT EXISTS {out_table} (
         src_id BIGINT, name VARCHAR(100), city VARCHAR(50), types VARCHAR(200),
         rating DECIMAL(3,1), label VARCHAR(30), level VARCHAR(10), cost VARCHAR(50),
@@ -93,7 +93,7 @@ def build(table, out_table, rules, use_rating=False):
         UNIQUE KEY uk_name_city (name, city)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", fetch=False)
     base_cols = "src_id,name,city,types,rating,label,level,cost"
-    # 质量固化：label 仅空/'其他'时接受规则新值，LLM精标不回退
+    #质量固化：label 仅空/'其他'时接受规则新值，LLM精标不回退
     update_cols = ("src_id=VALUES(src_id), types=VALUES(types), rating=VALUES(rating), "
                    "label=IF(label IS NULL OR label='' OR label='其他', VALUES(label), label), "
                    "level=VALUES(level), cost=VALUES(cost)")

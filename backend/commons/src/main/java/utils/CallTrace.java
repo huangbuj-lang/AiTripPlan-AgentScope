@@ -1,16 +1,14 @@
 package utils;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * 任务级调用链追踪：记录单个任务内 A2A/MCP/LLM 各层调用的成败与耗时。
- * 数据结构：sessionId → 环形调用明细列表（最多200条/任务），供管理端任务详情展示。
- * 与 EventStore 的"步骤事件"互补：EventStore 回答"任务到哪一步了"，
- * CallTrace 回答"这一步内部哪些调用成功/失败、耗时多少、重试几次"。
- */
+/** 任务级调用链追踪：记录单个任务内 A2A/MCP/LLM 各层调用的成败与耗时。 */
+@Slf4j
 public final class CallTrace {
 
     /** 单条调用记录 */
@@ -21,7 +19,7 @@ public final class CallTrace {
         public volatile String detail; // 附加信息：错误码、重试次数、失败原因等（可空，结束时可追加）
         public volatile long costMs = -1; // 耗时（-1=进行中）
         public volatile boolean success;  // 是否成功（叶子=本次调用成败）
-        /** ★重试/尝试明细：{n:第几次, ok:是否成功, costMs:耗时, reason:失败原因}，供管理端叶子内下拉展示 */
+        /** 重试/尝试明细：{n:第几次, ok:是否成功, costMs:耗时, reason:失败原因}，供管理端叶子内下拉展示 */
         public final java.util.List<java.util.Map<String, Object>> attempts = new java.util.ArrayList<>();
 
         Span(String layer, String name, String detail) {
@@ -42,15 +40,20 @@ public final class CallTrace {
     }
 
     private static final int MAX_PER_TASK = 200;
-    /** sessionId → 调用明细（同步 List：写入频率低，synchronized 足够） */
+    /** sessionId -> 调用明细（同步 List：写入频率低，synchronized 足够） */
     private static final ConcurrentHashMap<String, List<Span>> TRACES = new ConcurrentHashMap<>();
 
     private CallTrace() {}
 
     /** 开始一次调用：返回 Span，结束时调 end(span, ok, costMs) */
     public static Span begin(String sessionId, String layer, String name, String detail) {
-        if (sessionId == null || sessionId.isBlank()) return new Span(layer, name, detail); // 无会话上下文也记录但不入库
+        if (sessionId == null || sessionId.isBlank()) {
+            Span s = new Span(layer, name, detail); // 无会话上下文也记录但不入库
+            logSpan("▶", s, -1, true);
+            return s;
+        }
         Span span = new Span(layer, name, detail);
+        logSpan("▶", span, -1, true); // ★关键步骤日志：开始（只看到它、看不到 ■ = 卡在这一步）
         List<Span> list = TRACES.computeIfAbsent(sessionId, k -> new ArrayList<>());
         synchronized (list) {
             list.add(span);
@@ -69,6 +72,25 @@ public final class CallTrace {
     public static void end(Span span, boolean ok, long costMs) {
         span.success = ok;
         span.costMs = costMs;
+        logSpan(ok ? "■" : "✗", span, costMs, ok); // ★关键步骤日志：结束
+    }
+
+    /**
+     * 把 span 同时写进日志文件。
+     *
+     * <p>背景：span 原来只进内存（供管理端展示），子Agent 卡住 300s 时日志里只有
+     * prompt-store 的 WARN 噪音，**无法定位卡在哪一步**。这一行让每条关键调用
+     * 在日志里留下「▶ 开始 / ■ 结束+耗时」配对，缺配对即为卡点。
+     */
+    private static void logSpan(String mark, Span span, long costMs, boolean ok) {
+        try {
+            String d = span.detail == null ? "" : span.detail.replaceAll("\\s+", " ");
+            if (d.length() > 140) d = d.substring(0, 140) + "…";
+            log.info("[TRACE]{} {} {}{}{}", mark, span.layer, span.name,
+                    costMs >= 0 ? " 耗时" + costMs + "ms" + (ok ? "" : " 失败") : "", d.isEmpty() ? "" : " | " + d);
+        } catch (Throwable ignore) {
+            // 日志绝不影响主流程
+        }
     }
 
     /** 便捷方法：记录一条已完成调用 */
@@ -89,7 +111,7 @@ public final class CallTrace {
         }
     }
 
-    /** 任务结束后清理其明细（防内存累积；历史任务保留最近50个会话的明细） */
+    /** 任务结束后清理其明细（防内存累积； */
     public static void cleanup(String keepSessionId) {
         if (TRACES.size() <= 50) return;
         TRACES.keySet().removeIf(k -> !k.equals(keepSessionId));
@@ -112,7 +134,7 @@ public final class CallTrace {
         }
         return out;
     }
-    /** ★追加摘要到该任务最近一条 LLM span（解析/分类/聚合完成后回填"做了什么、得到什么"） */
+    /** 追加摘要到该任务最近一条 LLM span（解析/分类/聚合完成后回填"做了什么、得到什么"） */
     public static void appendLastLlmDetail(String sessionId, String more) {
         if (sessionId == null || sessionId.isBlank() || more == null || more.isBlank()) return;
         List<Span> list = TRACES.get(sessionId);

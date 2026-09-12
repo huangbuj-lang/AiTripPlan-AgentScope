@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.time.Duration;
 import java.util.Optional;
 
-// 百度地图 MCP Server（当前被BaiduMapTool替代，保留作参考）
+//百度地图 MCP Server（当前被BaiduMapTool替代，保留作参考）
 
 
 @Slf4j
@@ -17,18 +17,18 @@ public class BaiduMapMCP {
     private McpClientWrapper baiduMapMCP = null; // MCP客户端
     private boolean mcpInitialized = false; // MCP客户端初始化标志
 
-// 创建百度地图MCP客户端
+//创建百度地图MCP客户端
 
 
     //@Tool(description = "百度地图MCP Server")
     public void getBaiduMapMCP() {
 
-//       log.info("==================");
-//       log.info("正在调用百度地图MCP....");
-//       log.info("==================");
+//log.info("==================");
+//log.info("正在调用百度地图MCP....");
+//log.info("==================");
 
         baiduMapMCP = McpClientBuilder.create("BaiduMap-mcp") // 创建MCP客户端
-                // 以streamable_http方式通信
+                //以streamable_http方式通信
                 .streamableHttpTransport(System.getenv("BAIDU_MCP_URL"))
                 .timeout(Duration.ofSeconds(120)) // 请求超时
                 .buildAsync() // 异步请求
@@ -36,7 +36,7 @@ public class BaiduMapMCP {
 
     }
 
-// 初始化百度地图MCP客户端
+//初始化百度地图MCP客户端
 
 
     public McpClientWrapper initBaiduMapMCP() {

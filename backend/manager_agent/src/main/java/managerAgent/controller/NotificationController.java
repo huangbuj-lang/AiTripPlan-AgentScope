@@ -9,10 +9,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 通知中心（P1）：REST 查询 + 标记已读 + SSE 实时推送。
- * 通知作为持久化事件落 DB（离线可达），SSE 按 userId 广播到在线窗口。
- */
+/** 通知中心（P1）：REST 查询 + 标记已读 + SSE 实时推送。 */
 @RestController
 @RequestMapping("/api/notifications")
 public class NotificationController {
@@ -24,7 +21,7 @@ public class NotificationController {
         return ((Number) session.getAttribute("userId")).longValue();
     }
 
-    /** 通知列表（分页，新→旧） */
+    /** 通知列表（分页，新->旧） */
     @GetMapping
     public Map<String, Object> list(@RequestParam(required = false, defaultValue = "0") int page,
                                     @RequestParam(required = false, defaultValue = "20") int pageSize,

@@ -1,8 +1,6 @@
 package utils;
 
-/**
- * 令牌桶限速器：控制 API 请求频率
- */
+/** 令牌桶限速器：控制 API 请求频率 */
 public class RateLimiter {
 
     private double rate;              // 每秒补充的令牌数（=每秒最大请求数）
@@ -22,7 +20,7 @@ public class RateLimiter {
         return new RateLimiter(rate, (int) Math.max(1, Math.ceil(rate)));
     }
 
-    /** 取 1 个令牌；令牌不足时阻塞等待（最多等 maxWaitMs，超时返回 false） */
+    /** 取 1 个令牌； */
     public synchronized boolean tryAcquire(long maxWaitMs) {
         long deadline = System.nanoTime() + maxWaitMs * 1_000_000L;
         while (true) {
@@ -34,7 +32,7 @@ public class RateLimiter {
             if (System.nanoTime() >= deadline) {
                 return false; // 等待超时
             }
-            // 等待下一个补充周期（1/rate 秒）
+            //等待下一个补充周期（1/rate 秒）
             long waitNanos = (long) (1_000_000_000.0 / rate);
             try {
                 long remaining = deadline - System.nanoTime();

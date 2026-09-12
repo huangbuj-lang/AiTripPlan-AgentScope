@@ -1,7 +1,4 @@
-/* ============================================================
-   post.js — 帖子详情页（post.html）
-   内容渲染 / 点赞收藏 / 同款行程复制 / 两级评论
-   ============================================================ */
+/* ============================================================ post.js - 帖子详情页（post.html） 内容渲染 / 点赞收藏 / 同款行程复制 / 两级评论 ============================================================ */
 
 const postId = new URLSearchParams(location.search).get('id');
 let replyTo = null; // 当前回复的评论（null=回复帖子）
@@ -12,7 +9,7 @@ let likedByMe = false;      // 本会话内是否已点赞（点赞接口只返�
 let favedByMe = false;      // 本会话内是否已收藏
 let myRole = 'user';        // 当前登录者角色（admin 可删任何帖子）
 
-// 获取当前登录用户（用于判断是否楼主 / AI 采纳 / 举报权限 / 删帖权限）
+//获取当前登录用户（用于判断是否楼主 / AI 采纳 / 举报权限 / 删帖权限）
 let loginReady = fetch('/api/check-login').then(r => r.json()).then(d => {
     if (d.success) { currentUserId = d.userId; myRole = d.role || 'user'; }
     return d;
@@ -26,7 +23,7 @@ function fmtTime(t) {
     return isNaN(d) ? String(t) : (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-// 简易 markdown 渲染（服务端存 markdown 原文，前端 DOMPurify 消毒）
+//简易 markdown 渲染（服务端存 markdown 原文，前端 DOMPurify 消毒）
 function renderMarkdown(text) {
     if (!text) return '';
     let html = esc(text);
@@ -63,7 +60,7 @@ function inline(s) {
     return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
 }
 
-// 内嵌行程简表
+//内嵌行程简表
 function renderTripPreview(plan) {
     const sections = plan.sections || [];
     const lines = [];
@@ -76,7 +73,7 @@ function renderTripPreview(plan) {
     return lines.slice(0, 6).map(l => '<li>' + esc(l) + '</li>').join('');
 }
 
-// 加载帖子详情（先等登录态，删除键的显隐才不会有时序抖动）
+//加载帖子详情（先等登录态，删除键的显隐才不会有时序抖动）
 function loadPost() {
     loginReady.then(() => fetch('/api/forum/posts/' + postId)).then(r => r.json()).then(d => {
         if (!d.success) { document.getElementById('postCard').innerHTML = '<div class="empty">' + d.message + '</div>'; return; }
@@ -120,7 +117,7 @@ function copyTrip() {
     fetch('/api/forum/posts/' + postId + '/copy-trip', { method: 'POST' }).then(r => r.json()).then(d => alert(d.message || '复制成功'));
 }
 
-/* 点赞：实心/空心即时反馈 + 忙碌态防连点；数量由 loadPost 重渲染刷新 */
+/* 点赞：实心/空心即时反馈 + 忙碌态防连点； */
 function toggleLike() {
     const btn = document.getElementById('likeBtn');
     if (!btn || btn.disabled) return;
@@ -155,7 +152,7 @@ function toggleFav() {
         .finally(() => { btn.disabled = false; });
 }
 
-// 加载评论
+//加载评论
 function loadComments() {
     fetch('/api/forum/posts/' + postId + '/comments').then(r => r.json()).then(d => {
         const list = document.getElementById('commentList');
@@ -232,7 +229,7 @@ function reportPost() {
     }).then(r => r.json()).then(d => alert(d.message || '已提交'));
 }
 
-/** 删帖：楼主→真删；管理员删别人的→管理端下架（status=0 可恢复），成功后回论坛列表 */
+/** 删帖：楼主->真删； */
 function delPost() {
     const isMine = currentUserId != null && String(currentUserId) === String(postAuthorId);
     if (!confirm(isMine ? '确认删除这篇帖子？删除后不可恢复。' : '（管理员）下架该帖子？可在管理端恢复。')) return;

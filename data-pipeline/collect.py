@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 ① 数据采集：调用高德 Web API 批量采集 景点/美食/酒店 → 落库 MySQL 新表
 - 独立脚本，不碰 Java 核心链路
@@ -23,7 +23,7 @@ RDS_PASS = ENV.get("RDS_PASSWORD", "")
 
 CITIES = ["成都", "重庆", "西安", "长沙", "武汉", "杭州", "南京", "广州", "深圳", "北京", "上海",
           "昆明", "大理", "丽江", "三亚", "厦门", "青岛", "苏州", "桂林", "贵阳"]
-# 高德 types：110000 风景名胜 / 050000 餐饮 / 100000 住宿
+#高德 types：110000 风景名胜 / 050000 餐饮 / 100000 住宿
 KINDS = [("attractions", "景点", "110000"), ("foods", "美食", "050000"), ("hotels", "酒店", "100000")]
 
 def amap_place(city, keywords, types, page=1, offset=25):
@@ -64,7 +64,7 @@ def main(cities=None):
     total = 0
     for city in targets:
         for table, label, types in KINDS:
-            for page in range(1, 4):  # 每类每城最多 3 页 × 25 = 75 条
+            for page in range(1, 4):  # 每类每城最多 3 页 x 25 = 75 条
                 try:
                     d = amap_place(city, label, types, page)
                 except Exception as e:

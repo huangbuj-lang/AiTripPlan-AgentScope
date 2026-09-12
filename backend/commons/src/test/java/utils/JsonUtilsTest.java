@@ -7,9 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * 结构化 JSON 提取/解析工具单元测试
- */
+/** 结构化 JSON 提取/解析工具单元测试 */
 class JsonUtilsTest {
 
     @Test

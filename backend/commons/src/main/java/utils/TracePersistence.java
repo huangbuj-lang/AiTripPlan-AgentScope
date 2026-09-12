@@ -10,11 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * ★观测数据落库：任务历史 / 调用链 span / LLM 成本日汇总 持久化到 MySQL。
- * 设计原则：观测写入绝不能影响主流程——所有方法内部 try/catch 静默失败，只记日志。
- * 留存依据：能回答"重启后还能查历史"的数据落库；瞬时状态(熔断/在途/成功率)不落。
- */
+/** 观测数据落库：任务历史 / 调用链 span / LLM 成本日汇总 持久化到 MySQL。 */
 public final class TracePersistence {
 
     private static final String DB = "aitripplan";
@@ -56,7 +52,7 @@ public final class TracePersistence {
         }
     }
 
-    /** 批量落库某任务的调用链 span（任务终态时调用；spans 为合并后的 map 列表） */
+    /** 批量落库某任务的调用链 span（任务终态时调用； */
     public static void saveSpans(String sessionId, List<Map<String, Object>> spans) {
         if (spans == null || spans.isEmpty()) return;
         try (Connection c = getConn()) {

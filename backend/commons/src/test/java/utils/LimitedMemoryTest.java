@@ -9,9 +9,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * 限量记忆单元测试
- */
+/** 限量记忆单元测试 */
 class LimitedMemoryTest {
 
     private Msg msg(String text) {

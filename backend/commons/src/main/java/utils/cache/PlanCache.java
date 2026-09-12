@@ -5,11 +5,7 @@ import utils.Config;
 import java.util.Map;
 import java.util.concurrent.*;
 
-/**
- * 结果缓存（进程内）：缓存专家产物 routeResult + planResult。
- * key = SHA1(目的地|天数|出发地|个人中心偏好|本次输入偏好)，TTL = PLAN_CACHE_TTL_HOURS（默认 12h）。
- * 零依赖实现（ConcurrentHashMap + 延迟清单），不引入第三方包。
- */
+/** 结果缓存（进程内）：缓存专家产物 routeResult + planResult。 */
 public final class PlanCache {
 
     private PlanCache() {}
@@ -25,10 +21,10 @@ public final class PlanCache {
         }
     }
 
-    /** key=dest|days|origin|storedPrefs 的哈希 → Entry（防串缓存） */
+    /** key=dest|days|origin|storedPrefs 的哈希 -> Entry（防串缓存） */
     private static final ConcurrentMap<String, Entry> CACHE = new ConcurrentHashMap<>();
 
-    /** 命中/未中计数（进程内存，重启清零——与成本观测页语义一致） */
+    /** 命中/未中计数（进程内存，重启清零--与成本观测页语义一致） */
     private static final java.util.concurrent.atomic.AtomicLong HITS = new java.util.concurrent.atomic.AtomicLong();
     private static final java.util.concurrent.atomic.AtomicLong MISSES = new java.util.concurrent.atomic.AtomicLong();
 

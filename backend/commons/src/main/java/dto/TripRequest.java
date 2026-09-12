@@ -4,10 +4,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.util.List;
 
-/**
- * 用户旅行需求的解析结果（阶段三结构化数据契约）
- * 由需求解析器单次 LLM 调用产出，字段用宽松默认值兜底。
- */
+/** 用户旅行需求的解析结果（阶段三结构化数据契约） 由需求解析器单次 LLM 调用产出，字段用宽松默认值兜底。 */
 @Data
 @NoArgsConstructor
 public class TripRequest {
@@ -27,13 +24,13 @@ public class TripRequest {
     /** 偏好（如 自驾 / 亲子 / 美食） */
     private String preference = "";
 
-    /** 步行忍耐度（如 5000/10000/20000，单位米；空=不限制） */
+    /** 步行忍耐度（如 5000/10000/20000，单位米； */
     private String walkTolerance = "";
 
-    /** 作息偏好（early=早起 / both=均可 / night=夜猫子；空=不限） */
+    /** 作息偏好（early=早起 / both=均可 / night=夜猫子； */
     private String chronotype = "";
 
-    /** 博物馆占比偏好（low=少 / mid=适中 / high=多；空=不限） */
+    /** 博物馆占比偏好（low=少 / mid=适中 / high=多； */
     private String museumRatio = "";
 
     /** 原始需求文本（兜底/追溯用） */
@@ -48,8 +45,14 @@ public class TripRequest {
     /** 偏好分流：只用于聚合编排的偏好（如周末/悠闲/性价比） */
     private String aggPref = "";
 
-    /** 个人中心沉淀偏好（travelStyle/预算/节奏/回避；为空=未设置） */
+    /** 个人中心沉淀偏好（travelStyle/预算/节奏/回避； */
     private Preferences preferences;
+
+    /** ★必去对象（用户原文"一定要去/必须去/想去"等，由需求解析填充；为空=用户没提） */
+    private java.util.List<String> mustVisit;
+
+    /** ★预算总额（元；0 = 用户没给预算 → 不做预算校验） */
+    private double budgetTotal = 0;
 /** 用户沉淀偏好（个人中心设置，生成时注入） */
     @Data
     @NoArgsConstructor

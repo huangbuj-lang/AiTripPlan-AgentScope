@@ -7,15 +7,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/**
- * 通知 SSE 广播中心：按 userId 维护订阅的 SseEmitter 列表。
- * 通知写入 DB 后调用 {@link #push} 实时推给该用户所有在线窗口。
- */
+/** 通知 SSE 广播中心：按 userId 维护订阅的 SseEmitter 列表。 */
 public final class NotificationHub {
 
     private NotificationHub() {}
 
-    /** userId → 该用户所有在线窗口的 emitter */
+    /** userId -> 该用户所有在线窗口的 emitter */
     private static final Map<Long, List<SseEmitter>> EMITTERS = new ConcurrentHashMap<>();
 
     /** 订阅：返回 emitter（onCompletion/onTimeout 时需调用 unsubscribe） */
