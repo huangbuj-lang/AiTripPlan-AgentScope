@@ -39,3 +39,7 @@ __pycache__/
 # ===== 敏感/大文件（含密钥或用户数据，绝不提交；本地存档不受影响） =====
 scripts/nacos-init/model-config.json
 database/data.sql
+
+# ===== 测试产物 / 运行产物（不进仓库，本地保留） =====
+e2e_*.json
+run/
