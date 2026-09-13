@@ -114,9 +114,13 @@ function regen(si, dayIdx, btn) {
     const restore = () => { if (btn) { btn.disabled = false; btn.innerHTML = origLabel; } };
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 重排中...'; }
     document.getElementById('saveMsg').textContent = '重排中，请稍候...';
-    fetch('/api/trips/' + tripId + '/regenerate-day', {
+    //★用户口径：只把"重排一天"这个按钮换成新的对话式改行程接口（老接口 /regenerate-day 保留当回退，未删）
+    //  新接口吃的是"第N天 + 自然语言要求"，返回里同样有 plan，所以下面的重绘逻辑一行不用改
+    const dayNo = (typeof dayIdx === 'number' ? dayIdx + 1 : 1);
+    const ask = (instruction && instruction.trim()) ? instruction.trim() : '重新安排一天';
+    fetch('/api/trip-chat-edit', {
         method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ dayIndex: dayIdx, instruction: instruction || '' })
+        body: new URLSearchParams({ planId: tripId, instruction: '第' + dayNo + '天：' + ask })
     }).then(r => r.json()).then(d => {
         if (d.success && d.plan) { plan = d.plan; render(); document.getElementById('saveMsg').textContent = d.message; document.getElementById('saveMsg').style.color = '#00b894'; }
         else { document.getElementById('saveMsg').textContent = d.message || '重排失败'; document.getElementById('saveMsg').style.color = '#e17055'; }

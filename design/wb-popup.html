@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>行中提醒执行弹窗 · 设计预览</title>
+<style>
+  body{margin:0;font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:#f7f5f0;color:#1f2a26}
+  .wrap{max-width:760px;margin:40px auto;padding:0 20px}
+  h1{font-size:20px;margin:0 0 6px}
+  p.note{color:#8a9a94;font-size:13px;margin:0 0 22px}
+  .fake{background:#fff;border:1px solid #e6e1d8;border-radius:14px;padding:18px 20px;color:#5f726b;font-size:13.5px;line-height:1.8}
+  code{background:#f1efe9;padding:2px 6px;border-radius:6px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>行中提醒执行提示 · 弹窗预览</h1>
+  <p class="note">管理员专用 · 前台首页与管理端都会弹 · 不进通知模块、普通用户看不到</p>
+  <div class="fake">
+    页面内容（示意）…<br>
+    右下角会出现弹窗，只要显示一切正常就说明样式没问题。<br><br>
+    真实触发时显示的是：<code>日期 时间 · 定时自动/手动触发</code> + <code>本次发出 N 条天气早报</code>
+  </div>
+</div>
+
+<!-- 直接加载线上那份脚本，保证"看到的预览 = 真页面的样式" -->
+<script src="http://localhost:8081/js/wbpopup.js?v=20260913b"></script>
+<script>
+  (function () {
+    function show() {
+      if (window.WbPopup && window.WbPopup.show) {
+        window.WbPopup.show({ date: '2026-09-13', atText: '12:18:53', sent: '2', by: 'auto',
+          brief: '【伊宁】9月13日伊宁晴，17~25℃，去伊宁吃手抓饭、喝酸奶、逛喀赞其民俗旅游区，早晚温差大记得带外套。' });
+      } else { setTimeout(show, 300); }
+    }
+    setTimeout(show, 500);
+  })();
+</script>
+</body>
+</html>

@@ -201,7 +201,8 @@ public class AppController {
         }
         Object userIdObj = session.getAttribute("userId");
         if (userIdObj == null || !EventStore.isOwner(sessionId, ((Number) userIdObj).longValue())) {
-            return "⏳ 任务还在执行中..."; // 非本人会话：不泄露他人结果
+            //★不能和"任务真的在跑"用同一句话：服务重启会清掉登录态，前端会把"没登录"误判成"任务在跑"（幽灵进度）
+            return "❌ 任务不存在或已失效，请重新提交"; // 非本人会话 / 未登录：不泄露他人结果
         }
         String r = EventStore.getResult(sessionId);
         return r == null ? "⏳ 任务还在执行中..." : r;

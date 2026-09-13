@@ -20,6 +20,98 @@ let sessionId = (function () {
 
 //===== 登录状态检查（页面加载时执行） =====
 
+
+//===== 调度中心 × 生成进度（合并面板）：阶段刻度 / 各环节状态 / 计时 =====
+//文案口径（用户要求）：只用大白话，不出现 Agent、编排、校验通过这类专业名词
+const THINK_STAGES = [
+    { key: '解析', rail: '需求规划完成', doing: '正在理解需求', desc: '正在看清你要去哪里、去几天', pct: 8 },
+    { key: '路线', rail: '路线规划完成', doing: '正在规划路线', desc: '正在安排先去哪、后去哪', pct: 20 },
+    { key: '行程', rail: '行程规划完成', doing: '正在安排行程', desc: '正在安排每天玩什么、吃什么、住哪儿', pct: 35 },
+    { key: '整合', rail: '整合校验完成', doing: '正在整合检查', desc: '正在检查每天的节奏合不合理', pct: 85 },
+    { key: '完成', rail: '全部完成', doing: '行程已生成', desc: '正在准备展示', pct: 100 }
+];
+const THINK_CHIPS = [
+    { nm: '需求理解', at: '解析' }, { nm: '路线规划', at: '路线' },
+    { nm: '行程安排', at: '行程' }, { nm: '整体检查', at: '整合' }
+];
+let thinkIdx = -1, thinkClockTimer = null, thinkStartTs = 0;
+let thinkFired = new Set();   // 真正到达过的事件类型：没发生过的绝不打勾（用户抓到过假勾）
+let thinkSig = '';            // 状态签名：只有变化时才重建，避免闪动
+let thinkPct = 0;             // 单调进度：并行阶段后到的低值不回退
+/** 面板只在【生成任务进行中】出现：提交/恢复时显示，出结果或取消时收起 */
+function showThinkPanel() { const p = document.getElementById('thinkPanel'); if (p) p.style.display = ''; }
+function hideThinkPanel() { const p = document.getElementById('thinkPanel'); if (p) p.style.display = 'none'; }
+
+function fmtClock(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
+}
+/** 按【真正发生过的事件】渲染刻度与状态块：
+ *  ① 只有真到达的阶段才打勾（曾按档位顺序推算 -> 没发生的"路线"也被打勾，用户当场抓出）
+ *  ② 状态签名不变就不重建 -> 不闪动
+ */
+function renderThinkStages() {
+    const sig = THINK_STAGES.filter(function (s) { return thinkFired.has(s.key); }).map(function (s) { return s.key; }).join(',');
+    if (sig === thinkSig) return;
+    thinkSig = sig;
+    const firedList = THINK_STAGES.filter(function (s) { return thinkFired.has(s.key); });
+    const cur = firedList.length ? firedList[firedList.length - 1].key : null;
+    const rail = document.getElementById('tpRail');
+    if (rail) rail.innerHTML = THINK_STAGES.map(function (s) {
+        const done = thinkFired.has(s.key) && s.key !== cur;
+        const cls = done ? 'done' : (s.key === cur ? 'on now' : '');
+        return '<div class="tp-node ' + cls + '"><div class="dot"></div><div class="nm">' + s.rail + '</div></div>';
+    }).join('');
+    const chips = document.getElementById('tpChips');
+    if (chips) chips.innerHTML = THINK_CHIPS.map(function (c) {
+        const isDone = thinkFired.has(c.at) && c.at !== cur;
+        const isRun = c.at === cur;
+        const cls = isDone ? 'ok' : (isRun ? 'run' : '');
+        const txt = isDone ? '已完成' : (isRun ? '进行中' : '待命');
+        return '<span class="tp-chip ' + cls + '"><i class="dotled"></i>' + c.nm + ' \u00b7 ' + txt + '</span>';
+    }).join('');
+    const st = THINK_STAGES.filter(function (s) { return s.key === cur; })[0] || THINK_STAGES[0];
+    const nm = document.getElementById('tpStageName'), ds = document.getElementById('tpStageDesc');
+    const fin = thinkFired.has('完成');
+    if (nm) nm.textContent = fin ? '行程已生成' : st.doing;
+    if (ds) ds.textContent = fin ? '正在准备展示' : st.desc;
+}
+function setThinkLive(kind) {
+    const el = document.getElementById('thinkLive');
+    if (!el) return;
+    el.className = kind === 'done' ? 'live done' : (kind === 'stop' ? 'live stop' : 'live');
+    el.textContent = kind === 'done' ? 'DONE' : (kind === 'stop' ? '已中断' : 'LIVE');
+}
+function stopThinkClock(final) {
+    if (thinkClockTimer) { clearInterval(thinkClockTimer); thinkClockTimer = null; }
+    if (final) { const eta = document.getElementById('thinkEta'); if (eta) eta.textContent = '已完成'; }
+}
+/** 提交 / 页面刷新恢复时重置整个面板 */
+function resetThinkPanel(pct, label) {
+    thinkIdx = -1;
+    thinkFired = new Set(); thinkSig = null; thinkPct = 0;
+    showThinkPanel();
+    const used = document.getElementById('thinkUsed');
+    if (used) used.textContent = '00:00';
+    const eta = document.getElementById('thinkEta');
+    if (eta) eta.textContent = '预计还需 —';
+    setThinkLive('live');
+    updateGenProgress(pct, null);
+    thinkStartTs = Date.now();
+    if (thinkClockTimer) clearInterval(thinkClockTimer);
+    thinkClockTimer = setInterval(function () {
+        const sec = (Date.now() - thinkStartTs) / 1000;
+        const u = document.getElementById('thinkUsed');
+        if (u) u.textContent = fmtClock(sec);
+        const e2 = document.getElementById('thinkEta');
+        //参考值：真实长线约 456~640s；只给时间参考，不改进度数值（不改假进度）
+        if (e2) e2.textContent = sec < 420 ? ('预计还需 ' + fmtClock(420 - sec)) : '即将完成';
+    }, 1000);
+    const nm = document.getElementById('tpStageName'), ds = document.getElementById('tpStageDesc');
+    if (nm) nm.textContent = label ? '正在提交任务' : THINK_STAGES[0].doing;
+    if (ds) ds.textContent = label || THINK_STAGES[0].desc;
+}
+
 //===== 生成进度条（阶段驱动）：提交->解析->路线->行程->整合->完成 =====
 const GEN_STAGES = {
     '解析': { pct: 8, label: '解析旅行需求...' },
@@ -53,13 +145,14 @@ function genProgressHTML(pct, label) {
 }
 
 function updateGenProgress(pct, label) {
-    const fill = document.querySelector('.gen-fill');
+    const fill = document.querySelector('#thinkPanel .gen-fill') || document.querySelector('.gen-fill');
     if (!fill) return;
-    fill.style.width = pct + '%';
-    const pctEl = document.querySelector('.gen-pct');
-    if (pctEl) pctEl.textContent = pct + '%';
-    const lbl = document.querySelector('.gen-label-text');
-    if (lbl && label !== null && label !== undefined) lbl.textContent = label;
+    thinkPct = Math.max(thinkPct, pct);   // 并行阶段后到的低值不回退
+    fill.style.width = thinkPct + '%';
+    const pctEl = document.querySelector('#thinkPanel .gen-pct') || document.querySelector('.gen-pct');
+    if (pctEl) pctEl.textContent = Math.round(thinkPct) + '%';
+    renderThinkStages();
+    if (thinkPct >= 100) { setThinkLive('done'); stopThinkClock(true); }
 }
 
 //页面重载后恢复进行中的任务：localStorage 标记 + /result 探测
@@ -73,10 +166,12 @@ function tryRestoreRunning() {
         .then(r => r.text())
         .then(text => {
             if (text.includes('任务不存在')) {
-                //任务已失效（服务重启/从未提交）：清理本地标记，不再卡进度条
+                //任务已失效（服务重启/未登录/从未提交）：清理本地标记，不再卡进度条
                 localStorage.removeItem('atp_gen_running');
-                //★行程不凭空消失：行程是后端数据（trip_plans），从服务器取回（用户点过 × 才不恢复）
-                restoreLastPlanFromServer();
+                //★用户口径：不要自动弹出旧行程。
+                //  刷页面前正在看的行程由下面"任务已完成"分支的 fetchResult 恢复，不靠这里；
+                //  这里（服务重启/新登录）必须是【干净首页】，绝不"登录进去就自己蹦出一个行程"。
+                try { localStorage.removeItem('atp_last_plan_id'); } catch (e) { }
                 document.getElementById('sendBtn').disabled = false;
                 document.getElementById('cancelBtn').style.display = 'none';
                 return;
@@ -102,7 +197,23 @@ function tryRestoreRunning() {
             }
             //任务仍在跑：恢复进度条 + 重连事件流 + 结果轮询（仅标记存在时，避免误恢复）
             if (!m) return;
-            document.getElementById('resultBody').innerHTML = genProgressHTML(30, '任务进行中，正在恢复进度...');
+            document.getElementById('resultBody').innerHTML = '';
+            resetThinkPanel(30, '正在恢复进度');
+            //★兜底：进了"恢复进度"却一直没有任何事件 → 说明任务其实已经没了（服务重启等），
+            //  15 秒后清标记并收起，绝不留幽灵进度（用户口径：除服务重启外任务常驻，重启后就该干净）
+            if (window.__restoreWatch) clearTimeout(window.__restoreWatch);
+            window.__restoreWatch = setTimeout(function () {
+                if (thinkFired && thinkFired.size > 0) return;   // 有事件 = 真在跑
+                try { localStorage.removeItem('atp_gen_running'); } catch (e) { }
+                //★长连接必须关掉：否则浏览器标签会一直转圈（用户当场反馈"一直在转圈"）
+                try { if (eventSource) { eventSource.close(); eventSource = null; } } catch (e) { }
+                try { if (polling) { clearInterval(polling); polling = null; } } catch (e) { }
+                try { if (resultTimer) { clearInterval(resultTimer); resultTimer = null; } } catch (e) { }
+                stopThinkClock(false); stopGenSmooth(); hideThinkPanel();
+                document.getElementById('resultBody').innerHTML = '';
+                document.getElementById('sendBtn').disabled = false;
+                document.getElementById('cancelBtn').style.display = 'none';
+            }, 15000);
             document.getElementById('sendBtn').disabled = true;
             document.getElementById('cancelBtn').style.display = 'inline-block';
             if (eventSource) eventSource.close();
@@ -126,6 +237,16 @@ function checkLogin() {
                 document.getElementById('profileBtn').style.display = 'inline-block';
                 document.getElementById('myPlansBtn').style.display = 'inline-block';
                 document.getElementById('logoutBtn').style.display = 'inline-block';
+
+    //★通知入口（用户口径：从论坛页移到首页）——显示按钮 + 拉未读数
+    (function () {
+        var nb = document.getElementById('notifBtn');
+        if (nb) nb.style.display = 'inline-block';
+        fetch('/api/notifications/unread-count').then(function (r) { return r.json(); }).then(function (d) {
+            var b = document.getElementById('notifBadge');
+            if (b && d && d.success && d.count > 0) { b.style.display = 'inline-block'; b.textContent = d.count; }
+        }).catch(function () { });
+    })();
                 //管理员额外显示「管理端」入口
                 if (data.role === 'admin') {
                     document.getElementById('adminBtn').style.display = 'inline-block';
@@ -440,6 +561,10 @@ function composePrompt(base) {
         const m = (dv ? String(dv.textContent || '') : '').match(/\d+/);
         if (m) t += '（行程共 ' + m[0] + ' 天）';
     } catch (e) { /* 取不到就不加，不影响提交 */ }
+    //★新增 1 行（不改上面任何既有逻辑）：预算输入框 → 追加一句带进需求文本
+    //  后端 budgetTotal 没有独立参数，只由 requestParser 从需求原文解析（AgentPrompts.requestParser：'用户说"预算5000"→5000'），
+    //  所以这里只追加一句，口径交给后端；输入框不填（空）时这一行什么都不加。
+    try { const bi = document.getElementById('budgetInput'); const bv = bi ? String(bi.value || '').trim() : ''; if (bv) t += '（人均预算 ' + bv + ' 元）'; } catch (e) { /* 取不到就不加，不影响提交 */ }
     return t;
 }
 
@@ -452,6 +577,7 @@ function confirmScheme() {
 
 /** 中断任务：调用 /cancel 设置取消标志，主管Agent在下一个事件点停止 不再等任务排队--中断后 RUNNING 释放，可以马上提交新任务 */
 function cancelTask() {
+    hideThinkPanel();
     if (!confirm('确定要停止当前任务吗？')) return;
     stopGenSmooth();
     localStorage.removeItem('atp_gen_running');
@@ -553,7 +679,8 @@ function doSubmit(prompt, walk, chrono, museum, multi) {
 
     //重置界面
     document.getElementById('thinkBody').innerHTML = '';
-    document.getElementById('resultBody').innerHTML = genProgressHTML(8, '正在提交任务...');
+    document.getElementById('resultBody').innerHTML = '';
+    resetThinkPanel(8, '正在接收你的需求');
     localStorage.setItem('atp_gen_running', JSON.stringify({ sid: sessionId, t: Date.now() }));
     localStorage.removeItem('atp_trip_closed'); //★重新生成 = 用户要看新行程，清掉"已关闭"标记（用户口径）
     document.getElementById('status').textContent = '⏳ 任务提交中...';
@@ -638,10 +765,12 @@ function appendThinkItem(ev) {
     //阶段驱动进度条：按事件类型推进（解析/路线/行程/整合/完成）
     const st = GEN_STAGES[ev.type];
     if (st) {
+        thinkFired.add(ev.type);   // ★先登记：只有真到达的阶段才会被打勾
+        if (window.__restoreWatch) { clearTimeout(window.__restoreWatch); window.__restoreWatch = null; }
         updateGenProgress(st.pct, st.label);
         if (ev.type === '行程') startGenSmooth(80);      // 行程Agent 1-2分钟：35%->80% 平滑
         else if (ev.type === '整合') startGenSmooth(96); // 整合阶段：85%->96% 平滑
-        else if (ev.type === '完成') stopGenSmooth();
+        else if (ev.type === '完成') { stopGenSmooth(); stopThinkClock(true); setThinkLive('done'); }
     }
     //调度中心只给用户看人话：内部阶段（诊断/校验）不显示；失败字样、工具名、字符数、括号内容一律不显示
     if (ev.type === '诊断' || ev.type === '校验') return;
@@ -1173,6 +1302,14 @@ function formatSectionItem(type, item) {
     }
 }
 
+
+/** ★用户口径：详情弹窗里酒店/餐饮那行的【地名标题】（奎屯市/阜康市这类）应跳高德，不弹卡片；只判断行政区名，别的照旧 */
+function isCityOrAreaName(s) {
+    const t = stripParens(String(s == null ? '' : s)).trim();
+    if (!t || t.length > 8) return false;
+    return /(市|县|区|镇|乡|州|盟|旗)$/.test(t) && !/景区|城区|分区|园区|街区|厂区/.test(t);
+}
+
 /** 去掉括号及其内容（交付文案不允许出现补充说明/过程备注），并压掉多余空白 */
 function stripParens(s) {
     let t = String(s == null ? '' : s);
@@ -1304,7 +1441,7 @@ function renderStructuredPlan(plan) {
     const day0 = days[0];
     const d0Items = (day0.items || []).filter(it => it && (it.time || it.place || it.activity));
     //★用户口径：轨迹展示不能有重复地点 —— 同一天内同一地点只保留首次出现（详情弹窗不受影响）
-    const d0Shown = dedupeByPlace(d0Items).slice(0, 6);
+    const d0Shown = dedupeByPlace(d0Items);   //★用户口径：轨迹与概览卡片完全一致（去掉最多6个的限制）
     html += '<div class="route-line">'
         + '<svg class="bg" viewBox="0 0 1050 100" preserveAspectRatio="none" fill="none">'
         + '<path d="' + routePath(d0Shown.length) + '" stroke="rgba(31,174,143,.55)" stroke-width="2.4" stroke-dasharray="6 8"/></svg>'
@@ -1346,8 +1483,10 @@ function renderStructuredPlan(plan) {
             + stopObjs.map(o => {
                 //★用户口径：概览卡片里的酒店/餐饮也点开卡片、不跳转（其余条目仍是原来的高德链接）
                 const p = poiOrLinkHtml(o.it, o.pl);
+                //★用户口径：卡片结构改成与轨迹完全一致（轨迹是 <div class="pl">，卡片原来是两层 span ✗
+                //  实测同一地名轨迹能点、卡片不能点）
                 return '<div class="item"><span class="ic">' + activityIcon(o.pl) + '</span>'
-                    + '<span><span class="pl">' + p.html + '</span></span></div>';
+                    + '<span class="pl">' + p.html + '</span></div>';
             }).join('')
             + '</div>';
     });
@@ -1408,7 +1547,7 @@ function estWalkKm(itemCount) {
  * hid 为空时返回值与改动前的 amapLink(...) 完全一致。
  */
 function amapLinkWrap(it, hid, icon) {
-    const link = amapLink(stripParens(it.place || it.activity || ''));
+    const link = amapLink(stripParens(it.place || it.activity || ''), cityOfItem(it));
     if (!hid) return link;
     return '<span onclick="event.stopPropagation()">' + link + '</span><span class="poi-go">' + (icon || '🏨') + '</span>';
 }
@@ -1457,24 +1596,49 @@ function closeTripView() {
     const rb = document.getElementById('resultBody');
     if (rb) rb.innerHTML = '';
     const tb = document.getElementById('thinkBody');
-    if (tb) tb.innerHTML = '';
+    if (tb) tb.innerHTML = '<div class="item"><span class="ts">--:--</span><span class="msg">发送需求后，这里会实时显示每一步进展</span></div>';
+    stopThinkClock(false); stopGenSmooth(); thinkIdx = -1; hideThinkPanel();
+    thinkFired = new Set(); thinkSig = null; thinkPct = 0;
+    setThinkLive('live');
+    const u2 = document.getElementById('thinkUsed'); if (u2) u2.textContent = '00:00';
+    const e3 = document.getElementById('thinkEta'); if (e3) e3.textContent = '预计还需 —';
+    updateGenProgress(0, null);
+    const f2 = document.querySelector('#thinkPanel .gen-fill'); if (f2) f2.style.width = '0%';
+    const p2 = document.querySelector('#thinkPanel .gen-pct'); if (p2) p2.textContent = '0%';
+    const n2 = document.getElementById('tpStageName'); if (n2) n2.textContent = '等待开始';
+    const d2 = document.getElementById('tpStageDesc'); if (d2) d2.textContent = '发送需求后开始生成行程';
 }
 
 /** 地名 -> 高德定位链接(点击先查经纬度->直接定位;查不到降级搜索页) */
-function amapLink(place) {
+function amapLink(place, cityOverride) {
     const name = (place || '').trim();
     if (!name) return '';
-    //带上当前行程目的地城市,避免同名地点(如"人民公园")定位到别的城市
-    const city = (currentPlanData && currentPlanData.destination) ? currentPlanData.destination.trim() : '';
-    return '<a class="place-link" href="https://www.mafengwo.cn/search/q.php?q='
-        + encodeURIComponent(name)
-        + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();gotoAmap(this.href, \'' + name.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\', \'' + city.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\');return false" title="在马蜂窝查看「' + name + '」介绍">'
+    //★优先用"这个地点自己所在的城市"（如 奎屯市），没有才退回行程目的地
+    const city = String(cityOverride || '').trim()
+        || ((currentPlanData && currentPlanData.destination) ? currentPlanData.destination.trim() : '');
+    if (window.AmapNav && AmapNav.setCity) { try { AmapNav.setCity(city); } catch (e) { } }
+    const navBase = (window.AmapNav && AmapNav.url) ? AmapNav.url(name, city)
+        : ((window.AmapNav && AmapNav.url) ? AmapNav.url(name, city)
+            : ('https://ditu.amap.com/search?query=' + encodeURIComponent((String(city || '').trim() ? String(city).trim() + ' ' : '') + name)));
+    //★根因修复：name/city 会进入【属性】里（href/title/onclick）✗
+    //  名字里只要带 " 或 < 就会把标签截断 → 页面显示成乱码文字（实测"好运酒店"那行整段代码露出来）
+    //  → 属性值一律转义；JS 字符串里再转义引号
+    const attr = String(name).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const attrCity = String(city).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const jsName = String(name).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/</g, '\\u003c');
+    const jsCity = String(city).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/</g, '\\u003c');
+    return '<a class="place-link" href="' + navBase
+        + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();gotoAmap(this.href, \'' + jsName + '\', \'' + jsCity + '\');return false" title="在高德查看并导航到「' + attr + '」">'
         + escapeHtml(name) + '</a>';
 }
 
 /** 点击景点：跳马蜂窝搜索页 */
 function gotoAmap(fallbackUrl, name, city) {
-    window.open('https://www.mafengwo.cn/search/q.php?q=' + encodeURIComponent(name), '_blank');
+    //★用户口径：概览/轨迹/卡片里点地点名 → 高德一键导航（不再跳马蜂窝）
+    var u = '';
+    try { u = (window.AmapNav && AmapNav.url) ? AmapNav.url(name, city) : ''; } catch (e) { }
+    window.open(u || fallbackUrl || ((window.AmapNav && AmapNav.url) ? AmapNav.url(name, city)
+            : ('https://ditu.amap.com/search?query=' + encodeURIComponent((String(city || '').trim() ? String(city).trim() + ' ' : '') + name))), '_blank');
 }
 
 /** 按点数生成轨迹曲线路径 */
@@ -1595,18 +1759,21 @@ function selectDay(di) {
     if (!days[di]) return;
     const day = days[di];
     const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity));
+    //★用户口径：点天卡片切换时，轨迹必须与概览卡片【完全一致】——
+    //  用同一套去重（首次渲染用的是 dedupeByPlace(...).slice(0,6)），否则会冒出重复地名（实测"奎屯市"出现两次）
+    const shown = dedupeByPlace(items);   //★同上：不再限制 6 个，与卡片一致
     //重绘轨迹
     const routeBox = document.querySelector('.route-line');
     if (routeBox) {
         routeBox.innerHTML = ''
             + '<svg class="bg" viewBox="0 0 1050 100" preserveAspectRatio="none" fill="none">'
-            + '<path d="' + routePath(items.length) + '" stroke="rgba(31,174,143,.55)" stroke-width="2.4" stroke-dasharray="6 8"/></svg>'
+            + '<path d="' + routePath(shown.length) + '" stroke="rgba(31,174,143,.55)" stroke-width="2.4" stroke-dasharray="6 8"/></svg>'
             + '<div class="stops">'
-            + items.slice(0, 6).map((it, i) => {
+            + shown.map((it, i) => {
                 const hl = i === 1 || i === items.length - 2;
                 return '<div class="stop' + (hl ? ' hl' : '') + '">'
                     + '<div class="dot"></div><div class="tm">' + escapeHtml(it.time || '') + '</div>'
-                    + '<div class="pl">' + amapLink(it.place || it.activity || '') + '</div>'
+                    + '<div class="pl">' + amapLink(it.place || it.activity || '', cityOfItem(it)) + '</div>'
                     + '<div class="d">' + escapeHtml(it.cost || '') + '</div></div>';
             }).join('')
             + '</div>';
@@ -1639,16 +1806,15 @@ function openDayModal(di) {
             const wrapped = poiOk ? wrapHotelNames(escapeHtml(dRaw), it) : { html: escapeHtml(dRaw), firstId: '' };
             const hid = wrapped.firstId;
             const poiIcon = isHotelItem(it) ? '🏨' : (isFoodItem(it) ? '🍽' : '🏨');
+            //★用户口径：地名是行政区名（奎屯市/阜康市这类）的那一行 → 不弹卡片，只让地名跳高德；
+            //  同一行里的【店名】照旧弹卡片（汉庭酒店那类，用户确认是正常的）
+            //★用户口径：不再弹卡片 → 整行不绑定"打开卡片"，地点名走高德链接
             return '<div class="detail-item' + (hl ? ' hl' : '') + (hid ? ' poi-row' : '') + '"'
-                + (hid ? ' onclick="openPoiCardById(\'' + hid + '\')" title="查看高德信息"' : '')
                 + '>'
                 + '<span class="detail-time">' + escapeHtml(it.time || '') + '</span>'
                 + '<div class="detail-body"><div class="p"><span class="em">' + activityIcon(it.activity || it.place || '') + '</span>'
                 //★标题就是 place（实测酒店/餐厅名就写在这个字段）→ 也要带虚线、点开卡片且不跳转
-                + ((hid && String(it.place || '').trim())
-                    ? ('<span class="poi-name" onclick="event.stopPropagation();openPoiCardById(\'' + hid + '\')" title="查看高德信息">'
-                        + escapeHtml(stripParens(it.place)) + '</span><span class="poi-go">' + poiIcon + '</span>')
-                    : amapLinkWrap(it, hid, poiIcon)) + '</div>'
+                + amapLinkWrap(it, '', poiIcon) + '</div>'
                 + '<div class="d">' + wrapped.html + '</div></div></div>';
         }).join('')
         + '<div class="detail-foot">'
@@ -2480,7 +2646,7 @@ function poiOrLinkHtml(it, text) {
             if (w.firstId) return { html: w.html, id: w.firstId };
         }
     } catch (e) { /* 出问题就退回原来的链接渲染，绝不让页面坏掉 */ }
-    return { html: amapLink(t), id: '' };
+    return { html: amapLink(t, cityOfItem(it)), id: '' };
 }
 
 function wrapHotelNames(html, item) {
@@ -2497,7 +2663,8 @@ function wrapHotelNames(html, item) {
             if (!firstId) firstId = pid;
             const eh = escapeHtml(t.n);
             if (eh && out.indexOf(eh) >= 0) {
-                out = out.replace(eh, '<span class="poi-name" onclick="event.stopPropagation();openPoiCardById(\'' + pid + '\')" title="查看高德信息">' + eh + '</span>');
+                //★用户口径：不再弹卡片 → 店名直接跳高德搜索页（效果与点击轨迹地点完全一样）
+                out = out.replace(eh, amapLink(t.n, cityOfItem(item)));   //参数名是 item（不是 it）
             }
         });
     } catch (e) { /* 替换失败就用原文 */ }
@@ -2820,6 +2987,9 @@ function initPrintButton() {
         const text = (body.textContent || '').trim();
         const has = text && !text.includes('正在生成') && !text.includes('等待生成') && !body.querySelector('.gen-progress') && !text.includes('（空响应）');
         if (saveBar) saveBar.style.display = has ? 'flex' : 'none';
+        //★对话式改行程（仅新增这 1 行，不改本函数既有逻辑）：结果区有行程就挂输入条，清空就收起
+        if (window.TripChat) { if (has) window.TripChat.attach(viewingPlanId, currentPlanData); else window.TripChat.detach(); }
+    if (has) hideThinkPanel();   // 结果已出来 -> 收起调度中心面板
     };
 
     //监听结果区内容变化，实时控制按钮显隐
@@ -2829,4 +2999,32 @@ function initPrintButton() {
     //页面加载时初始化一次
     update();
 }
+
+/* ★对话式改行程（新增：只有这一段，不改本文件任何既有函数）：
+   把后端权威数据写回本模块的模块内状态（lastResultMarkdown / currentPlanData / viewingPlanId）。
+   tripchat.js 重排成功后调用 window.TripChatState.set(markdown, plan, planId)；
+   没有这个钩子时 savePlan() 读到的 lastResultMarkdown 是空的（或还是旧的那一天）→ "暂无结果可保存"。 */
+window.TripChatState = {
+    set: function (markdown, planData, planId) {
+        if (typeof markdown === 'string' && markdown.trim()) lastResultMarkdown = markdown;
+        if (planData) currentPlanData = planData;
+        if (planId) viewingPlanId = planId;
+    }
+};
 initPrintButton();
+
+/* ★行中提醒直达（用户口径）：从通知点进来时地址栏带 ?planId=xx → 直接把那条行程打开。
+   只认显式参数，不做任何"自动恢复上次行程"（服务重启后仍是干净首页）。 */
+(function atpWeatherBriefJump() {
+    try {
+        var m = /[?&]planId=(\d+)/.exec(location.search || '');
+        if (!m) return;
+        var pid = m[1];
+        var tries = 0;
+        var timer = setInterval(function () {
+            tries++;
+            if (typeof viewPlan === 'function') { clearInterval(timer); try { viewPlan(Number(pid)); } catch (e) { } }
+            else if (tries > 40) { clearInterval(timer); }
+        }, 250);
+    } catch (e) { }
+})();

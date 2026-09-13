@@ -1,0 +1,156 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>首页改版预览（设计预览）</title><style>*{box-sizing:border-box;margin:0;padding:0}
+:root{--sand-50:#FBF8F3;--sand-100:#F4EFE6;--sand-200:#EAE3D5;--forest-900:#1D2D23;--forest-700:#2C4636;
+--green-600:#3A6149;--green-500:#47755A;--green-100:#E3EDE6;--gold:#C9A96A;--panel:#FFFFFF;--muted:#64736E;--rose:#B8674F;--sky:#4C7A8E;
+--serif:"Fraunces","Noto Serif SC",Georgia,serif;--sans:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif}
+body{background:var(--sand-50);color:var(--forest-900);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+.topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:26px;padding:16px 34px;
+background:rgba(251,248,243,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--sand-200)}
+.brand{font-family:var(--serif);font-size:19px;letter-spacing:.5px}
+.brand b{color:var(--green-600)}
+.topbar nav{display:flex;gap:22px;margin-left:14px;font-size:14.5px;color:var(--muted)}
+.topbar nav a.on{color:var(--forest-900);font-weight:600;border-bottom:2px solid var(--gold);padding-bottom:3px}
+.spacer{flex:1}
+.btn{border:1px solid var(--sand-200);background:var(--panel);color:var(--forest-700);border-radius:999px;
+padding:8px 16px;font-size:13.5px;cursor:pointer;font-family:inherit}
+.btn.pri{background:var(--green-600);border-color:var(--green-600);color:#fff}
+.btn.ghost{background:transparent}
+.wrap{max-width:1180px;margin:0 auto;padding:0 34px}
+.hero{padding:52px 0 26px}
+.hero h1{font-family:var(--serif);font-size:40px;line-height:1.25}
+.hero h1 em{font-style:normal;color:var(--green-600)}
+.hero p.sub{margin-top:12px;color:var(--muted);font-size:15px}
+.stats{display:flex;gap:34px;margin-top:26px;flex-wrap:wrap}
+.stats div b{font-family:var(--serif);font-size:26px;color:var(--green-600)}
+.stats div span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.searchrow{display:flex;gap:12px;margin:30px 0 8px}
+.searchrow input{flex:1;border:1px solid var(--sand-200);background:var(--panel);border-radius:999px;
+padding:13px 20px;font-size:14.5px;font-family:inherit;color:var(--forest-900)}
+.chips{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 30px}
+.chip{border:1px solid var(--sand-200);background:var(--panel);border-radius:999px;padding:7px 15px;font-size:13px;color:var(--muted);cursor:pointer}
+.chip.on{background:var(--green-100);border-color:#C9DCCF;color:var(--green-600);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding-bottom:18px}
+.card{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;overflow:hidden;
+display:flex;flex-direction:column;transition:.18s;cursor:pointer}
+.card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(29,45,35,.10)}
+.card .ph{height:158px;background-size:cover;background-position:center;position:relative}
+.card .ph .tag{position:absolute;left:10px;top:10px;background:rgba(15,26,20,.62);color:#fff;font-size:11.5px;padding:3px 9px;border-radius:999px}
+.card .bd{padding:13px 15px 15px;display:flex;flex-direction:column;gap:7px;flex:1}
+.card .bd h3{font-family:var(--serif);font-size:16.5px}
+.card .bd p{font-size:12.5px;color:var(--muted);line-height:1.6}
+.card .bd .go{margin-top:auto;font-size:12.5px;color:var(--green-600);font-weight:600}
+.sec-h{display:flex;align-items:baseline;gap:12px;margin:38px 0 16px}
+.sec-h h2{font-family:var(--serif);font-size:22px}
+.sec-h span{font-size:12.5px;color:var(--muted)}
+.rank{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;overflow:hidden}
+.rank .row{display:flex;align-items:center;gap:16px;padding:14px 18px;border-bottom:1px solid var(--sand-100)}
+.rank .row:last-child{border-bottom:0}
+.rank .no{font-family:var(--serif);font-size:19px;color:var(--gold);width:26px}
+.rank .nm{flex:1;font-size:14.5px}
+.bar{height:7px;border-radius:999px;background:var(--green-100);overflow:hidden;width:170px}
+.bar i{display:block;height:100%;background:var(--green-600)}
+.rank .cnt{font-size:12.5px;color:var(--muted);width:76px;text-align:right}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+footer{margin-top:46px;padding:26px 0 40px;border-top:1px solid var(--sand-200);color:var(--muted);font-size:12.5px}
+.cover{height:300px;border-radius:18px;overflow:hidden;position:relative;background-size:cover;background-position:center}
+.cover .ov{position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,26,20,.08),rgba(15,26,20,.72))}
+.cover .txt{position:absolute;left:26px;right:26px;bottom:22px;color:#fff}
+.cover .txt h1{font-family:var(--serif);font-size:29px;line-height:1.32}
+.cover .txt .meta{margin-top:9px;font-size:13px;opacity:.94;display:flex;gap:16px;flex-wrap:wrap}
+.thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+.thumbs i{display:block;height:96px;border-radius:12px;background-size:cover;background-position:center}
+.day{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;padding:18px 20px;margin-bottom:14px}
+.day h3{font-family:var(--serif);font-size:17px;display:flex;align-items:center;gap:10px}
+.day h3 b{background:var(--green-100);color:var(--green-600);font-size:12.5px;padding:3px 10px;border-radius:999px;font-family:var(--sans);font-weight:600}
+.tl{margin-top:12px;display:flex;flex-direction:column;gap:11px}
+.tl .it{display:flex;gap:14px}
+.tl .it .tm{width:52px;flex:0 0 52px;font-size:12.5px;color:var(--green-600);font-weight:600;padding-top:2px}
+.tl .it .ct{flex:1;border-left:2px solid var(--sand-200);padding-left:14px}
+.tl .it .ct b{font-size:14px}
+.tl .it .ct p{font-size:12.5px;color:var(--muted);line-height:1.6;margin-top:3px}
+.tl .it .ct .tags{margin-top:5px;display:flex;gap:7px;flex-wrap:wrap}
+.tl .it .ct .tags span{font-size:11.5px;color:var(--green-600);background:var(--green-100);padding:2px 8px;border-radius:999px}
+.pub{display:inline-flex;align-items:center;gap:7px;background:var(--green-100);color:var(--green-600);font-size:12.5px;padding:5px 13px;border-radius:999px;font-weight:600}
+.cta{background:var(--forest-900);border-radius:18px;padding:24px 26px;color:#fff;margin:26px 0 0;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.cta h3{font-family:var(--serif);font-size:20px}
+.cta p{font-size:13px;opacity:.82;margin-top:5px}
+.cta .btn{background:#fff;border-color:#fff;color:var(--forest-900)}
+.badges{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.badge{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;padding:16px 18px}
+.badge b{font-family:var(--serif);font-size:25px;color:var(--green-600);display:block}
+.badge span{font-size:12.5px;color:var(--muted)}
+.wall{display:flex;gap:10px;flex-wrap:wrap}
+.wall span{border:1px solid var(--sand-200);background:var(--panel);border-radius:999px;padding:8px 14px;font-size:13px}
+.mono{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.mrow{background:var(--panel);border:1px solid var(--sand-200);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px}
+.mrow .d{font-family:var(--serif);font-size:14.5px;color:var(--gold);width:52px}
+.mrow .n{flex:1;font-size:13.5px}
+.mrow .s{font-size:12.5px;color:var(--muted)}
+.month{display:flex;align-items:center;gap:16px;padding:14px 18px;background:var(--panel);border:1px solid var(--sand-200);border-radius:14px;margin-bottom:10px}
+.month .m{font-family:var(--serif);font-size:16px;width:104px}
+.month .bar2{flex:1;height:9px;background:var(--green-100);border-radius:999px;overflow:hidden}
+.month .bar2 i{display:block;height:100%;background:var(--green-600)}
+.month .c{font-size:13px;color:var(--muted);width:76px;text-align:right}
+
+.homesplit{display:grid;grid-template-columns:1.12fr .88fr;gap:28px;align-items:center}
+.hsearch{display:flex;gap:10px;background:var(--panel);border:1px solid var(--sand-200);border-radius:999px;
+padding:8px 8px 8px 20px;align-items:center;box-shadow:0 8px 22px rgba(29,45,35,.06)}
+.hsearch input{flex:1;border:0;outline:0;font-size:14.5px;font-family:inherit;color:var(--forest-900);min-width:60px}
+.hsearch .sel{border-left:1px solid var(--sand-200);padding-left:14px;font-size:13.5px;color:var(--muted);white-space:nowrap}
+.hsearch .sel b{color:var(--forest-900);font-weight:600}
+.heroimg{height:296px;border-radius:18px;background-size:cover;background-position:center;position:relative;
+box-shadow:0 14px 30px rgba(29,45,35,.14)}
+.heroimg .fl{position:absolute;left:16px;bottom:16px;right:16px;background:rgba(255,255,255,.95);border-radius:13px;
+padding:11px 14px;font-size:12.5px;color:var(--forest-700);display:flex;gap:10px;align-items:center}
+.mini{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.mini .m{border-radius:14px;overflow:hidden;border:1px solid var(--sand-200);background:var(--panel);cursor:pointer;transition:.16s}
+.mini .m:hover{transform:translateY(-2px);box-shadow:0 10px 20px rgba(29,45,35,.09)}
+.mini .m i{display:block;height:100px;background-size:cover;background-position:center}
+.mini .m .t{padding:10px 12px;font-size:13.5px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mini .m .t em{font-style:normal;font-size:11.5px;color:var(--green-600)}
+.feed{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;overflow:hidden}
+.feed .f{display:flex;align-items:center;gap:14px;padding:13px 18px;border-bottom:1px solid var(--sand-100);font-size:13.5px}
+.feed .f:last-child{border-bottom:0}
+.feed .f .dm{font-family:var(--serif);color:var(--gold);width:52px}
+.feed .f .nm{flex:1}
+.feed .f .ds{color:var(--muted);font-size:12.5px}
+.feed .f .pill{border:1px solid var(--sand-200);border-radius:999px;padding:4px 11px;font-size:12px;color:var(--green-600);white-space:nowrap}
+.hot{font-size:12.5px;color:var(--muted);white-space:nowrap}
+</style></head><body>
+<div class="topbar"><div class="brand">AiTrip<b>Plan</b> · 漫旅</div>
+<nav><a class="on" href="#">首页</a><a href="#">探索</a><a href="#">论坛</a><a href="#">我的行程</a><a href="#">个人中心</a></nav>
+<div class="spacer"></div><button class="btn ghost">通知</button><button class="btn pri">＋ 生成新行程</button></div>
+<div class="wrap"><div class="hero">
+  <div class="homesplit">
+    <div>
+      <h1>想去哪儿，<em>我帮你把行程排出来</em></h1>
+      <p class="sub">景点、酒店、餐饮、路线、天气一次给全 —— 改行程直接说人话，改完再保存。</p>
+      <div class="hsearch" style="margin-top:22px">
+        <input placeholder="想去哪？例如：新疆 8 天 / 川西 / 海岛" value="新疆 8 天">
+        <span class="sel">天数 <b>8 天</b></span><span class="sel">人均预算 <b>6k</b></span>
+        <button class="btn pri" style="padding:11px 22px">开始生成</button></div>
+      <div style="margin-top:12px;font-size:12.5px;color:var(--muted)">生成方式：<b style="color:var(--green-600)">单方案</b> · 多方案（三套差异化对比）</div>
+    </div>
+    <div class="heroimg" style="background-image:url('../frontend/img/dest/sailimu.jpg')">
+      <div class="fl"><span>站内已有 <b>19</b> 条真实行程，图片全部来自高德实拍</span></div></div>
+  </div>
+  <div class="stats" style="margin-top:30px">
+    <div><b>19</b><span>条真实行程</span></div><div><b>9</b><span>座城市 / 地区</span></div>
+    <div><b>53</b><span>累计规划天数</span></div><div><b>16</b><span>张目的地实拍</span></div></div>
+
+  <div class="sec-h"><h2>热门目的地</h2><span>点一张图就能生成同款</span>
+    <span style="margin-left:auto"><a class="btn" href="#">全部 16 个 ›</a></span></div>
+  <div class="mini"><div class="m"><i style="background-image:url('../frontend/img/dest/sailimu.jpg')"></i><div class="t">赛里木湖<em>生成 ›</em></div></div><div class="m"><i style="background-image:url('../frontend/img/dest/nalati.jpg')"></i><div class="t">那拉提草原<em>生成 ›</em></div></div><div class="m"><i style="background-image:url('../frontend/img/dest/jiuzhaigou.jpg')"></i><div class="t">九寨沟<em>生成 ›</em></div></div><div class="m"><i style="background-image:url('../frontend/img/dest/huangshan.jpg')"></i><div class="t">黄山<em>生成 ›</em></div></div><div class="m"><i style="background-image:url('../frontend/img/dest/qinghaihu.jpg')"></i><div class="t">青海湖<em>生成 ›</em></div></div><div class="m"><i style="background-image:url('../frontend/img/dest/daochengyading.jpg')"></i><div class="t">稻城亚丁<em>生成 ›</em></div></div><div class="m"><i style="background-image:url('../frontend/img/dest/hulunbuir.jpg')"></i><div class="t">呼伦贝尔<em>生成 ›</em></div></div><div class="m"><i style="background-image:url('../frontend/img/dest/gulangyu.jpg')"></i><div class="t">鼓浪屿<em>生成 ›</em></div></div></div>
+
+  <div class="sec-h"><h2>站内最近生成</h2><span>真实行程，可直接复制同款</span></div>
+  <div class="feed"><div class="f"><span class="dm">09-12</span><span class="nm">新疆伊犁河谷—巴音布鲁克</span><span class="ds">3 天</span><span class="pill">想看同款 ›</span></div><div class="f"><span class="dm">09-12</span><span class="nm">川西（成都—都江堰—四姑娘山—丹巴—新都桥—康定—理塘—稻城—海螺沟）</span><span class="ds">3 天</span><span class="pill">想看同款 ›</span></div><div class="f"><span class="dm">09-11</span><span class="nm">川西</span><span class="ds">3 天</span><span class="pill">想看同款 ›</span></div><div class="f"><span class="dm">09-07</span><span class="nm">大连三日</span><span class="ds">3 天</span><span class="pill">想看同款 ›</span></div><div class="f"><span class="dm">08-31</span><span class="nm">九寨沟 3 日</span><span class="ds">3 天</span><span class="pill">想看同款 ›</span></div></div>
+
+  <div class="sec-h"><h2>社区热帖</h2><span>按评论数排序</span>
+    <span style="margin-left:auto"><a class="btn" href="#">去论坛 ›</a></span></div>
+  <div class="feed"><div class="f"><span class="nm">北疆9天：天山天池-赛里木湖-伊犁那拉提-独库公路，附每日车程</span><span class="hot">旅行攻略 · 4 条评论</span><span class="pill">去看 ›</span></div><div class="f"><span class="nm">独库公路到底几月走最好？我前后走过三次的经验</span><span class="hot">旅行问答 · 3 条评论</span><span class="pill">去看 ›</span></div><div class="f"><span class="nm">川西7日自驾环线：成都-新都桥-稻城亚丁-丹巴，每日里程全公开</span><span class="hot">旅行攻略 · 3 条评论</span><span class="pill">去看 ›</span></div><div class="f"><span class="nm">十一从成都出发，有一起走川西的吗？</span><span class="hot">结伴同行 · 2 条评论</span><span class="pill">去看 ›</span></div></div>
+
+  <div class="cta"><div style="flex:1"><h3>想不出目的地？让 AI 给你三个方向</h3>
+    <p>说个大概（几天、预算、想看什么），先出三套目的地组合，你挑一个再展开成完整行程。</p></div>
+    <button class="btn">试试多方案</button></div>
+</div><footer>设计预览 · 首页改版：保留原「填目的地 → 生成行程」入口，下方补上可浏览的内容（热门目的地 / 最近生成 / 社区热帖）· 数字与帖子均为站内真实数据</footer></div></body></html>

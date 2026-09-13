@@ -91,7 +91,7 @@ function switchTab(tab) {
     else if (tab === 'data')   { loadData(); }
     else if (tab === 'moderation') loadModeration();
     else if (tab === 'business')   loadBusiness();
-    else if (tab === 'announce')   loadAnnouncements();
+    else if (tab === 'announce')   { loadAnnouncements(); loadWeatherBriefSchedule(); }
     else if (tab === 'center')     loadDataCenter();
 }
 function startStatusTimer() { if (!statusTimer) statusTimer = setInterval(loadStatus, 5000); }
@@ -1373,4 +1373,63 @@ function loadAgentPrompts() {
         msg.textContent = '提示词加载失败';
         msg.className = 'msg-line err';
     });
+}
+
+
+/* ============ 行中提醒（天气早报）手动触发 ============ */
+/**
+ * ★从「公告发布」界面手动触发一次天气早报（用户口径）。
+ * force=true：跳过"天气没变化就不发"，直接把早报发进通知；每天 7:00 的定时逻辑一字未改。
+ */
+function triggerWeatherBrief(btn) {
+    const msg = document.getElementById('weatherBriefMsg');
+    if (msg) { msg.textContent = '正在查天气并生成早报，请稍候…'; msg.className = 'msg-line'; }
+    const restore = btnBusy(btn, '触发中...');
+    fetch('/api/weather-brief/trigger?force=true', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            restore();
+            toast(d.message || (d.success ? '已触发' : '触发失败'), !d.success);
+            if (msg) { msg.textContent = d.message || ''; msg.className = 'msg-line' + (d.success ? '' : ' err'); }
+        })
+        .catch(() => {
+            restore();
+            toast('请求失败', true);
+            if (msg) { msg.textContent = '请求失败'; msg.className = 'msg-line err'; }
+        });
+}
+
+
+/* ============ 行中提醒（天气早报）触发时间 ============ */
+/** 打开公告页时回显当前触发时间 */
+function loadWeatherBriefSchedule() {
+    fetchJson('/api/admin/weather-brief/schedule').then(d => {
+        const el = document.getElementById('wbTime');
+        if (d && d.success && el) el.value = d.time || '07:00';
+    }).catch(() => { });
+}
+
+/** 保存触发时间（热更：写库即生效，无需重启） */
+function saveWeatherBriefSchedule(btn) {
+    const el = document.getElementById('wbTime');
+    const msg = document.getElementById('wbMsg');
+    const t = (el && el.value || '').trim();
+    if (!/^\d{2}:\d{2}$/.test(t)) {
+        toast('时间格式应为 HH:mm（例如 07:00）', true);
+        if (msg) { msg.textContent = '时间格式应为 HH:mm（例如 07:00）'; msg.className = 'msg-line err'; }
+        return;
+    }
+    const restore = btnBusy(btn, '保存中...');
+    fetch('/api/admin/weather-brief/schedule?time=' + encodeURIComponent(t) + '&enabled=1', { method: 'PUT' })
+        .then(r => r.json())
+        .then(d => {
+            restore();
+            toast(d.message || (d.success ? '已保存' : '保存失败'), !d.success);
+            if (msg) { msg.textContent = d.message || ''; msg.className = 'msg-line' + (d.success ? '' : ' err'); }
+        })
+        .catch(() => {
+            restore();
+            toast('请求失败', true);
+            if (msg) { msg.textContent = '请求失败'; msg.className = 'msg-line err'; }
+        });
 }

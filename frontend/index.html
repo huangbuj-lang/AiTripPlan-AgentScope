@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>漫旅 · 规划你的下一段旅程</title>
 <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="css/style.css?v=20260828e">
+<link rel="stylesheet" href="css/style.css?v=20260913b">
 <link rel="stylesheet" href="css/print.css" media="print">
 </head>
 <body>
@@ -16,6 +16,7 @@
     <nav class="hero-nav">
       <div class="logo"><span class="pin"></span>漫旅 · MANLÜ</div>
       <div class="nav-links" style="margin-left:auto">
+        <button id="notifBtn" class="chip" onclick="location.href='notifications.html'" style="display:none"><i class="fa-regular fa-bell"></i> 通知 <span class="badge" id="notifBadge">0</span></button>
         <button id="adminBtn" class="chip" onclick="location.href='admin.html'" style="display:none"><i class="fa-solid fa-gauge"></i> 管理端</button>
         <button id="forumBtn" class="chip" onclick="location.href='forum.html'" style="display:none"><i class="fa-solid fa-comments"></i> 论坛</button>
         <button id="profileBtn" class="chip" onclick="location.href='profile.html'" style="display:none"><i class="fa-solid fa-user-gear"></i> 个人中心</button>
@@ -32,7 +33,7 @@
 
     <!-- 搜索条（原输入区升级：目的地/天数/探索） -->
     <div class="hero-search">
-      <div class="hs-field" style="flex:2.2">
+      <div class="hs-field" style="flex:1 1 260px;min-width:220px">
         <label><i class="fa-solid fa-location-dot"></i> 目的地</label>
         <input id="prompt" type="text" placeholder="你想去哪里?" onkeydown="if(event.key==='Enter') send()">
       </div>
@@ -65,6 +66,13 @@
             <option>13 天</option><option>14 天</option><option>15 天</option>
           </select>
         </div>
+      </div>
+      <!-- ★人均预算（非必填，纯新增一个输入框；提交时由 app.js composePrompt 追加一句带进需求文本，
+           后端 budgetTotal 只从需求原文解析，见 commons/AgentPrompts.requestParser 口径） -->
+      <div class="hs-field hs-pax">
+        <label><i class="fa-solid fa-coins"></i> 预算</label>
+        <input id="budgetInput" type="number" min="0" step="100" inputmode="numeric"
+               placeholder="人均预算" title="非必填：填了会作为预算说明写进需求文本">
       </div>
       <button id="sendBtn" class="btn-explore" onclick="send()"><i class="fa-solid fa-magnifying-glass"></i> 探索</button>
       <button id="cancelBtn" class="btn-cancel-hero" onclick="cancelTask()" title="停止"><i class="fa-solid fa-stop"></i></button>
@@ -130,6 +138,30 @@
   <!-- 结果区：轨迹 + 天卡片 -->
   <div class="trip-view" id="resultBody">
   </div>
+  <!-- 对话式改行程容器（新增：有行程显示时由 js/tripchat.js 填充，其余时候隐藏、不影响首页） -->
+  <div id="tripChatBar" style="display:none"></div>
+
+  <!-- ====== 调度中心 × 生成进度（合并面板：进度/阶段/各环节状态/实时进展）====== -->
+  <div class="think" id="thinkPanel" style="margin-top:18px;display:none">
+    <div class="think-head">
+      <span class="t">调度中心</span>
+      <span class="live" id="thinkLive">LIVE</span>
+      <span class="think-clock">已用 <b id="thinkUsed">00:00</b> · <span id="thinkEta">预计还需 —</span></span>
+    </div>
+    <div class="think-prog">
+      <div class="tp-bigrow">
+        <div class="tp-pct gen-pct">0%</div>
+        <div class="tp-stage"><span id="tpStageName">等待开始</span><small id="tpStageDesc">发送需求后开始生成行程</small></div>
+      </div>
+      <div class="gen-track"><div class="gen-fill" style="width:0%"></div></div>
+      <div class="tp-rail" id="tpRail"></div>
+      <div class="tp-chips" id="tpChips"></div>
+    </div>
+    <div id="thinkBody" class="think-body">
+      <div class="item"><span class="ts">--:--</span><span class="msg">发送需求后，这里会实时显示每一步进展</span></div>
+    </div>
+    <div class="think-foot"><span class="k">▸</span><span>任务在后台继续跑，切到其他页面进度也会一直显示；生成完回到本页就能看到行程。</span></div>
+  </div>
 
   <!-- 保存条(对称操作条:打印/导出 + 保存) -->
   <div id="saveBar" class="save-bar" style="display:none">
@@ -137,6 +169,8 @@
     <div class="export-menu" id="exportMenu" style="display:none">
       <a href="javascript:void(0)" onclick="exportPDF(event)"><i class="fa-regular fa-file-pdf"></i> 导出 PDF</a>
       <a href="javascript:void(0)" onclick="exportWord(event)"><i class="fa-regular fa-file-word"></i> 导出 Word</a>
+      <!-- ★新增一个菜单项：行程长图（canvas 手绘，见 js/tripexport.js；上面两项原样未动） -->
+      <a href="javascript:void(0)" onclick="exportLongImage(event)"><i class="fa-regular fa-image"></i> 导出长图</a>
     </div>
     <span id="saveMsg" class="save-msg"></span>
     <button class="save-btn" onclick="savePlan()"><i class="fa-solid fa-floppy-disk"></i> 保存到我的行程</button>
@@ -156,8 +190,10 @@
       <button class="cat-tab" data-cat="mountain" onclick="filterDest('mountain',this)">山脉</button>
       <button class="cat-tab" data-cat="culture" onclick="filterDest('culture',this)">人文</button>
       <button class="cat-tab" data-cat="sea" onclick="filterDest('sea',this)">海滨</button>
+      <button class="cat-tab" data-cat="lake" onclick="filterDest('lake',this)">草原湖泊</button>
     </div>
     <div class="dest-grid" id="destGrid"></div>
+    <p class="dest-src-note" style="margin:14px 4px 0;font-size:12px;color:#8A948C">评分、地址与图片来自高德 POI 实时数据；高德对景区不提供门票价格，故不展示报价。</p>
   </section>
 
   <!-- ====== 论坛热帖 ====== -->
@@ -170,13 +206,6 @@
     <div style="text-align:center;margin-top:24px"><a href="forum.html" style="color:#F2D9A6;font-size:13.5px;text-decoration:none;border-bottom:1px solid rgba(242,217,166,.4)">进入论坛查看更多 →</a></div>
   </section>
 
-  <!-- 调度中心(思考过程) -->
-  <div class="think" style="margin-top:32px">
-    <div class="think-head">调度中心<span class="live">LIVE</span></div>
-    <div id="thinkBody" class="think-body">
-      <div class="empty" style="color:#8A948C">发送任务后，这里会实时显示主管Agent的每一步动作</div>
-    </div>
-  </div>
 
   <footer>漫旅 MANLÜ · 多 Agent 协作 · 实时事件驱动</footer>
 </div>
@@ -209,7 +238,10 @@
 </div>
 
 <script src="js/purify.min.js"></script>
-<script src="js/app.js?v=20260907a"></script>
+<script src="js/app.js?v=20260913k"></script>
+<script src="js/tripchat.js?v=20260913i"></script>
+<script src="js/tripexport.js"></script>
+  <script src="js/nav.js?v=20260913i"></script>
 <script>
 /* 天数自定义下拉（纯交互：展开/选中/外部点击关闭；选中的天数会拼进需求文本） */
 (function () {
@@ -241,14 +273,24 @@
 <script>
 /* ===== 精选目的地数据 + 渲染 + 筛选（纯前端新增） ===== */
 const DESTS = [
-  {name:'九寨沟', loc:'四川 · 阿坝', cat:'mountain', rating:4.9, badge:'精选', desc:'翠海叠瀑与彩林雪峰，秋季彩林倒映海子', tags:['山脉','湖泊'], price:'¥280', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/1_jiuzhaigou_valley_wu_hua_hai_2011b.jpg/960px-1_jiuzhaigou_valley_wu_hua_hai_2011b.jpg'},
-  {name:'张家界武陵源', loc:'湖南 · 张家界', cat:'mountain', rating:4.8, badge:'世界遗产', desc:'三千奇峰拔地而起，袁家界云海如临仙境', tags:['山脉','徒步'], price:'¥165', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/1_zhangjiajie_huangshizhai_wulingyuan_panorama_2012.jpg/960px-1_zhangjiajie_huangshizhai_wulingyuan_panorama_2012.jpg'},
-  {name:'黄山', loc:'安徽 · 黄山', cat:'mountain', rating:4.9, badge:'热门', desc:'奇松怪石云海温泉，日出光明顶雾凇如画', tags:['山脉','日出'], price:'¥190', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Huangshan_mist_20141109.jpg/960px-Huangshan_mist_20141109.jpg'},
-  {name:'敦煌莫高窟', loc:'甘肃 · 敦煌', cat:'culture', rating:4.9, badge:'世界遗产', desc:'千年壁画艺术宝库，数字观影加实体洞窟', tags:['人文','石窟'], price:'¥238', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/%E8%8E%AB%E9%AB%98%E7%AA%9F%E4%B9%9D%E5%B1%82%E6%A5%BC_-_panoramio.jpg/960px-%E8%8E%AB%E9%AB%98%E7%AA%9F%E4%B9%9D%E5%B1%82%E6%A5%BC_-_panoramio.jpg'},
-  {name:'丽江古城', loc:'云南 · 丽江', cat:'culture', rating:4.7, badge:'世界遗产', desc:'纳西古镇小桥流水，远眺玉龙雪山终年积雪', tags:['人文','古镇'], price:'¥50', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/1_lijiang_old_town_night.jpg/960px-1_lijiang_old_town_night.jpg'},
-  {name:'鼓浪屿', loc:'福建 · 厦门', cat:'sea', rating:4.6, badge:'新上线', desc:'万国建筑博览与琴岛涛声，慢游文艺小巷', tags:['海滨','休闲'], price:'¥35', img:'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Gulangyu_Island_from_Zhongshan_Road%2C_Xiamen.jpg/960px-Gulangyu_Island_from_Zhongshan_Road%2C_Xiamen.jpg'},
+  {name:'九寨沟', city:'九寨沟县', loc:'四川 · 阿坝', cat:'mountain', rating:4.9, badge:'精选', desc:'翠海叠瀑与彩林雪峰，秋季彩林倒映海子', tags:['山脉','湖泊'], addr:'漳扎镇', img:'img/dest/jiuzhaigou.jpg'},
+  {name:'张家界武陵源', city:'张家界市', loc:'湖南 · 张家界', cat:'mountain', rating:4.7, badge:'世界遗产', desc:'三千奇峰拔地而起，袁家界云海如临仙境', tags:['山脉','徒步'], addr:'军地坪', img:'img/dest/wulingyuan.jpg'},
+  {name:'黄山', city:'黄山市', loc:'安徽 · 黄山', cat:'mountain', rating:4.8, badge:'热门', desc:'奇松怪石云海温泉，日出光明顶雾凇如画', tags:['山脉','日出'], addr:'汤口镇汤泉路1号', img:'img/dest/huangshan.jpg'},
+  {name:'稻城亚丁', city:'稻城县', loc:'四川 · 甘孜', cat:'mountain', rating:4.9, badge:'热门', desc:'仙乃日、央迈勇、夏诺多吉三神山环抱的净土', tags:['雪山','徒步'], addr:'香格里拉镇', img:'img/dest/daochengyading.jpg'},
+  {name:'长白山北景区', city:'安图县', loc:'吉林 · 延边', cat:'mountain', rating:4.2, badge:'精选', desc:'天池火山口碧蓝如镜，长白林海四季分明', tags:['山脉','天池'], addr:'二道白河镇长白山北景区', img:'img/dest/changbaishan.jpg'},
+  {name:'敦煌莫高窟', city:'敦煌市', loc:'甘肃 · 敦煌', cat:'culture', rating:4.8, badge:'世界遗产', desc:'千年壁画艺术宝库，数字观影加实体洞窟', tags:['人文','石窟'], addr:'314省道太阳温泉酒店13.6公里处', img:'img/dest/mogao.jpg'},
+  {name:'丽江古城', city:'丽江市', loc:'云南 · 丽江', cat:'culture', rating:4.9, badge:'世界遗产', desc:'纳西古镇小桥流水，远眺玉龙雪山终年积雪', tags:['人文','古镇'], addr:'民主路与福慧路交叉口东南', img:'img/dest/lijiang.jpg'},
+  {name:'平遥古城', city:'平遥县', loc:'山西 · 晋中', cat:'culture', rating:4.8, badge:'世界遗产', desc:'明清县城原貌完好，票号镖局诉说晋商往事', tags:['人文','古城'], addr:'平遥县古城内', img:'img/dest/pingyao.jpg'},
+  {name:'鼓浪屿', city:'厦门市', loc:'福建 · 厦门', cat:'sea', rating:4.8, badge:'热门', desc:'万国建筑博览与琴岛涛声，慢游文艺小巷', tags:['海滨','休闲'], addr:'晃岩路35-6号', img:'img/dest/gulangyu.jpg'},
+  {name:'三亚亚龙湾', city:'三亚市', loc:'海南 · 三亚', cat:'sea', rating:4.8, badge:'精选', desc:'七公里银白沙滩，海水能见度可达十米', tags:['海滨','度假'], addr:'亚龙湾国家旅游度假区', img:'img/dest/yalongwan.jpg'},
+  {name:'青岛栈桥', city:'青岛市', loc:'山东 · 青岛', cat:'sea', rating:4.8, badge:'新上线', desc:'回澜阁伸入海湾，红瓦绿树碧海蓝天', tags:['海滨','城市'], addr:'太平路12号', img:'img/dest/zhanqiao.jpg'},
+  {name:'赛里木湖', city:'博乐市', loc:'新疆 · 博尔塔拉', cat:'lake', rating:4.8, badge:'精选', desc:'大西洋最后一滴眼泪，高山湖泊四季变色', tags:['湖泊','雪山'], addr:'赛里木湖国家级风景名胜区', img:'img/dest/sailimu.jpg'},
+  {name:'那拉提草原', city:'新源县', loc:'新疆 · 伊犁', cat:'lake', rating:4.0, badge:'热门', desc:'空中草原牧歌悠扬，雪山下的哈萨克毡房', tags:['草原','牧场'], addr:'那拉提镇那拉提风景区', img:'img/dest/nalati.jpg'},
+  {name:'青海湖', city:'共和县', loc:'青海 · 海南州', cat:'lake', rating:4.8, badge:'精选', desc:'中国最大内陆咸水湖，七月油菜花连天', tags:['湖泊','花海'], addr:'青海湖国家重点风景名胜区', img:'img/dest/qinghaihu.jpg'},
+  {name:'呼伦贝尔大草原', city:'海拉尔区', loc:'内蒙古 · 呼伦贝尔', cat:'lake', rating:4.7, badge:'热门', desc:'天苍苍野茫茫，亚洲第一草原的辽阔', tags:['草原','牧场'], addr:'陈巴尔虎旗', img:'img/dest/hulunbuir.jpg'},
+  {name:'天山天池', city:'阜康市', loc:'新疆 · 昌吉', cat:'lake', rating:4.8, badge:'世界遗产', desc:'博格达峰下的高山湖泊，云杉环抱如镜', tags:['湖泊','雪山'], addr:'天山天池风景名胜区', img:'img/dest/tianshanchi.jpg'},
 ];
-function starOf(r){ return '★ ' + r.toFixed(1); }
+function starOf(r){ return r ? ('★ ' + r.toFixed(1)) : '暂无评分'; }
 function renderDests(list){
   const g = document.getElementById('destGrid');
   if(!list.length){ g.innerHTML = '<div class="empty">该分类暂无目的地</div>'; return; }
@@ -265,7 +307,7 @@ function renderDests(list){
         <div class="dest-desc">${d.desc}</div>
         <div class="dest-tags">${d.tags.map(t=>`<span class="dest-tag">${t}</span>`).join('')}</div>
         <div class="dest-foot">
-          <div class="dest-price">${d.price} <small>/ 人起</small></div>
+          <div class="dest-price"><i class="fa-solid fa-location-dot" style="opacity:.55"></i> ${d.addr}</div>
           <div class="dest-go"><i class="fa-solid fa-arrow-right"></i></div>
         </div>
       </div>
@@ -287,7 +329,9 @@ renderDests(DESTS);
 /* ===== 论坛热帖（真实帖子，点击跳帖子详情，与论坛一致） ===== */
 function loadHotPosts(){
   const g = document.getElementById('hotPostGrid');
-  fetch('/api/forum/posts?sort=latest').then(r=>r.json()).then(d=>{
+  /* ★按点赞数排（后端 hot 口径：like_count DESC, comment_count DESC），
+     原来是 sort=latest（按发布时间），所以点赞最高的帖子永远上不了首页 */
+  fetch('/api/forum/posts?sort=hot').then(r=>r.json()).then(d=>{
     if(!d.success || !(d.posts||[]).length){ g.innerHTML = '<div class="empty" style="color:#8A948C">暂无帖子</div>'; return; }
     const esc2 = s => (s==null?'':String(s)).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
     g.innerHTML = (d.posts||[]).slice(0,3).map(p=>`
@@ -302,5 +346,6 @@ function loadHotPosts(){
 }
 loadHotPosts();
 </script>
+  <script src="js/wbpopup.js?v=20260913b"></script>
 </body>
 </html>

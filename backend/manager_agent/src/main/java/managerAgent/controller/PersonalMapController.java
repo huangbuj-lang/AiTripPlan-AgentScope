@@ -4,6 +4,14 @@ import org.springframework.web.bind.annotation.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import utils.ExternalServices;
+    import io.agentscope.core.message.Msg;
+    import io.agentscope.core.message.MsgRole;
+    import io.agentscope.core.message.TextBlock;
+    import io.agentscope.core.message.ContentBlock;
+    import io.agentscope.core.model.ChatResponse;
+    import io.agentscope.core.model.GenerateOptions;
+    import utils.LlmClient;
+    import utils.ModelTimeouts;
 
 import java.net.URLEncoder;
 import java.util.*;
@@ -36,10 +44,27 @@ public class PersonalMapController {
             for (JsonNode day : days) {
                 String dayTitle = day.path("title").asText("行程");
                 List<Map<String, Object>> points = new ArrayList<>();
+                //★用户口径（2026-09-13）：先把这一天的地点交给 LLM 判断「该用什么检索词、在哪个城市」，
+                //  再去高德查坐标（坐标只取高德返回值）。不再把行程目的地拼进关键词、不再靠距离就近校正。
+                //  LLM/高德任一步失败 → 退回原来的 geocode，保证地图照旧能出。
+                Map<String, String[]> resolved = null;
+                try {
+                    List<String> dayNames = new ArrayList<>();
+                    for (JsonNode pl : day.path("places")) {
+                        String nm = pl.asText("").trim();
+                        if (!nm.isEmpty()) dayNames.add(nm);
+                    }
+                    resolved = llmResolveQueries(dayNames, dest, dayTitle);
+                } catch (Exception ignore) { }
                 for (JsonNode pl : day.path("places")) {
                     String name = pl.asText("").trim();
                     if (name.isEmpty()) continue;
-                    String[] ll = geocode(key, name, dest);
+                    String[] ll = null;
+                    if (resolved != null && resolved.containsKey(name)) {
+                        String[] rv = resolved.get(name);
+                        ll = geocodeByQuery(key, rv[0], (rv[1] == null || rv[1].isBlank()) ? dest : rv[1]);
+                    }
+                    if (ll == null) ll = geocode(key, name, dest);   //兜底：LLM 判不出/高德查不到 → 老路径
                     if (ll == null) continue; // 查不到坐标的地点不进地图
                     Map<String, Object> pt = new HashMap<>();
                     pt.put("name", name);
@@ -354,4 +379,134 @@ public class PersonalMapController {
                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
         return 2 * r * Math.asin(Math.sqrt(a));
     }
+
+    /**
+     * ★新增（只读）：地点名 → 高德坐标，供前端「一键导航」按钮使用。
+     * 完全独立的新路由，不改动 /personal-map、/static-map 的任何既有行为。
+     * 入参：{"places":[{"name":"天山天池","city":"阜康市"}],"cities":["阜康市"]}
+     * 出参：{"ok":true,"items":[{"name":"…","city":"…","location":"经度,纬度"}]}（查不到 location 为 ""）
+     */
+    @PostMapping("/poi-locations")
+    public Map<String, Object> poiLocations(@RequestBody(required = false) byte[] body) {
+        Map<String, Object> res = new HashMap<>();
+        List<Map<String, Object>> out = new ArrayList<>();
+        try {
+            String reqText = body == null ? "{}" : new String(body, java.nio.charset.StandardCharsets.UTF_8);
+            JsonNode root = om.readTree(reqText);
+            String key = ExternalServices.amapKey();
+            String fallbackCity = (root.path("cities").isArray() && root.path("cities").size() > 0)
+                    ? root.path("cities").get(0).asText("") : "";
+            for (JsonNode nd : root.path("places")) {
+                String name = nd.path("name").asText("").trim();
+                String city = nd.path("city").asText("").trim();
+                if (city.isEmpty()) city = fallbackCity;
+                Map<String, Object> one = new HashMap<>();
+                one.put("name", name);
+                one.put("city", city);
+                String loc = "";
+                String poiId = "";
+                if (!name.isEmpty()) {
+                    //★只认【名称对得上】的高德结果：对不上宁可返回空（前端会退回高德搜索页），
+                    //  否则"天山天池"这种查得到还好，乱写的名字会被高德兜底到第一条 → 一键导航导到错的地方。
+                    String qs2 = "keywords=" + URLEncoder.encode(name, "UTF-8")
+                            + "&output=json&key=" + key + "&offset=5&extensions=base";
+                    if (city != null && !city.isBlank()) qs2 += "&city=" + URLEncoder.encode(city, "UTF-8");
+                    java.net.HttpURLConnection c2 = (java.net.HttpURLConnection) new java.net.URL(
+                            ExternalServices.amapPlaceSearchUrl(qs2)).openConnection();
+                    c2.setConnectTimeout(5000);
+                    c2.setReadTimeout(8000);
+                    JsonNode pois2 = om.readTree(new String(c2.getInputStream().readAllBytes(), "UTF-8")).path("pois");
+                    for (JsonNode poi : pois2) {
+                        String pn = poi.path("name").asText("").trim();
+                        String nm = pn.replaceAll("[(（].*$", "").trim();   //去掉"天山天池(售票处)"这类后缀
+                        if (nm.equals(name) || nm.contains(name) || name.contains(nm)) {
+                            loc = poi.path("location").asText("");
+                            poiId = poi.path("id").asText("");   //★高德 POI 编号：前端用它拼「地点详情页」URL
+                            break;
+                        }
+                    }
+                }
+                one.put("location", loc);
+                one.put("poiId", poiId);
+                out.add(one);
+                try { Thread.sleep(350); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            }
+            res.put("ok", true);
+        } catch (Exception e) {
+            res.put("ok", false);
+            res.put("message", "坐标查询失败：" + e.getMessage());
+        }
+        res.put("items", out);
+        return res;
+    }
+
+
+    /**
+     * ★用户口径（2026-09-13）：地点 → 高德检索词，直接交给 LLM 判断，
+     *   不再靠"把行程目的地拼进关键词"和"距离就近校正"这类代码逻辑
+     *   （实测：目的地是"伊犁"时，"天山天池"被拼成"天山天池 伊犁" → 高德给到赛里木湖一带，差 700 公里）。
+     *   约定：LLM 只负责【判断该用什么检索词、在哪个城市】；坐标一律取高德返回的真实值，绝不编造。
+     *   查不到/判断不出 → 返回原词，由高德兜底；仍查不到就不进地图。
+     */
+    private Map<String, String[]> llmResolveQueries(List<String> names, String dest, String dayHint) {
+        Map<String, String[]> out = new HashMap<>();
+        if (names == null || names.isEmpty()) return out;
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("行程目的地：").append(dest == null ? "" : dest).append("\n");
+            sb.append("本次处理范围：").append(dayHint == null ? "" : dayHint).append("\n");
+            sb.append("需要在地图上定位的地点（原词，可能不规范或含错别字）：\n");
+            for (String n : names) sb.append("- ").append(n).append("\n");
+            sb.append("\n请为每个地点给出高德地图能检索到的标准名称与所在城市。");
+            sb.append("规则：①只判断名称，不要输出经纬度（经纬度由高德给）②不确定就用原词 ③城市必须是该点真实所在的城市/区县，不要因为行程目的地就套上去");
+            sb.append("④只输出 JSON 数组，形如 [{\"in\":\"天山天池\",\"query\":\"天山天池\",\"city\":\"阜康市\"}]，不要输出任何其他文字。");
+            Msg sys = Msg.builder().role(MsgRole.SYSTEM)
+                    .content(TextBlock.builder().text("你是中国地理地名纠错助手。只输出 JSON 数组。").build()).build();
+            Msg usr = Msg.builder().role(MsgRole.USER)
+                    .content(TextBlock.builder().text(sb.toString()).build()).build();
+            GenerateOptions opt = GenerateOptions.builder()
+                    .additionalBodyParams(Map.of("response_format", Map.of("type", "json_object"))).build();
+            ChatResponse resp = LlmClient.model().stream(List.of(sys, usr), null, opt)
+                    .blockLast(ModelTimeouts.tripEditDuration());
+            StringBuilder raw = new StringBuilder();
+            if (resp != null) {
+                for (ContentBlock b : resp.getContent()) if (b instanceof TextBlock tb) raw.append(tb.getText());
+            }
+            JsonNode arr = om.readTree(raw.toString());
+            if (arr.isObject() && arr.path("items").isArray()) arr = arr.path("items");   // 兼容 {"items":[...]}
+            if (arr.isArray()) {
+                for (JsonNode it : arr) {
+                    String in = it.path("in").asText("").trim();
+                    String q = it.path("query").asText("").trim();
+                    String c = it.path("city").asText("").trim();
+                    if (!in.isEmpty()) out.put(in, new String[]{ q.isEmpty() ? in : q, c });
+                }
+            }
+        } catch (Exception e) {
+            // LLM 挂了就用原词 → 高德自己兜底，绝不影响地图生成
+        }
+        return out;
+    }
+
+    /** 干净的关键词查询：关键词只放名称（不拼城市），城市用 city 参数传 */
+    private String[] geocodeByQuery(String key, String query, String city) {
+        try {
+            String qs = "keywords=" + URLEncoder.encode(query, "UTF-8")
+                    + "&output=json&key=" + key + "&offset=5&extensions=base";
+            if (city != null && !city.isBlank()) qs += "&city=" + URLEncoder.encode(city, "UTF-8");
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(
+                    ExternalServices.amapPlaceSearchUrl(qs)).openConnection();
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(8000);
+            JsonNode pois = om.readTree(new String(c.getInputStream().readAllBytes(), "UTF-8")).path("pois");
+            for (JsonNode poi : pois) {
+                String loc = poi.path("location").asText("");
+                if (!loc.contains(",")) continue;
+                String[] parts = loc.split(",");
+                return new String[]{ parts[0], parts[1], poi.path("id").asText(""), poi.path("adname").asText("") };
+            }
+        } catch (Exception e) { /* 查不到就算了 */ }
+        return null;
+    }
+
 }

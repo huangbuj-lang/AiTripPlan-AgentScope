@@ -52,7 +52,6 @@
   <div class="forum-top">
     <div class="forum-brand"><i class="fa-solid fa-comments"></i> 旅行论坛</div>
     <div class="forum-nav">
-      <button class="bell" onclick="location.href='notifications.html'"><i class="fa-regular fa-bell"></i> 通知 <span class="badge" id="notifBadge">0</span></button>
       <button class="bell" onclick="location.href='index.html'"><i class="fa-solid fa-house"></i> 首页</button>
       <button class="bell" onclick="location.href='profile.html'"><i class="fa-solid fa-user-gear"></i> 个人中心</button>
     </div>
@@ -100,5 +99,6 @@
     document.addEventListener('keydown', e => { if (e.key === 'Escape') dd.classList.remove('open'); });
   })();
 </script>
+  <script src="js/genstatus.js"></script>
 </body>
 </html>

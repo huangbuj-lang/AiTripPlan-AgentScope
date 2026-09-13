@@ -1,0 +1,119 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>公开行程浏览页（设计预览）</title><style>*{box-sizing:border-box;margin:0;padding:0}
+:root{--sand-50:#FBF8F3;--sand-100:#F4EFE6;--sand-200:#EAE3D5;--forest-900:#1D2D23;--forest-700:#2C4636;
+--green-600:#3A6149;--green-500:#47755A;--green-100:#E3EDE6;--gold:#C9A96A;--panel:#FFFFFF;--muted:#64736E;--rose:#B8674F;--sky:#4C7A8E;
+--serif:"Fraunces","Noto Serif SC",Georgia,serif;--sans:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif}
+body{background:var(--sand-50);color:var(--forest-900);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+.topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:26px;padding:16px 34px;
+background:rgba(251,248,243,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--sand-200)}
+.brand{font-family:var(--serif);font-size:19px;letter-spacing:.5px}
+.brand b{color:var(--green-600)}
+.topbar nav{display:flex;gap:22px;margin-left:14px;font-size:14.5px;color:var(--muted)}
+.topbar nav a.on{color:var(--forest-900);font-weight:600;border-bottom:2px solid var(--gold);padding-bottom:3px}
+.spacer{flex:1}
+.btn{border:1px solid var(--sand-200);background:var(--panel);color:var(--forest-700);border-radius:999px;
+padding:8px 16px;font-size:13.5px;cursor:pointer;font-family:inherit}
+.btn.pri{background:var(--green-600);border-color:var(--green-600);color:#fff}
+.btn.ghost{background:transparent}
+.wrap{max-width:1180px;margin:0 auto;padding:0 34px}
+.hero{padding:52px 0 26px}
+.hero h1{font-family:var(--serif);font-size:40px;line-height:1.25}
+.hero h1 em{font-style:normal;color:var(--green-600)}
+.hero p.sub{margin-top:12px;color:var(--muted);font-size:15px}
+.stats{display:flex;gap:34px;margin-top:26px;flex-wrap:wrap}
+.stats div b{font-family:var(--serif);font-size:26px;color:var(--green-600)}
+.stats div span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.searchrow{display:flex;gap:12px;margin:30px 0 8px}
+.searchrow input{flex:1;border:1px solid var(--sand-200);background:var(--panel);border-radius:999px;
+padding:13px 20px;font-size:14.5px;font-family:inherit;color:var(--forest-900)}
+.chips{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 30px}
+.chip{border:1px solid var(--sand-200);background:var(--panel);border-radius:999px;padding:7px 15px;font-size:13px;color:var(--muted);cursor:pointer}
+.chip.on{background:var(--green-100);border-color:#C9DCCF;color:var(--green-600);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding-bottom:18px}
+.card{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;overflow:hidden;
+display:flex;flex-direction:column;transition:.18s;cursor:pointer}
+.card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(29,45,35,.10)}
+.card .ph{height:158px;background-size:cover;background-position:center;position:relative}
+.card .ph .tag{position:absolute;left:10px;top:10px;background:rgba(15,26,20,.62);color:#fff;font-size:11.5px;padding:3px 9px;border-radius:999px}
+.card .bd{padding:13px 15px 15px;display:flex;flex-direction:column;gap:7px;flex:1}
+.card .bd h3{font-family:var(--serif);font-size:16.5px}
+.card .bd p{font-size:12.5px;color:var(--muted);line-height:1.6}
+.card .bd .go{margin-top:auto;font-size:12.5px;color:var(--green-600);font-weight:600}
+.sec-h{display:flex;align-items:baseline;gap:12px;margin:38px 0 16px}
+.sec-h h2{font-family:var(--serif);font-size:22px}
+.sec-h span{font-size:12.5px;color:var(--muted)}
+.rank{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;overflow:hidden}
+.rank .row{display:flex;align-items:center;gap:16px;padding:14px 18px;border-bottom:1px solid var(--sand-100)}
+.rank .row:last-child{border-bottom:0}
+.rank .no{font-family:var(--serif);font-size:19px;color:var(--gold);width:26px}
+.rank .nm{flex:1;font-size:14.5px}
+.bar{height:7px;border-radius:999px;background:var(--green-100);overflow:hidden;width:170px}
+.bar i{display:block;height:100%;background:var(--green-600)}
+.rank .cnt{font-size:12.5px;color:var(--muted);width:76px;text-align:right}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+footer{margin-top:46px;padding:26px 0 40px;border-top:1px solid var(--sand-200);color:var(--muted);font-size:12.5px}
+.cover{height:300px;border-radius:18px;overflow:hidden;position:relative;background-size:cover;background-position:center}
+.cover .ov{position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,26,20,.08),rgba(15,26,20,.72))}
+.cover .txt{position:absolute;left:26px;right:26px;bottom:22px;color:#fff}
+.cover .txt h1{font-family:var(--serif);font-size:29px;line-height:1.32}
+.cover .txt .meta{margin-top:9px;font-size:13px;opacity:.94;display:flex;gap:16px;flex-wrap:wrap}
+.thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+.thumbs i{display:block;height:96px;border-radius:12px;background-size:cover;background-position:center}
+.day{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;padding:18px 20px;margin-bottom:14px}
+.day h3{font-family:var(--serif);font-size:17px;display:flex;align-items:center;gap:10px}
+.day h3 b{background:var(--green-100);color:var(--green-600);font-size:12.5px;padding:3px 10px;border-radius:999px;font-family:var(--sans);font-weight:600}
+.tl{margin-top:12px;display:flex;flex-direction:column;gap:11px}
+.tl .it{display:flex;gap:14px}
+.tl .it .tm{width:52px;flex:0 0 52px;font-size:12.5px;color:var(--green-600);font-weight:600;padding-top:2px}
+.tl .it .ct{flex:1;border-left:2px solid var(--sand-200);padding-left:14px}
+.tl .it .ct b{font-size:14px}
+.tl .it .ct p{font-size:12.5px;color:var(--muted);line-height:1.6;margin-top:3px}
+.tl .it .ct .tags{margin-top:5px;display:flex;gap:7px;flex-wrap:wrap}
+.tl .it .ct .tags span{font-size:11.5px;color:var(--green-600);background:var(--green-100);padding:2px 8px;border-radius:999px}
+.pub{display:inline-flex;align-items:center;gap:7px;background:var(--green-100);color:var(--green-600);font-size:12.5px;padding:5px 13px;border-radius:999px;font-weight:600}
+.cta{background:var(--forest-900);border-radius:18px;padding:24px 26px;color:#fff;margin:26px 0 0;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.cta h3{font-family:var(--serif);font-size:20px}
+.cta p{font-size:13px;opacity:.82;margin-top:5px}
+.cta .btn{background:#fff;border-color:#fff;color:var(--forest-900)}
+.badges{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.badge{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;padding:16px 18px}
+.badge b{font-family:var(--serif);font-size:25px;color:var(--green-600);display:block}
+.badge span{font-size:12.5px;color:var(--muted)}
+.wall{display:flex;gap:10px;flex-wrap:wrap}
+.wall span{border:1px solid var(--sand-200);background:var(--panel);border-radius:999px;padding:8px 14px;font-size:13px}
+.mono{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.mrow{background:var(--panel);border:1px solid var(--sand-200);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px}
+.mrow .d{font-family:var(--serif);font-size:14.5px;color:var(--gold);width:52px}
+.mrow .n{flex:1;font-size:13.5px}
+.mrow .s{font-size:12.5px;color:var(--muted)}
+.month{display:flex;align-items:center;gap:16px;padding:14px 18px;background:var(--panel);border:1px solid var(--sand-200);border-radius:14px;margin-bottom:10px}
+.month .m{font-family:var(--serif);font-size:16px;width:104px}
+.month .bar2{flex:1;height:9px;background:var(--green-100);border-radius:999px;overflow:hidden}
+.month .bar2 i{display:block;height:100%;background:var(--green-600)}
+.month .c{font-size:13px;color:var(--muted);width:76px;text-align:right}
+</style></head><body>
+<div class="topbar"><div class="brand">AiTrip<b>Plan</b> · 漫旅</div>
+<nav><a href="#">首页</a><a href="#">探索</a><a href="#">论坛</a><a class="on" href="#">行程详情</a></nav>
+<div class="spacer"></div><span class="pub">公开行程 · 无需登录</span><button class="btn pri" style="margin-left:14px">我也要一条</button></div>
+<div class="wrap"><div class="hero" style="padding-bottom:0">
+  <div class="cover" style="background-image:url('../frontend/img/dest/sailimu.jpg')"><div class="ov"></div>
+    <div class="txt"><span class="pub" style="background:rgba(255,255,255,.92)">免登录可读</span>
+      <h1>乌鲁木齐出发·伊犁河谷—巴音布鲁克8日自驾环线</h1>
+      <div class="meta"><span>8 天</span><span>9月12日-9月19日</span><span>** 9月12日 晴 14℃~32℃</span><span>由站内用户公开分享</span></div></div></div>
+  <div class="thumbs"><i style="background-image:url('../frontend/img/dest/nalati.jpg')"></i>
+    <i style="background-image:url('../frontend/img/dest/tianshanchi.jpg')"></i>
+    <i style="background-image:url('../frontend/img/dest/qinghaihu.jpg')"></i></div>
+  <div class="sec-h"><h2>逐日安排</h2><span>内容与站内行程页一致，阅读者无需登录</span></div>
+  <div class="day"><h3>第 1 天<b>5 个安排</b></h3><div class="tl"><div class="it"><span class="tm">08:00</span><div class="ct"><b>乌鲁木齐出发</b><p>约270km；当日车程合计：约5.5小时</p><div class="tags"><span>用时 车程3.5小时</span><span>走 G30连霍高速</span></div></div></div><div class="it"><span class="tm">11:30</span><div class="ct"><b>游览独山子大峡谷</b><p>217国道一三一团场畜牧连西北侧；峡谷观景平台、栈道徒步、拍大景</p><div class="tags"><span>用时 2.5小时</span></div></div></div><div class="it"><span class="tm">14:30</span><div class="ct"><b>继续西行至精河县</b><p>约200km</p><div class="tags"><span>用时 车程2小时</span><span>走 G30连霍高速</span></div></div></div><div class="it"><span class="tm">16:30</span><div class="ct"><b>办理入住</b><p>精河县大河沿子镇店；第一天以赶路为主，出发前加满油，车上备水与干粮</p></div></div><div class="it"><span class="tm">18:30</span><div class="ct"><b>晚餐</b><p>精河镇和平西路1号河沣大厦；推荐新疆特色菜</p></div></div></div></div><div class="day"><h3>第 2 天<b>5 个安排</b></h3><div class="tl"><div class="it"><span class="tm">08:30</span><div class="ct"><b>精河县出发</b><p>约150km；当日车程合计：约4.5小时</p><div class="tags"><span>用时 车程2小时</span><span>走 G30连霍高速</span></div></div></div><div class="it"><span class="tm">10:30</span><div class="ct"><b>游览赛里木湖点将台</b><p>210县道与赛里木湖立交桥交叉口西北角；高山湖泊环湖视野，点将台一带湖水最透蓝；湖畔风大，外套必带</p><div class="tags"><span>用时 3.5小时</span></div></div></div><div class="it"><span class="tm">14:30</span><div class="ct"><b>经果子沟方向下山至霍城县</b><p>约180km</p><div class="tags"><span>用时 车程2.5小时</span><span>走 赛里木湖立交与果子沟方向</span></div></div></div><div class="it"><span class="tm">17:00</span><div class="ct"><b>办理入住</b><p>霍城县；给孩子加一件抓绒</p></div></div><div class="it"><span class="tm">18:30</span><div class="ct"><b>晚餐</b><p>清水河镇团结路43号天瑞酒店一层</p></div></div></div></div><div class="day"><h3>第 3 天<b>5 个安排</b></h3><div class="tl"><div class="it"><span class="tm">09:00</span><div class="ct"><b>游览漫心忘忧谷景区</b><p>霍城县；田园花海与河谷风光，缓坡步道适合推车带娃</p><div class="tags"><span>用时 3小时</span></div></div></div><div class="it"><span class="tm">13:00</span><div class="ct"><b>游览中华福寿山</b><p>霍城县；登高俯瞰伊犁河谷与果园绿洲</p><div class="tags"><span>用时 3小时</span></div></div></div><div class="it"><span class="tm">17:00</span><div class="ct"><b>驱车进入伊宁市</b><p>约60km；当日车程合计：约2小时</p><div class="tags"><span>用时 车程1小时</span><span>走 S12伊墩高速/220省道</span></div></div></div><div class="it"><span class="tm">18:00</span><div class="ct"><b>办理入住</b><p>解放西路686号</p></div></div><div class="it"><span class="tm">19:30</span><div class="ct"><b>晚餐</b><p>斯大林街四巷2-10号</p></div></div></div></div><div class="day"><h3>第 4 天<b>5 个安排</b></h3><div class="tl"><div class="it"><span class="tm">09:00</span><div class="ct"><b>游览伊犁老城文化旅游区</b><p>伊宁市；蓝墙彩窗老城街巷、手风琴与手作小店，全程最集中的出片地</p><div class="tags"><span>用时 3.5小时</span></div></div></div><div class="it"><span class="tm">13:00</span><div class="ct"><b>午餐</b><p>河北路华新滨河新城综合楼一层</p></div></div><div class="it"><span class="tm">14:30</span><div class="ct"><b>游览伊犁河旅游风景区</b><p>伊宁市；河滨步道散步、看河面落日</p><div class="tags"><span>用时 3小时</span></div></div></div><div class="it"><span class="tm">18:00</span><div class="ct"><b>办理入住</b><p>解放路8巷12号</p></div></div><div class="it"><span class="tm">19:30</span><div class="ct"><b>晚餐</b><p>伊宁市斯大林街四巷瑞阳皇冠酒店二楼；旗舰店</p></div></div></div></div><div class="day"><h3>第 5 天<b>3 个安排</b></h3><div class="tl"><div class="it"><span class="tm">08:30</span><div class="ct"><b>伊宁市出发</b><p>约180km；当日车程合计：约3小时</p><div class="tags"><span>用时 车程3小时</span><span>走 G218</span></div></div></div><div class="it"><span class="tm">11:30</span><div class="ct"><b>抵达特克斯县午餐后前往阿克塔斯草原</b><p>特克斯县乌孙山；草甸起伏、牛羊散落，午后光线最柔，适合全家野餐与拍照</p><div class="tags"><span>用时 5小时</span></div></div></div><div class="it"><span class="tm">18:30</span><div class="ct"><b>返回县城入住</b><p>古勒巴格街四环路14号；入住后可逛八卦城街区</p></div></div></div></div><div class="day"><h3>第 6 天<b>5 个安排</b></h3><div class="tl"><div class="it"><span class="tm">08:00</span><div class="ct"><b>特克斯县出发沿G218东行</b><p>约250km；当日车程合计：约4小时</p><div class="tags"><span>用时 4h</span></div></div></div><div class="it"><span class="tm">13:30</span><div class="ct"><b>游览那拉提河谷草原</b><p>新源县；平坦河谷草场，适合孩子奔跑、骑马体验</p><div class="tags"><span>用时 2h</span></div></div></div><div class="it"><span class="tm">15:30</span><div class="ct"><b>游览花海那拉提</b><p>那拉提镇218国道北100米；连片花田，黄昏顺光最好拍</p><div class="tags"><span>用时 4h</span></div></div></div><div class="it"><span class="tm">19:30</span><div class="ct"><b>办理入住</b><p>218国道路南那拉提街032号</p><div class="tags"><span>用时 30m</span></div></div></div><div class="it"><span class="tm">20:00</span><div class="ct"><b>晚餐</b><p>那拉提街246号铭都大酒店楼下</p><div class="tags"><span>用时 1h30m</span></div></div></div></div></div><div class="day"><h3>第 7 天<b>4 个安排</b></h3><div class="tl"><div class="it"><span class="tm">09:00</span><div class="ct"><b>游览那拉提空中草原</b><p>新源县；乘区间车上山，空中草原开阔草甸与雪岭云杉；山上气温比镇上低6~8℃，务必带厚外套</p><div class="tags"><span>用时 4小时</span></div></div></div><div class="it"><span class="tm">14:00</span><div class="ct"><b>游览那拉提草原-天界台</b><p>那拉提镇那拉提景区；俯瞰整条河谷草原的观景高台</p><div class="tags"><span>用时 3小时</span></div></div></div><div class="it"><span class="tm">18:00</span><div class="ct"><b>办理入住</b><p>新源县那拉提镇</p></div></div><div class="it"><span class="tm">19:30</span><div class="ct"><b>晚餐</b><p>那拉提镇伊美那拉提大酒店一层；也可选原上云间美食农庄，那拉提镇天马街十二巷008号</p></div></div></div></div><div class="day"><h3>第 8 天<b>5 个安排</b></h3><div class="tl"><div class="it"><span class="tm">08:30</span><div class="ct"><b>翻越天山达坂前往巴音布鲁克镇</b><p>约100km；当日车程合计：约2小时</p><div class="tags"><span>用时 车程2小时</span><span>走 G217</span></div></div></div><div class="it"><span class="tm">10:30</span><div class="ct"><b>游览巴音布鲁克大草原</b><p>天鹅湖风景区；高原湿地草原</p><div class="tags"><span>用时 2.5小时</span></div></div></div><div class="it"><span class="tm">13:00</span><div class="ct"><b>游览巴音布鲁克天鹅湖风景区</b><p>观鸟台</p><div class="tags"><span>用时 1.5小时</span></div></div></div><div class="it"><span class="tm">16:30</span><div class="ct"><b>游览九曲十八弯</b><p>巴音布鲁克天鹅湖风景区东南角；等落日把开都河弯道照成金线</p><div class="tags"><span>用时 2小时</span></div></div></div><div class="it"><span class="tm">19:00</span><div class="ct"><b>办理入住</b><p>巴音布鲁克镇217国道中石油东面；海拔约2500米，日落观景台风大寒冷，羽绒服/冲锋衣必备；看完九曲十八弯日落再返镇上住宿，天黑</p></div></div></div></div>
+  <div class="cta"><div style="flex:1"><h3>喜欢这条线？直接复制成我的行程</h3>
+    <p>复制后可继续用对话改行程：换酒店、加一天、调顺序，改完再保存。</p></div>
+    <button class="btn">复制成我的行程</button><button class="btn ghost" style="color:#fff;border-color:rgba(255,255,255,.5)">生成长图</button></div>
+  <div class="sec-h"><h2>分享设置（作者侧）</h2><span>做成开关就行</span></div>
+  <div class="two">
+    <div class="card" style="cursor:default;padding:18px 20px"><h3 style="font-family:var(--serif);font-size:16.5px">公开 / 私密 一键切换</h3>
+      <p style="font-size:13px;color:var(--muted);line-height:1.75;margin-top:8px">默认私密；设为公开后才出现在「探索」和论坛里。取消公开即刻失效，链接不再可访问。</p></div>
+    <div class="card" style="cursor:default;padding:18px 20px"><h3 style="font-family:var(--serif);font-size:16.5px">公开时自动隐藏敏感项</h3>
+      <p style="font-size:13px;color:var(--muted);line-height:1.75;margin-top:8px">可勾选隐藏「酒店名称 / 房型」「具体花费」，只展示行程骨架与景点，避免暴露个人信息。</p></div>
+  </div>
+</div><footer>设计预览 · 内容摘自站内真实行程 id=78（乌鲁木齐出发·伊犁河谷—巴音布鲁克8日自驾环线，8 天）</footer></div></body></html>

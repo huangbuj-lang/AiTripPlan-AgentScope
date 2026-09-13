@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对话式改行程 · 效果预览（独立文件，不影响项目）</title>
+<style>
+:root{
+  --sand-50:#FBF8F3; --sand-100:#F4EFE6; --sand-200:#EAE3D5;
+  --forest-950:#0F1A14; --forest-900:#1D2D23; --forest-700:#2C4636;
+  --green-600:#3A6149; --green-500:#47755A; --green-100:#E3EDE6;
+  --gold:#C9A96A; --muted:#64736E; --rose:#B8674F; --sky:#4C7A8E;
+  --serif:"Fraunces","Noto Serif SC",Georgia,serif;
+  --sans:"Noto Sans SC",-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--sand-50);color:var(--forest-900);line-height:1.7;letter-spacing:.2px;padding:26px 18px 150px}
+.wrap{max-width:880px;margin:0 auto}
+.note{background:#fff;border:1px solid var(--sand-200);border-left:3px solid var(--gold);border-radius:10px;padding:10px 14px;font-size:12.5px;color:var(--muted);margin-bottom:18px}
+.note b{color:var(--forest-900)}
+h1{font-family:var(--serif);font-size:26px;line-height:1.35;margin-bottom:9px}
+.tags{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px}
+.tag{font-size:12px;padding:3px 11px;border-radius:9999px;background:var(--green-100);color:var(--green-600)}
+.tag.g{background:#fff;border:1px solid var(--sand-200);color:var(--muted)}
+/* 变更小结 */
+.summary{display:none;background:#fff;border:1.5px solid var(--green-600);border-radius:12px;padding:13px 16px;margin-bottom:16px}
+.summary.on{display:block;animation:pop .35s ease}
+@keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.summary .h{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:var(--green-600);margin-bottom:7px}
+.summary ul{list-style:none;font-size:13px;color:var(--forest-700)}
+.summary li{padding:2px 0 2px 16px;position:relative}
+.summary li:before{content:"·";position:absolute;left:3px;color:var(--gold);font-weight:700}
+.summary .undo{margin-top:9px}
+.undo button{font-size:12.5px;padding:5px 14px;border-radius:9999px;border:1px solid var(--sand-200);background:var(--sand-50);color:var(--forest-700);cursor:pointer;font-family:var(--sans)}
+.undo button:hover{background:var(--sand-100)}
+/* 天卡片 */
+.day{background:#fff;border:1px solid var(--sand-200);border-radius:16px;padding:16px 18px;margin-bottom:13px;transition:.25s}
+.day.busy{opacity:.45;filter:grayscale(.25)}
+.day-head{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+.day-no{font-family:var(--mono,Consolas,monospace);font-size:12.5px;font-weight:700;color:var(--forest-950);background:var(--sand-100);padding:2px 10px;border-radius:9999px;letter-spacing:.5px}
+.day-title{font-size:13.5px;color:var(--muted)}
+.day.act .day-no{background:var(--green-600);color:#fff}
+.row{display:flex;gap:11px;font-size:13.5px;padding:5px 0;align-items:flex-start}
+.ic{width:19px;flex:none;text-align:center;font-size:14px}
+.row.car .ic{color:var(--sky)}
+.row.spo .ic{color:var(--green-600)}
+.row.city .ic{color:var(--rose)}
+.t{color:var(--muted);font-family:var(--mono,Consolas,monospace);font-size:12px;width:74px;flex:none;padding-top:2px}
+.new{background:var(--green-100);border-radius:5px;padding:0 4px;animation:flash 1.2s ease 2}
+@keyframes flash{0%,100%{background:var(--green-100)}50%{background:#CFE3D5}}
+/* 输入条 */
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1.5px solid var(--forest-950);padding:12px 18px 14px;z-index:20}
+.bar-in{max-width:880px;margin:0 auto}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px}
+.chip{font-size:12.5px;padding:5px 13px;border-radius:9999px;border:1px solid var(--sand-200);background:var(--sand-50);color:var(--forest-700);cursor:pointer;font-family:var(--sans);transition:.15s}
+.chip:hover{background:var(--green-100);border-color:var(--green-100)}
+.inrow{display:flex;gap:9px}
+input[type=text]{flex:1;font-family:var(--sans);font-size:14px;padding:11px 15px;border-radius:9999px;border:1.5px solid var(--sand-200);outline:none;background:var(--sand-50);color:var(--forest-900)}
+input[type=text]:focus{border-color:var(--green-600);background:#fff}
+#go{padding:11px 22px;border-radius:9999px;border:none;background:var(--green-600);color:#fff;font-size:14px;font-family:var(--sans);cursor:pointer}
+#go:disabled{background:var(--sand-200);color:var(--muted);cursor:not-allowed}
+/* 对话气泡 */
+.msg{display:flex;gap:10px;margin-bottom:12px;font-size:13.5px}
+.msg .av{width:26px;height:26px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px}
+.msg.me .av{background:var(--sand-200)}
+.msg.ai .av{background:var(--green-600);color:#fff}
+.msg .bub{background:#fff;border:1px solid var(--sand-200);border-radius:12px;padding:8px 13px;max-width:640px}
+.msg.me .bub{background:var(--sand-100);border-color:var(--sand-200)}
+.dots:after{content:"…";animation:dots 1.1s steps(4,end) infinite}
+@keyframes dots{0%{content:"·"}33%{content:"··"}66%{content:"···"}100%{content:"····"}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="note">
+    <b>这是独立预览文件，不接入项目。</b>看的是「对话式改行程」的效果：<b>只重排你点名的那一天</b>，其他天一行不动；改完明确告诉你<b>改了什么</b>，还能一键撤销。
+  </div>
+
+  <h1>乌鲁木齐出发 · 北疆伊犁与独库公路 8 天自驾环线</h1>
+  <div class="tags">
+    <span class="tag">8 天</span>
+    <span class="tag g">9月12日—9月19日</span>
+    <span class="tag g">🚗 自驾</span>
+    <span class="tag g">人均 ¥4200</span>
+  </div>
+
+  <div class="summary" id="sum">
+    <div class="h">✓ 第 3 天已重排　<span style="font-weight:400;color:var(--muted);font-size:12.5px">其他 7 天未改动</span></div>
+    <ul>
+      <li>5 个点 → <b>4 个点</b>，去掉「喀拉峻草原」（与第 4 天那拉提草原重复）</li>
+      <li>全天驾驶 <b>3h20m → 2h05m</b>，纯游玩 6h50m → 7h30m</li>
+      <li>新增「特克斯八卦城」午餐点（顺路，不绕行）</li>
+    </ul>
+    <div class="undo"><button onclick="undo()">撤销这次改动</button></div>
+  </div>
+
+  <div id="chat"></div>
+
+  <div class="day" id="d1">
+    <div class="day-head"><span class="day-no">DAY 01</span><span class="day-title">9月12日 · 乌鲁木齐 → 天山天池 → 奎屯市</span></div>
+    <div class="row car"><span class="ic">🚗</span><span class="t">08:00</span><span>自驾 乌鲁木齐 → 天山天池（1h30m · 98km）</span></div>
+    <div class="row spo"><span class="ic">⛰</span><span class="t">09:30</span><span>天山天池 <span style="color:var(--muted)">★4.8（高德）</span></span></div>
+    <div class="row city"><span class="ic">📍</span><span class="t">17:30</span><span>奎屯市 · 宿 金美大酒店</span></div>
+  </div>
+
+  <div class="day" id="d2">
+    <div class="day-head"><span class="day-no">DAY 02</span><span class="day-title">9月13日 · 奎屯 → 精河 → 赛里木湖</span></div>
+    <div class="row car"><span class="ic">🚗</span><span class="t">08:30</span><span>自驾 奎屯 → 精河县（2h10m · 180km）</span></div>
+    <div class="row spo"><span class="ic">⛰</span><span class="t">13:00</span><span>赛里木湖 <span style="color:var(--muted)">★4.8（高德）</span></span></div>
+    <div class="row city"><span class="ic">📍</span><span class="t">19:00</span><span>博乐市 · 宿 博尔塔拉宾馆</span></div>
+  </div>
+
+  <div class="day act" id="d3">
+    <div class="day-head"><span class="day-no">DAY 03</span><span class="day-title">9月14日 · 博乐 → 特克斯 → 喀拉峻草原</span></div>
+    <div id="d3body">
+      <div class="row car"><span class="ic">🚗</span><span class="t">08:00</span><span>自驾 博乐 → 特克斯县（3h20m · 265km）</span></div>
+      <div class="row spo"><span class="ic">⛰</span><span class="t">11:40</span><span>喀拉峻草原 <span style="color:var(--muted)">★4.5（高德）</span></span></div>
+      <div class="row spo"><span class="ic">⛰</span><span class="t">15:00</span><span>阔克苏大峡谷 <span style="color:var(--muted)">★4.6（高德）</span></span></div>
+      <div class="row city"><span class="ic">📍</span><span class="t">18:20</span><span>昭苏县</span></div>
+      <div class="row city"><span class="ic">📍</span><span class="t">21:00</span><span>特克斯县 · 宿 八卦城客栈</span></div>
+    </div>
+  </div>
+
+  <div class="day" id="d4">
+    <div class="day-head"><span class="day-no">DAY 04</span><span class="day-title">9月15日 · 特克斯 → 那拉提草原</span></div>
+    <div class="row car"><span class="ic">🚗</span><span class="t">08:30</span><span>自驾 特克斯 → 那拉提（2h40m · 190km）</span></div>
+    <div class="row spo"><span class="ic">⛰</span><span class="t">12:00</span><span>那拉提草原 <span style="color:var(--muted)">★4.0（高德）</span></span></div>
+  </div>
+</div>
+
+<div class="bar">
+  <div class="bar-in">
+    <div class="chips">
+      <span class="chip" onclick="quick('第三天太赶了，少排一个点')">第三天太赶了，少排一个点</span>
+      <span class="chip" onclick="quick('第三天想住得舒服点')">第三天想住得舒服点</span>
+      <span class="chip" onclick="quick('第三天要下雨，换成室内的')">第三天要下雨，换成室内的</span>
+      <span class="chip" onclick="quick('整体再加一天')">整体再加一天</span>
+    </div>
+    <div class="inrow">
+      <input type="text" id="q" placeholder="说说你想改什么，例如：第三天太赶了，少排一个点…">
+      <button id="go" onclick="send()">发送</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var busy = false, snapshot = null;
+var chat = document.getElementById('chat');
+
+function bubble(who, html) {
+  var d = document.createElement('div');
+  d.className = 'msg ' + who;
+  d.innerHTML = '<div class="av">' + (who === 'me' ? '我' : '✦') + '</div><div class="bub">' + html + '</div>';
+  chat.appendChild(d);
+  d.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  return d;
+}
+function quick(t) { document.getElementById('q').value = t; send(); }
+function send() {
+  if (busy) return;
+  var q = document.getElementById('q').value.trim();
+  if (!q) return;
+  busy = true; document.getElementById('go').disabled = true;
+  document.getElementById('q').value = '';
+  bubble('me', q);
+  var day = /第三天|3/.test(q) ? 3 : (/第四天|4/.test(q) ? 4 : 3);
+  var scope = /整体|全部|都/.test(q) ? '整条行程' : ('第 ' + day + ' 天');
+  var a = bubble('ai', '好，只重排' + scope + '，其他不动的部分原样保留 <span class="dots"></span>');
+  setTimeout(function () {
+    var box = 'd' + day;
+    var el = document.getElementById(box);
+    el.classList.add('busy');
+    var keep = el.innerHTML;
+    if (!/整体/.test(q)) {
+      if (day === 3) {
+        el.querySelector('#d3body, .day-title').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+    setTimeout(function () {
+      if (day === 3 && !/整体/.test(q)) {
+        snapshot = keep;
+        var tt = el.querySelector('.day-title');
+        tt.textContent = '9月14日 · 博乐 → 特克斯八卦城';
+        el.querySelector('.day-no').parentNode.parentNode.classList.add('act');
+        document.getElementById('d3body').innerHTML =
+          '<div class="row car"><span class="ic">🚗</span><span class="t">08:30</span><span class="new">自驾 博乐 → 特克斯县（2h05m · 208km）</span></div>' +
+          '<div class="row city"><span class="ic">📍</span><span class="t">10:40</span><span class="new">特克斯八卦城 · 午餐 · 城区步行街</span></div>' +
+          '<div class="row spo"><span class="ic">⛰</span><span class="t">13:00</span><span>阔克苏大峡谷 <span style="color:var(--muted)">★4.6（高德）</span></span></div>' +
+          '<div class="row city"><span class="ic">📍</span><span class="t">17:30</span><span class="new">特克斯县 · 宿 八卦城客栈</span></div>';
+        document.getElementById('sum').className = 'summary on';
+        a.querySelector('.bub').innerHTML = '改好了：第 3 天去掉「喀拉峻草原」（和你第 4 天的草原重复），车程缩短 1h15m。其他 7 天没动 ✓';
+      } else {
+        a.querySelector('.bub').innerHTML = '改好了：' + scope + '已按你说的调整，其他部分没动 ✓';
+      }
+      el.classList.remove('busy');
+      busy = false; document.getElementById('go').disabled = false;
+    }, 1500);
+  }, 400);
+}
+function undo() {
+  if (!snapshot) return;
+  var el = document.getElementById('d3');
+  el.innerHTML = snapshot;
+  el.classList.add('act');
+  document.getElementById('sum').className = 'summary';
+  snapshot = null;
+  bubble('ai', '已撤销，第 3 天恢复到改动前的样子 ✓');
+}
+document.getElementById('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
+</script>
+</body>
+</html>

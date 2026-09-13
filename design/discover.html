@@ -1,0 +1,79 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>探索 · 目的地浏览（设计预览）</title><style>*{box-sizing:border-box;margin:0;padding:0}
+:root{--sand-50:#FBF8F3;--sand-100:#F4EFE6;--sand-200:#EAE3D5;--forest-900:#1D2D23;--forest-700:#2C4636;
+--green-600:#3A6149;--green-500:#47755A;--green-100:#E3EDE6;--gold:#C9A96A;--panel:#FFFFFF;--muted:#64736E;--rose:#B8674F;--sky:#4C7A8E;
+--serif:"Fraunces","Noto Serif SC",Georgia,serif;--sans:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif}
+body{background:var(--sand-50);color:var(--forest-900);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+.topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:26px;padding:16px 34px;
+background:rgba(251,248,243,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--sand-200)}
+.brand{font-family:var(--serif);font-size:19px;letter-spacing:.5px}
+.brand b{color:var(--green-600)}
+.topbar nav{display:flex;gap:22px;margin-left:14px;font-size:14.5px;color:var(--muted)}
+.topbar nav a.on{color:var(--forest-900);font-weight:600;border-bottom:2px solid var(--gold);padding-bottom:3px}
+.spacer{flex:1}
+.btn{border:1px solid var(--sand-200);background:var(--panel);color:var(--forest-700);border-radius:999px;
+padding:8px 16px;font-size:13.5px;cursor:pointer;font-family:inherit}
+.btn.pri{background:var(--green-600);border-color:var(--green-600);color:#fff}
+.btn.ghost{background:transparent}
+.wrap{max-width:1180px;margin:0 auto;padding:0 34px}
+.hero{padding:52px 0 26px}
+.hero h1{font-family:var(--serif);font-size:40px;line-height:1.25}
+.hero h1 em{font-style:normal;color:var(--green-600)}
+.hero p.sub{margin-top:12px;color:var(--muted);font-size:15px}
+.stats{display:flex;gap:34px;margin-top:26px;flex-wrap:wrap}
+.stats div b{font-family:var(--serif);font-size:26px;color:var(--green-600)}
+.stats div span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.searchrow{display:flex;gap:12px;margin:30px 0 8px}
+.searchrow input{flex:1;border:1px solid var(--sand-200);background:var(--panel);border-radius:999px;
+padding:13px 20px;font-size:14.5px;font-family:inherit;color:var(--forest-900)}
+.chips{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 30px}
+.chip{border:1px solid var(--sand-200);background:var(--panel);border-radius:999px;padding:7px 15px;font-size:13px;color:var(--muted);cursor:pointer}
+.chip.on{background:var(--green-100);border-color:#C9DCCF;color:var(--green-600);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding-bottom:18px}
+.card{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;overflow:hidden;
+display:flex;flex-direction:column;transition:.18s;cursor:pointer}
+.card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(29,45,35,.10)}
+.card .ph{height:158px;background-size:cover;background-position:center;position:relative}
+.card .ph .tag{position:absolute;left:10px;top:10px;background:rgba(15,26,20,.62);color:#fff;font-size:11.5px;padding:3px 9px;border-radius:999px}
+.card .bd{padding:13px 15px 15px;display:flex;flex-direction:column;gap:7px;flex:1}
+.card .bd h3{font-family:var(--serif);font-size:16.5px}
+.card .bd p{font-size:12.5px;color:var(--muted);line-height:1.6}
+.card .bd .go{margin-top:auto;font-size:12.5px;color:var(--green-600);font-weight:600}
+.sec-h{display:flex;align-items:baseline;gap:12px;margin:38px 0 16px}
+.sec-h h2{font-family:var(--serif);font-size:22px}
+.sec-h span{font-size:12.5px;color:var(--muted)}
+.rank{background:var(--panel);border:1px solid var(--sand-200);border-radius:16px;overflow:hidden}
+.rank .row{display:flex;align-items:center;gap:16px;padding:14px 18px;border-bottom:1px solid var(--sand-100)}
+.rank .row:last-child{border-bottom:0}
+.rank .no{font-family:var(--serif);font-size:19px;color:var(--gold);width:26px}
+.rank .nm{flex:1;font-size:14.5px}
+.bar{height:7px;border-radius:999px;background:var(--green-100);overflow:hidden;width:170px}
+.bar i{display:block;height:100%;background:var(--green-600)}
+.rank .cnt{font-size:12.5px;color:var(--muted);width:76px;text-align:right}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+footer{margin-top:46px;padding:26px 0 40px;border-top:1px solid var(--sand-200);color:var(--muted);font-size:12.5px}</style></head><body>
+<div class="topbar"><div class="brand">AiTrip<b>Plan</b> · 漫旅</div>
+<nav><a href="#">首页</a><a class="on" href="#">探索</a><a href="#">论坛</a><a href="#">我的行程</a><a href="#">个人中心</a></nav>
+<div class="spacer"></div><button class="btn ghost">通知</button><button class="btn pri">＋ 生成新行程</button></div>
+<div class="wrap"><div class="hero">
+  <h1>想去哪儿？<em>先逛逛别人的行程</em></h1>
+  <p class="sub">每张图都是实拍、每条线都能一键生成同款行程 —— 不用先想清楚，先挑一个看着顺眼的。</p>
+  <div class="stats">
+    <div><b>19</b><span>条真实行程</span></div><div><b>9</b><span>座城市 / 地区</span></div>
+    <div><b>53</b><span>累计规划天数</span></div><div><b>16</b><span>张目的地实拍</span></div></div>
+  <div class="searchrow"><input placeholder="搜目的地、省份或玩法，例如：新疆 / 草原 / 海岛"></div>
+  <div class="chips"><span class="chip on">全部</span><span class="chip">3 天短途</span><span class="chip">5-7 天</span>
+    <span class="chip">长线自驾</span><span class="chip">雪山草原</span><span class="chip">古城人文</span>
+    <span class="chip">海岛度假</span><span class="chip">亲子</span></div>
+  <div class="grid"><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/tianshanchi.jpg')"><span class="tag">雪山湖泊</span></div><div class="bd"><h3>天山天池</h3><p>雪山湖泊 · 自驾</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/sailimu.jpg')"><span class="tag">高山湖泊</span></div><div class="bd"><h3>赛里木湖</h3><p>高山湖泊 · 出片</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/nalati.jpg')"><span class="tag">草原牧场</span></div><div class="bd"><h3>那拉提草原</h3><p>草原牧场 · 亲子</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/mogao.jpg')"><span class="tag">人文古迹</span></div><div class="bd"><h3>莫高窟</h3><p>人文古迹 · 研学</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/qinghaihu.jpg')"><span class="tag">环湖公路</span></div><div class="bd"><h3>青海湖</h3><p>环湖公路 · 骑行</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/jiuzhaigou.jpg')"><span class="tag">彩林海子</span></div><div class="bd"><h3>九寨沟</h3><p>彩林海子 · 秋色</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/daochengyading.jpg')"><span class="tag">雪山圣湖</span></div><div class="bd"><h3>稻城亚丁</h3><p>雪山圣湖 · 徒步</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/huangshan.jpg')"><span class="tag">云海奇松</span></div><div class="bd"><h3>黄山</h3><p>云海奇松 · 日出</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/wulingyuan.jpg')"><span class="tag">峰林峡谷</span></div><div class="bd"><h3>武陵源</h3><p>峰林峡谷 · 取景</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/hulunbuir.jpg')"><span class="tag">草原长线</span></div><div class="bd"><h3>呼伦贝尔</h3><p>草原长线 · 自驾</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/changbaishan.jpg')"><span class="tag">天池雪景</span></div><div class="bd"><h3>长白山</h3><p>天池雪景 · 温泉</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/lijiang.jpg')"><span class="tag">古城慢生活</span></div><div class="bd"><h3>丽江</h3><p>古城慢生活 · 亲子</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/gulangyu.jpg')"><span class="tag">海岛文艺</span></div><div class="bd"><h3>鼓浪屿</h3><p>海岛文艺 · 拍照</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/yalongwan.jpg')"><span class="tag">海滨度假</span></div><div class="bd"><h3>亚龙湾</h3><p>海滨度假 · 躺平</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/pingyao.jpg')"><span class="tag">古城人文</span></div><div class="bd"><h3>平遥古城</h3><p>古城人文 · 夜游</p><span class="go">按这条线生成行程 →</span></div></div><div class="card"><div class="ph" style="background-image:url('../frontend/img/dest/zhanqiao.jpg')"><span class="tag">海滨城市</span></div><div class="bd"><h3>栈桥</h3><p>海滨城市 · 短线</p><span class="go">按这条线生成行程 →</span></div></div></div>
+  <div class="sec-h"><h2>站内热门线路</h2><span>按站内真实生成量排序</span></div>
+  <div class="rank"><div class="row"><span class="no">1</span><span class="nm">九寨沟 3 日</span><span class="bar"><i style="width:100%"></i></span><span class="cnt">7 份行程</span></div><div class="row"><span class="no">2</span><span class="nm">北京三日，体验北京特色</span><span class="bar"><i style="width:71%"></i></span><span class="cnt">5 份行程</span></div><div class="row"><span class="no">3</span><span class="nm">大连一日</span><span class="bar"><i style="width:14%"></i></span><span class="cnt">1 份行程</span></div><div class="row"><span class="no">4</span><span class="nm">大连三日</span><span class="bar"><i style="width:14%"></i></span><span class="cnt">1 份行程</span></div><div class="row"><span class="no">5</span><span class="nm">川西</span><span class="bar"><i style="width:14%"></i></span><span class="cnt">1 份行程</span></div></div>
+  <div class="sec-h"><h2>浏览之外还能做什么</h2><span>想要哪块我先做哪块</span></div>
+  <div class="two">
+    <div class="card" style="cursor:default;padding:18px 20px"><h3 style="font-family:var(--serif);font-size:17px">公开行程广场</h3>
+      <p style="font-size:13px;color:var(--muted);line-height:1.75;margin-top:8px">行程设为公开后，任何人都能免登录浏览完整日程（景点 / 酒店 / 餐饮 / 实用信息），并可「复制成我的」再改。</p></div>
+    <div class="card" style="cursor:default;padding:18px 20px"><h3 style="font-family:var(--serif);font-size:17px">目的地攻略页</h3>
+      <p style="font-size:13px;color:var(--muted);line-height:1.75;margin-top:8px">每个目的地一页：真实 POI 榜单（评分 / 人均 / 地址）、最佳季节、常见天数分布，数据全部来自高德实时查询。</p></div>
+  </div></div>
+<footer>设计预览 · 统计与图片均取自本站真实数据（19 条行程 / 9 座城市 / 16 张高德实拍）</footer></div></body></html>
