@@ -46,7 +46,7 @@ public class AdminController {
         manager.put("name", "Orchestrator"); // 主管（确定性编排器 TripOrchestrator）
         manager.put("label", "主管");
         manager.put("status", "running");
-        manager.put("port", 9091);
+        manager.put("port", 8081);
         r.put("manager", manager);
 
         boolean nacosOk = true;
@@ -143,7 +143,7 @@ public class AdminController {
         return r;
     }
 
-    /** 正在运行会话的当前步骤列表（sessionId → 最近事件类型） */
+    /** 正在运行会话的当前步骤列表（sessionId -> 最近事件类型） */
     private List<Map<String, String>> listRunningSteps() {
         List<Map<String, String>> out = new ArrayList<>();
         for (Map<String, Object> s : EventStore.listSessions()) {
@@ -314,7 +314,7 @@ public class AdminController {
         Map<String, Object> m = new HashMap<>();
         m.put("name", "ManagerAgent");
         m.put("label", "主管Agent");
-        m.put("port", 9091);
+        m.put("port", 8081);
         m.put("alive", true);
         m.put("uptimeMs", java.lang.management.ManagementFactory.getRuntimeMXBean().getUptime());
         m.put("modelCalls", utils.SafeModel.MODEL_CALLS.get());
@@ -324,7 +324,7 @@ public class AdminController {
         m.put("qps", utils.SafeModel.getMaxQps());
         m.put("tokensIn", utils.SafeModel.TOKENS_INPUT.get());
         m.put("tokensOut", utils.SafeModel.TOKENS_OUTPUT.get());
-        //A2A 字段默认值（主管不发起 A2A 调用）：与子Agent卡片一致显示 0/0/—
+        //A2A 字段默认值（主管不发起 A2A 调用）：与子Agent卡片一致显示 0/0/-
         m.put("a2aCalls", 0L);
         m.put("a2aFails", 0L);
         m.put("a2aSuccessRate", -1.0);
@@ -481,7 +481,7 @@ public class AdminController {
     /** 熔断器状态 / 失败计数 / 主备模型 / 限速 QPS */
     //==================== 模型配置热更 ====================
 
-        /** 读当前模型配置（key 打码显示； */
+    /** 读当前模型配置（key 打码显示； */
     @GetMapping("/model-config")
     public Map<String, Object> getModelConfig() {
         Map<String, Object> r = new java.util.HashMap<>();
@@ -673,7 +673,7 @@ public class AdminController {
         return new java.io.File(projectRoot(), "data-pipeline/llm_config.json");
     }
 
-        /** 项目根目录不能依赖 user.dir：IDE 或手动启动 jar 时，工作目录可能在 target。 */
+    /** 项目根目录不能依赖 user.dir：IDE 或手动启动 jar 时，工作目录可能在 target。 */
     private java.io.File projectRoot() {
         try {
             String configured = Config.get("PROJECT_ROOT", "");
@@ -747,7 +747,7 @@ public class AdminController {
 
     //==================== Agent 工具开关 ====================
 
-        /** Read effective agent runtime switches. */
+    /** Read effective agent runtime switches. */
     @GetMapping("/agent-config")
     public Map<String, Object> getAgentConfig() {
         Map<String, Object> r = new HashMap<>();
@@ -763,7 +763,7 @@ public class AdminController {
         return r;
     }
 
-        /** Save switches to Nacos. */
+    /** Save switches to Nacos. */
     @PostMapping("/agent-config")
     public Map<String, Object> saveAgentConfig(@RequestParam Boolean amap,
                                                @RequestParam Boolean localKnowledge,
@@ -853,7 +853,7 @@ public class AdminController {
         return r;
     }
 
-        /** Save AMap keys to Nacos. */
+    /** Save AMap keys to Nacos. */
     @PostMapping("/amap-credentials")
     public Map<String, Object> saveAmapCredentials(
             @RequestParam(required = false) String webKey,
@@ -1086,7 +1086,7 @@ public class AdminController {
                 "SELECT p.id, p.user_id, u.username, p.city, p.days, " +
                         "LEFT(p.plan_content, 200) AS preview, p.create_time " +
                         "FROM trip_plans p LEFT JOIN users u ON p.user_id = u.id ORDER BY p.id DESC");
-        //城市归一化："成都三日"→"成都"，匹配标准城市库
+        //城市归一化："成都三日"->"成都"，匹配标准城市库
         java.util.List<String> stdCities = jdbcTemplate.queryForList(
                 "SELECT DISTINCT city FROM attractions WHERE city IS NOT NULL AND city != ''", String.class);
         for (Map<String, Object> pl : plans) {
@@ -1148,7 +1148,7 @@ public class AdminController {
         return r;
     }
 
-        /** 隐藏/恢复内容（targetType: 1帖子 2评论； */
+    /** 隐藏/恢复内容（targetType: 1帖子 2评论； */
     @PostMapping("/moderation/action")
     public Map<String, Object> moderationAction(@RequestParam int targetType,
                                                 @RequestParam Long targetId,
@@ -1202,7 +1202,7 @@ public class AdminController {
         return r;
     }
 
-    /** 发布公告 → 全员通知（type=5） + SSE 实时推送 */
+    /** 发布公告 -> 全员通知（type=5） + SSE 实时推送 */
     @PostMapping("/announcements")
     public Map<String, Object> createAnnouncement(@RequestParam String title,
                                                   @RequestParam String content,
@@ -1243,7 +1243,7 @@ public class AdminController {
         }
     }
 
-        /** 数据统计明细（type=attractions/foods/hotels/cities/profiles）。 */
+    /** 数据统计明细（type=attractions/foods/hotels/cities/profiles）。 */
     @GetMapping("/data-detail")
     public Map<String, Object> dataDetail(@RequestParam String type) {
         Map<String, Object> r = new HashMap<>();
@@ -1315,7 +1315,7 @@ public class AdminController {
                 aligned.add(line);
             }
             r.put("columns", columns);
-            //画像明细：标签JSON转"标签×次数"串，时间只留秒级
+            //画像明细：标签JSON转"标签x次数"串，时间只留秒级
             if ("profiles".equals(type)) {
                 List<List<Object>> pretty = new ArrayList<>();
                 for (List<Object> line : aligned) {
@@ -1336,7 +1336,7 @@ public class AdminController {
         return r;
     }
 
-    /** 明细列名 → SQL 返回 key 映射（中文列头对应数据库字段） */
+    /** 明细列名 -> SQL 返回 key 映射（中文列头对应数据库字段） */
     private String colKey(String type, String col) {
         switch (col) {
             case "名称": return "name";
@@ -1360,7 +1360,7 @@ public class AdminController {
         }
     }
 
-        /** 手动编辑数据明细（景点/美食/酒店）。 */
+    /** 手动编辑数据明细（景点/美食/酒店）。 */
     @PostMapping("/data-detail/edit")
     public Map<String, Object> editDataDetail(@RequestParam String type, @RequestParam Long id,
                                               @RequestParam String field, @RequestParam String value) {

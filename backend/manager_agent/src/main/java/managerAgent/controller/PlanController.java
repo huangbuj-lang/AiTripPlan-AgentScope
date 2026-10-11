@@ -1,10 +1,15 @@
 package managerAgent.controller;
 
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,16 +20,19 @@ import utils.JsonUtils;
 @RequestMapping("/api")
 public class PlanController {
 
+    private static final Logger log = LoggerFactory.getLogger(PlanController.class);
+
     @Resource
     private JdbcTemplate jdbcTemplate;
 
-        /** 保存行程到数据库 */
+    /** 保存行程到数据库 */
     @PostMapping("/save-plan")
     public Map<String, Object> savePlan(@RequestParam String city,
                                         @RequestParam int days,
                                         @RequestParam String planContent,
                                         @RequestParam(required = false) String planJson,
-                                        HttpSession session) {
+                                        HttpSession session,
+                                        HttpServletRequest request) {
         Map<String, Object> result = new HashMap<>();
         Object userIdObj = session.getAttribute("userId");
         if (userIdObj == null) {
@@ -51,17 +59,38 @@ public class PlanController {
             return ps;
         }, kh);
         long newPlanId = kh.getKey() != null ? kh.getKey().longValue() : -1L;
+        //★用户口径：保存接口加"来源留痕" —— 以后再出现重复行程，一看日志就知道是【浏览器点击】还是【脚本调用】
+        try {
+            String md5 = planContent == null ? ""
+                    : DigestUtils.md5DigestAsHex(planContent.getBytes(StandardCharsets.UTF_8));
+            String ua = request == null ? "" : String.valueOf(request.getHeader("User-Agent"));
+            String ref = request == null ? "" : String.valueOf(request.getHeader("Referer"));
+            String ip = request == null ? "" : String.valueOf(request.getRemoteAddr());
+            //同一用户已存在完全相同内容 → 明确打上 DUP 标记，便于事后归因（只读，不改任何数据）
+            int dup = 0;
+            try {
+                Integer c = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM trip_plans WHERE user_id = ? AND MD5(plan_content) = ?",
+                        Integer.class, userId, md5);
+                dup = c == null ? 0 : c;
+            } catch (Exception ignore) {
+            }
+            log.info("[SAVE-PLAN]{} user={} planId={} city={} days={} bytes={} md5={} ip={} referer={} ua={}",
+                    dup > 0 ? "[DUP" + dup + "]" : "", userId, newPlanId, city, days,
+                    planContent == null ? 0 : planContent.length(), md5, ip, ref, ua);
+        } catch (Exception ignore) {
+        }
         result.put("success", true);
         result.put("message", "保存成功！可在「我的行程」中查看");
         result.put("planId", newPlanId);
         //异步用 LLM 从行程内容提取偏好标签，追加到该用户画像
         triggerPreferenceExtract(userId, newPlanId, planContent);
-        //保存行程 → 重算"常去-城市"标签
+        //保存行程 -> 重算"常去-城市"标签
         managerAgent.tool.ProfileHook.trigger(userId);
         return result;
     }
 
-        /** 查询当前用户保存的所有行程（按时间倒序） */
+    /** 查询当前用户保存的所有行程（按时间倒序） */
     @GetMapping("/my-plans")
     public Map<String, Object> myPlans(HttpSession session) {
         Map<String, Object> result = new HashMap<>();
@@ -79,7 +108,7 @@ public class PlanController {
         return result;
     }
 
-        /** 删除自己的行程（id + user_id 双重条件） */
+    /** 删除自己的行程（id + user_id 双重条件） */
     @PostMapping("/delete-plan")
     public Map<String, Object> deletePlan(@RequestParam Long id, HttpSession session) {
         Map<String, Object> result = new HashMap<>();
@@ -100,7 +129,7 @@ public class PlanController {
         return result;
     }
 
-        /** 异步调用 data-pipeline/extract_pref.py， 用 LLM 从保存的行程内容提取偏好标签并写入该用户画像（用户无感，失败静默）。 */
+    /** 异步调用 data-pipeline/extract_pref.py， 用 LLM 从保存的行程内容提取偏好标签并写入该用户画像（用户无感，失败静默）。 */
     private void triggerPreferenceExtract(long userId, long planId, String planContent) {
         try {
             if (planContent == null || planContent.isBlank()) return;

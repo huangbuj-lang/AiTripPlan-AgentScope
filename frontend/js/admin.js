@@ -91,7 +91,7 @@ function switchTab(tab) {
     else if (tab === 'data')   { loadData(); }
     else if (tab === 'moderation') loadModeration();
     else if (tab === 'business')   loadBusiness();
-    else if (tab === 'announce')   loadAnnouncements();
+    else if (tab === 'announce')   { loadAnnouncements(); loadWeatherBriefSchedule(); }
     else if (tab === 'center')     loadDataCenter();
 }
 function startStatusTimer() { if (!statusTimer) statusTimer = setInterval(loadStatus, 5000); }
@@ -109,7 +109,7 @@ function setPulse(id, cls, valueHtml) {
 }
 function renderPulseFromStatus(s) {
     // 主管
-    setPulse('manager', 'ok breathe', '运行中<small>:9091</small>');
+    setPulse('manager', 'ok breathe', '运行中<small>:8081</small>');
     // Nacos
     setPulse('nacos', s.nacos.connected ? 'ok' : 'bad', s.nacos.connected ? '已连接' : '断开');
 }
@@ -163,8 +163,8 @@ function loadStatus(btn) {
         b.innerHTML =
             '<div class="card-grid cols-auto">' +
             '<div class="card"><h3>🧭 ManagerAgent</h3>' +
-            '<div class="kv"><span>状态</span><b><span class="badge ok">运行中</span></b></div>' +
-            '<div class="kv"><span>端口</span><b class="num-cell">' + d.manager.port + '</b></div></div>' +
+            '<div class="kv"><span>端口</span><b class="num-cell">' + d.manager.port + '</b></div>' +
+            '<div class="kv"><span>状态</span><b><span class="badge ok">运行中</span></b></div></div>' +
             '<div class="card"><h3>🔗 Nacos 注册中心</h3>' +
             '<div class="kv"><span>地址</span><b>' + esc(d.nacos.addr) + '</b></div>' +
             '<div class="kv"><span>连接</span><b>' + nacosBadge + '</b></div>' +
@@ -246,8 +246,8 @@ function forceCancel(sessionId) {
 /* ============ 子Agent健康 ============ */
 function loadAgentsHealth(btn) {
     const done = btnBusy(btn, '刷新中...');
-    // ★两请求并行：健康状态 + 工具统计一次拿齐后同帧渲染（原 tools 二次插入导致刷新时卡片先矮后高、页面抖动）
-    //   另并行取 /costs 的缓存命中统计（主管进程 PlanCache）→ 并进主管卡展示
+    // 两请求并行：健康状态 + 工具统计一次拿齐后同帧渲染（原 tools 二次插入导致刷新时卡片先矮后高、页面抖动）
+    // 另并行取 /costs 的缓存命中统计（主管进程 PlanCache）-> 并进主管卡展示
     Promise.all([
         fetchJson('/api/admin/agents/health'),
         fetchJson('/api/admin/tools').catch(() => null),
@@ -283,7 +283,7 @@ function loadAgentsHealth(btn) {
                 : '<div class="kv"><span>模型调用次数</span><b class="num-cell">' + (a.modelCalls >= 0 ? a.modelCalls : '—') + '</b></div>') +
             (!isMgr(a) ? lkBlock(a) : '') + '</div>'
         ).join('');
-        // ★工具层细粒度成功率：td 已与主数据并行取回，同步注入（同帧渲染）
+        // 工具层细粒度成功率：td 已与主数据并行取回，同步注入（同帧渲染）
         if (td) {
             (td.agents || []).forEach(ta => {
                 if (!ta.alive) return;
@@ -371,11 +371,11 @@ function fmtTok(n) {
 }
 function loadCosts() {
     fetchJson('/api/admin/costs').then(d => {
-        // ★结果缓存命中率已并入「Agent健康-主管Agent卡」（进程级指标），模型监控不再单独设卡
+        // 结果缓存命中率已并入「Agent健康-主管Agent卡」（进程级指标），模型监控不再单独设卡
         const sum = document.getElementById('costsSummary');
         if (sum) sum.innerHTML = '';
-        // ★维度表固定显示全部已知维度（任务/管线/论坛AI + 后端实际返回的子Agent行），无数据补 0，不再空缺
-        // ★数据管线是py侧独立模型处理，不经主管，不在本表展示
+        // 维度表固定显示全部已知维度（任务/管线/论坛AI + 后端实际返回的子Agent行），无数据补 0，不再空缺
+        // 数据管线是py侧独立模型处理，不经主管，不在本表展示
         const FIXED_DIMS = [['任务(用户行程)', 'task'], ['论坛AI答主', 'forum']];
         const dims = d.dimensions || [];
         const byName = {};
@@ -387,7 +387,7 @@ function loadCosts() {
             rows.map(x => '<tr><td>' + esc(x.dimension) + '</td><td class="num-cell">' + x.calls + '</td>' +
                 '<td class="num-cell">' + fmtTok(x.inputTokens) + '</td><td class="num-cell">' + fmtTok(x.outputTokens) + '</td></tr>').join('') +
             '</tbody></table>';
-        // ★近7日成本趋势（DB 落库历史）
+        // 近7日成本趋势（DB 落库历史）
         const trend = d.trend || [];
         const trendEl = document.getElementById('costsTrend');
         if (trendEl) {
@@ -426,7 +426,7 @@ function aggState(items) {
     return 'warn';
 }
 
-/* ★尝试折叠成说明文字：第1次调用失败(原因)/第2次调用成功 */
+/* 尝试折叠成说明文字：第1次调用失败(原因)/第2次调用成功 */
 function attemptsText(atts) {
     if (!atts || !atts.length) return '';
     return atts.map(a => {
@@ -500,7 +500,7 @@ function showTrace(sessionId) {
         const buckets = { '': [], '行程': [], '路线': [] };
         spans.forEach(sp => { (buckets[sp.agent || ''] || buckets['']).push(sp); });
         const nodes = [];
-        // 主管Agent → LLM调用
+        // 主管Agent -> LLM调用
         const mgrLlm = buckets[''].filter(x => x.layer === 'LLM');
         if (mgrLlm.length) {
             nodes.push({
@@ -535,7 +535,7 @@ function showTrace(sessionId) {
         nodes.forEach((n, i) => { html += agentRow(n, i); });
         html += '</tbody></table></div>';
         b.innerHTML = html;
-        // ★标准树折叠：初始全部展开；
+        // 标准树折叠：初始全部展开；
         b.querySelectorAll('tr.trace-agent, tr.trace-group').forEach(tr => {
             tr.classList.add('open'); // 初始展开态
             tr.addEventListener('click', () => {
@@ -719,7 +719,7 @@ function publishAnnouncement(btn) {
 }
 
 /* ============ 数据中心 ============ */
-/** 只跑 pricing.py（秒级），完成后刷新定价表（点击逻辑：按钮忙碌→完成恢复） */
+/** 只跑 pricing.py（秒级），完成后刷新定价表（点击逻辑：按钮忙碌->完成恢复） */
 function runPricing() {
     const restore = btnBusy(document.getElementById('pricingRunBtn'), '更新中...');
     fetchJson('/api/admin/pricing/run', { method: 'POST' }).then(d => {
@@ -741,7 +741,7 @@ function runForecastLocal(btn) {
 
 function loadDataCenter(btn) {
     const done = btnBusy(btn, '刷新中...');
-    // 统计卡片（可点击 → 明细弹窗）
+    // 统计卡片（可点击 -> 明细弹窗）
     fetchJson('/api/admin/data-stats').then(d => {
         const s = document.getElementById('centerStats');
         if (!d.success) { s.innerHTML = '<div class="state-box">加载失败</div>'; return; }
@@ -953,7 +953,7 @@ function renderDetailTable(kw) {
     });
     bodyEl.innerHTML = html + '</tbody></table>';
 }
-/* 行内编辑：整行单元格变输入框（点击逻辑：编辑→保存/取消 两态切换） */
+/* 行内编辑：整行单元格变输入框（点击逻辑：编辑->保存/取消 两态切换） */
 function editDetailRow(type, id, btn) {
     const tr = btn.closest('tr');
     const tds = [...tr.querySelectorAll('td')];
@@ -1097,7 +1097,7 @@ function stopPipeline(btn) {
     }).catch(() => { restore(); toast('请求失败', true); });
 }
 
-/* ============ ★模型配置热更 ============ */
+/* ============ 模型配置热更 ============ */
 const KEY_MASK = '••••••••';
 function applyKeyField(inputId, masked, placeholderWhenSet) {
     const input = document.getElementById(inputId);
@@ -1193,7 +1193,7 @@ function saveModelConfig() {
         .catch(() => { restore(); msg.textContent = '网络错误，配置未确认保存'; msg.className = 'msg-line err'; });
 }
 
-/* ============ ★Agent工具开关 ============ */
+/* ============ Agent工具开关 ============ */
 let agentConfig = null;
 
 function readAgentConfigInputs() {
@@ -1248,7 +1248,7 @@ function saveAgentConfig() {
         ? confirm('确认修改工具开关？\n\n保存后将重启 8082/8085 两个子Agent，路线和行程功能会短暂不可用。')
         : confirm('确认修改远程Agent调用开关？修改会立即保存并热生效。');
     if (!confirmed) {
-        renderAgentConfig(agentConfig); /* 取消 → 回滚勾选状态 */
+        renderAgentConfig(agentConfig); /* 取消 -> 回滚勾选状态 */
         return;
     }
 
@@ -1272,7 +1272,7 @@ function saveAgentConfig() {
         .finally(() => setAgentConfigBusy(false));
 }
 
-/* ============ ★高德凭证 ============ */
+/* ============ 高德凭证 ============ */
 let amapCredentials = null;
 
 function loadAmapCredentials() {
@@ -1373,4 +1373,63 @@ function loadAgentPrompts() {
         msg.textContent = '提示词加载失败';
         msg.className = 'msg-line err';
     });
+}
+
+
+/* ============ 行中提醒（天气早报）手动触发 ============ */
+/**
+ * ★从「公告发布」界面手动触发一次天气早报（用户口径）。
+ * force=true：跳过"天气没变化就不发"，直接把早报发进通知；每天 7:00 的定时逻辑一字未改。
+ */
+function triggerWeatherBrief(btn) {
+    const msg = document.getElementById('weatherBriefMsg');
+    if (msg) { msg.textContent = '正在查天气并生成早报，请稍候…'; msg.className = 'msg-line'; }
+    const restore = btnBusy(btn, '触发中...');
+    fetch('/api/weather-brief/trigger?force=true', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            restore();
+            toast(d.message || (d.success ? '已触发' : '触发失败'), !d.success);
+            if (msg) { msg.textContent = d.message || ''; msg.className = 'msg-line' + (d.success ? '' : ' err'); }
+        })
+        .catch(() => {
+            restore();
+            toast('请求失败', true);
+            if (msg) { msg.textContent = '请求失败'; msg.className = 'msg-line err'; }
+        });
+}
+
+
+/* ============ 行中提醒（天气早报）触发时间 ============ */
+/** 打开公告页时回显当前触发时间 */
+function loadWeatherBriefSchedule() {
+    fetchJson('/api/admin/weather-brief/schedule').then(d => {
+        const el = document.getElementById('wbTime');
+        if (d && d.success && el) el.value = d.time || '07:00';
+    }).catch(() => { });
+}
+
+/** 保存触发时间（热更：写库即生效，无需重启） */
+function saveWeatherBriefSchedule(btn) {
+    const el = document.getElementById('wbTime');
+    const msg = document.getElementById('wbMsg');
+    const t = (el && el.value || '').trim();
+    if (!/^\d{2}:\d{2}$/.test(t)) {
+        toast('时间格式应为 HH:mm（例如 07:00）', true);
+        if (msg) { msg.textContent = '时间格式应为 HH:mm（例如 07:00）'; msg.className = 'msg-line err'; }
+        return;
+    }
+    const restore = btnBusy(btn, '保存中...');
+    fetch('/api/admin/weather-brief/schedule?time=' + encodeURIComponent(t) + '&enabled=1', { method: 'PUT' })
+        .then(r => r.json())
+        .then(d => {
+            restore();
+            toast(d.message || (d.success ? '已保存' : '保存失败'), !d.success);
+            if (msg) { msg.textContent = d.message || ''; msg.className = 'msg-line' + (d.success ? '' : ' err'); }
+        })
+        .catch(() => {
+            restore();
+            toast('请求失败', true);
+            if (msg) { msg.textContent = '请求失败'; msg.className = 'msg-line err'; }
+        });
 }
