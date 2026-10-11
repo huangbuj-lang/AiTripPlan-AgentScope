@@ -11,7 +11,7 @@ public final class PrefSynonyms {
 
     private PrefSynonyms() {}
 
-        /** 标准 → 同义词组（含标准词本身）。 */
+    /** 标准 -> 同义词组（含标准词本身）。 */
     private static final Map<String, List<String>> MAP = new LinkedHashMap<>();
 
     static {
@@ -58,7 +58,7 @@ public final class PrefSynonyms {
         return Arrays.asList(a);
     }
 
-        /** 归一：从自由文本提取全部命中的标准标签。 */
+    /** 归一：从自由文本提取全部命中的标准标签。 */
     public static List<String> normalize(String prefText) {
         List<String> out = new ArrayList<>();
         if (prefText == null || prefText.isBlank()) {

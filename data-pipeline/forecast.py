@@ -28,7 +28,7 @@ def sql(query, fetch=True):
     if not fetch: return []
     return [line.split("\t") for line in r.stdout.strip().splitlines()] if r.stdout.strip() else []
 
-#城市归一化：①标准库前缀最长匹配 ②剥数字/中文数字+日天周与旅行词尾 ③仍无则保留原名
+#城市归一化：(1)标准库前缀最长匹配 (2)剥数字/中文数字+日天周与旅行词尾 (3)仍无则保留原名
 import re as _re
 def normalize_city(raw, std_cities):
     if not raw:

@@ -5,7 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-/** 管理员拦截器：只有 role=admin 的用户才能访问 /api/admin/** 管理接口 已登录但非管理员 → 返回 403 + JSON 提示 */
+/** 管理员拦截器：只有 role=admin 的用户才能访问 /api/admin/** 管理接口 已登录但非管理员 -> 返回 403 + JSON 提示 */
 public class AdminInterceptor implements HandlerInterceptor {
 
     @Override

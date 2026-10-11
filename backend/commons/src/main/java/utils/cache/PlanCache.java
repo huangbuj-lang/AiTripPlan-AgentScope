@@ -5,7 +5,13 @@ import utils.Config;
 import java.util.Map;
 import java.util.concurrent.*;
 
-/** 结果缓存（进程内）：缓存专家产物 routeResult + planResult。 */
+/**
+ * 结果缓存（进程内）：缓存专家产物 routeResult + planResult。
+ * key = SHA1(目的地|天数|出发地|个人中心沉淀偏好|本次输入偏好|需求指纹)，TTL = PLAN_CACHE_TTL_HOURS（默认 12h）。
+ * 需求指纹（TripRequest.cacheFingerprint）覆盖预算/人数/出行类型/约束等进专家 prompt 的字段——
+ * 防止"无预算请求先入缓存、带预算请求复用到无预算产物"的串缓存。
+ * 零依赖实现（ConcurrentHashMap + 延迟清单），不引入第三方包。
+ */
 public final class PlanCache {
 
     private PlanCache() {}
@@ -13,15 +19,23 @@ public final class PlanCache {
     public static final class Entry {
         public final String routeResult;
         public final String planResult;
+        public final String candidatesJson; // 三域候选 JSON（空串=旧条目无候选）
         public final long expireAtMs;
+
         public Entry(String routeResult, String planResult, long expireAtMs) {
+            this(routeResult, planResult, "", expireAtMs);
+        }
+
+        public Entry(String routeResult, String planResult, String candidatesJson, long expireAtMs) {
             this.routeResult = routeResult;
             this.planResult = planResult;
+            this.candidatesJson = candidatesJson == null ? "" : candidatesJson;
             this.expireAtMs = expireAtMs;
         }
     }
 
-    /** key=dest|days|origin|storedPrefs 的哈希 → Entry（防串缓存） */
+    /** key = SHA1(目的地|天数|出发地|个人中心沉淀偏好|本次输入偏好|需求指纹) 的哈希 → Entry（防串缓存）；
+     *  需求指纹=cacheFingerprint()，覆盖预算/人数/出行类型/约束等进专家 prompt 但未单独入 key 的字段 */
     private static final ConcurrentMap<String, Entry> CACHE = new ConcurrentHashMap<>();
 
     /** 命中/未中计数（进程内存，重启清零——与成本观测页语义一致） */
@@ -38,13 +52,14 @@ public final class PlanCache {
         CLEANER.scheduleWithFixedDelay(PlanCache::cleanExpired, 5, 5, TimeUnit.MINUTES);
     }
 
-    private static String key(String dest, int days, String origin, String storedPrefs, String pref) {
+    private static String key(String dest, int days, String origin, String storedPrefs, String pref, String fingerprint) {
         StringBuilder sb = new StringBuilder();
         sb.append(dest == null ? "" : dest).append("|")
           .append(days).append("|")
           .append(origin == null ? "" : origin).append("|")
           .append(storedPrefs == null ? "" : storedPrefs).append("|")
-          .append(pref == null ? "" : pref);
+          .append(pref == null ? "" : pref).append("|")
+          .append(fingerprint == null ? "" : fingerprint);
         return Integer.toHexString(sb.toString().hashCode());
     }
 
@@ -54,14 +69,14 @@ public final class PlanCache {
     }
 
     /** 读缓存，未命中或过期返回 null（计数：命中/未中，供监控回显） */
-    public static Entry get(String dest, int days, String origin, String storedPrefs, String pref) {
-        Entry e = CACHE.get(key(dest, days, origin, storedPrefs, pref));
+    public static Entry get(String dest, int days, String origin, String storedPrefs, String pref, String fingerprint) {
+        Entry e = CACHE.get(key(dest, days, origin, storedPrefs, pref, fingerprint));
         if (e == null) {
             MISSES.incrementAndGet(); // 未中：监控计数
             return null;
         }
         if (e.expireAtMs <= System.currentTimeMillis()) {
-            CACHE.remove(key(dest, days, origin, storedPrefs, pref));
+            CACHE.remove(key(dest, days, origin, storedPrefs, pref, fingerprint));
             MISSES.incrementAndGet(); // 过期视作未中
             return null;
         }
@@ -80,10 +95,18 @@ public final class PlanCache {
         return r;
     }
 
-    /** 写缓存（仅当双方产物非空时写入） */
-    public static void put(String dest, int days, String origin, String storedPrefs, String pref, String routeResult, String planResult) {
-        if (routeResult == null || planResult == null) return;
+    /** 写缓存（仅当双方产物非空时写入；旧签名兼容，无候选） */
+    public static void put(String dest, int days, String origin, String storedPrefs, String pref, String fingerprint,
+                           String routeResult, String planResult) {
+        put(dest, days, origin, storedPrefs, pref, fingerprint, routeResult, planResult, "");
+    }
+
+    /** 写缓存（含三域候选 JSON；命中缓存时不再重跑专家，候选直接复用） */
+    public static void put(String dest, int days, String origin, String storedPrefs, String pref, String fingerprint,
+                           String routeResult, String planResult, String candidatesJson) {
+        if (routeResult == null || routeResult.isBlank() || planResult == null || planResult.isBlank()) return; // ★失败产物不入缓存（防毒缓存）
         long ttlMs = TimeUnit.HOURS.toMillis(Config.getInt("PLAN_CACHE_TTL_HOURS", 12));
-        CACHE.put(key(dest, days, origin, storedPrefs, pref), new Entry(routeResult, planResult, System.currentTimeMillis() + ttlMs));
+        CACHE.put(key(dest, days, origin, storedPrefs, pref, fingerprint),
+                new Entry(routeResult, planResult, candidatesJson, System.currentTimeMillis() + ttlMs));
     }
 }

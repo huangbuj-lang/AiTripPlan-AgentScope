@@ -9,7 +9,7 @@ import json, os, re, subprocess, sys, time
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from llm_config import chat  # ★py侧统一模型配置（与管理端热更同源）
+from llm_config import chat  # py侧统一模型配置（与管理端热更同源）
 
 ENV = {}
 for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
@@ -116,7 +116,7 @@ def classify_batch(table, items, depth=0):
             got = _parse_labels(out, valid)
             if not got:
                 raise ValueError(f"无可用JSON: {out[:80]}")
-            #防标签坍缩：≥15条批单一标签>80%视为偷懒，弃用
+            #防标签坍缩：>=15条批单一标签>80%视为偷懒，弃用
             if len(items_min) >= 15 and got:
                 from collections import Counter
                 top_lab, top_n = Counter(got.values()).most_common(1)[0]

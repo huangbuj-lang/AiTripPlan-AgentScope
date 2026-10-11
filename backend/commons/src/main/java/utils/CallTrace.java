@@ -37,7 +37,7 @@ public final class CallTrace {
     }
 
     private static final int MAX_PER_TASK = 200;
-    /** sessionId → 调用明细（同步 List：写入频率低，synchronized 足够） */
+    /** sessionId -> 调用明细（同步 List：写入频率低，synchronized 足够） */
     private static final ConcurrentHashMap<String, List<Span>> TRACES = new ConcurrentHashMap<>();
 
     private CallTrace() {}
@@ -84,7 +84,7 @@ public final class CallTrace {
         }
     }
 
-        /** 任务结束后清理其明细（防内存累积； */
+    /** 任务结束后清理其明细（防内存累积； */
     public static void cleanup(String keepSessionId) {
         if (TRACES.size() <= 50) return;
         TRACES.keySet().removeIf(k -> !k.equals(keepSessionId));

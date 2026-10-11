@@ -2,6 +2,8 @@ package managerAgent.controller;
 
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.http.HttpSession;
+import managerAgent.repository.LoginRepository;
+import managerAgent.service.LoginService;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -36,12 +38,22 @@ class LoginErrorMessageControllerTest {
     }
 
     private LoginController controller(JdbcTemplate jdbcTemplate) throws Exception {
+        LoginRepository repository = new LoginRepository();
+        inject(repository, "jdbcTemplate", jdbcTemplate);
+        LoginService service = new LoginService();
+        inject(service, "loginRepository", repository);
         LoginController controller = new LoginController();
-        Field field = LoginController.class.getDeclaredField("jdbcTemplate");
-        field.setAccessible(true);
-        field.set(controller, jdbcTemplate);
+        inject(controller, "loginService", service);
         return controller;
     }
+
+    /** 反射注入：重构后 SQL 在 repository、业务在 service，测试按同一条链装配 */
+    private static void inject(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
 
     private static class EmptyUserJdbcTemplate extends JdbcTemplate {
         @Override

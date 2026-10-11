@@ -5,7 +5,7 @@ public final class Config {
 
     private Config() {}
 
-    /** 读取字符串配置（空/未设置 → 默认值） */
+    /** 读取字符串配置（空/未设置 -> 默认值） */
     public static String get(String key, String def) {
         String v = System.getenv(key);
         return (v == null || v.isBlank()) ? def : v.trim();

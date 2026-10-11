@@ -16,13 +16,11 @@ import utils.mcp.AmapEnhancedToolFactory.AgentType;
 @Component
 public class TripPlannerAgent {
 
-    /** sysPrompt 从 classpath 的 agent-rules.md 读取，失败回退内置文本 */
+    /** sysPrompt 规则：★2026-09-11 改为优先读工作目录磁盘（agent-rules/tripPlanner-agent-rules.md，改规则免重打包），
+     *  回退 classpath 内置（首次自动导出到磁盘），都没有才用内置兜底文本 */
     private static String loadSysPrompt() {
-        try (var in = TripPlannerAgent.class.getResourceAsStream("/agent-rules.md")) {
-            if (in != null) {
-                return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            }
-        } catch (Exception ignore) { }
+        String s = utils.ExternalRules.load("tripPlanner-agent-rules.md", "agent-rules.md");
+        if (s != null && !s.isBlank()) return s;
         return "你是TripPlannerAgent，一个专业的行程规划Agent。（agent-rules.md 缺失，请检查 resources）";
     }
 
@@ -45,6 +43,8 @@ public class TripPlannerAgent {
                 )
                         .memory(new LimitedMemory(Config.getInt("MEMORY_SIZE", 20))) // 限量记忆：单例Agent上下文无限增长会导致状态卡死/大模型400
                         .toolkit(toolkit) // 挂载工具包
+                        // ★2026-09-11 结果回捞：把最终输出按任务指纹存档，主管 A2A 失败时用 /lastResult 回取
+                        .hook(new utils.ResultArchiveHook())
                         .sysPrompt(AgentPrompts.tripAgentSystem(loadSysPrompt() + skillPrompt)); // agent-rules.md + Nacos技能清单
 
         return builder.build();

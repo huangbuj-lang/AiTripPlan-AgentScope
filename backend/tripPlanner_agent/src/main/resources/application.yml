@@ -1,10 +1,27 @@
 server:
   port: 8085
+  # ★2026-09-12 根治（今晚所有"超时/A2A 调用失败"的真凶）：
+  #   框架 Constants.DEFAULT_SERVER_EXPORT_ADDRESS = "server.address"——agent card 的对外地址取自这里；
+  #   不设它时回退 NetworkUtils.getLocalIpAddress() 自动探测，而本机有 McAfee VPN + 多个 link-local 网卡，
+  #   探测会挑中 VPN 地址（实测注册成 192.168.176.218，本机根本没有该网段）→
+  #   主管从 Nacos 拿到该 card 后往不存在的地址发请求 → 请求永远到不了子Agent（modelCalls=0）→ 干等 300s 超时。
+  #   显式钉死即可；用 127.0.0.1 是因为 A2A 全是本机内部调用，且免疫 DHCP 换 IP。
+  address: 127.0.0.1
 
 # A2A协议服务端
 agentscope:
   a2a:
     server:
       enabled: true
+      # 再钉一层：card 里显式给出可达地址，避免 additionalInterfaces 仍用探测值
+      card:
+        url: http://127.0.0.1:8085
     nacos:
       server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+
+# ★2026-09-12 SSE 长连接不被服务端 async 超时切断（A2aJsonRpcController 用 Spring MVC 返回 SSE，
+#   属 async request；默认 Tomcat async 超时 30s 上下会把长任务流掐掉）。
+spring:
+  mvc:
+    async:
+      request-timeout: 1800s

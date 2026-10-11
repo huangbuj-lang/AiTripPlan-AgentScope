@@ -72,7 +72,7 @@ public class LocalKnowledgeTool {
     /** 原查询逻辑（观测埋点拆出的主体） */
     private String doQuery(String city, String preference) {
         String p = preference == null ? "" : preference.trim();
-        //偏好归一：自由文本 → 标准标签（同义词表）
+        //偏好归一：自由文本 -> 标准标签（同义词表）
         List<String> prefTags = PrefSynonyms.normalize(p);
 
         //意图（查哪几类）：优先按归一标签映射
@@ -90,7 +90,7 @@ public class LocalKnowledgeTool {
                 || tag.equals("温泉") || tag.equals("购物") || tag.equals("演艺") || tag.equals("骑行")) spotHit = true;
         }
         if (!foodHit && !hotelHit && !spotHit) {
-            //归一未命中 → 用原始关键词判断
+            //归一未命中 -> 用原始关键词判断
             if (p.contains("美食") || p.contains("吃") || p.contains("餐厅") || p.contains("火锅") || p.contains("小吃")) foodHit = true;
             if (p.contains("酒店") || p.contains("住") || p.contains("住宿") || p.contains("宾馆")) hotelHit = true;
             if (p.contains("景点") || p.contains("景区") || p.contains("亲子") || p.contains("自然") || p.contains("人文") || p.contains("儿童")) spotHit = true;
@@ -145,7 +145,7 @@ public class LocalKnowledgeTool {
                 if (!rows.isEmpty()) {
                     mode = "";
                 } else {
-                    //回退：偏好无命中（或无偏好）→ 该城评分top
+                    //回退：偏好无命中（或无偏好）-> 该城评分top
                     String sqlAll = sel + " WHERE city = ? ORDER BY rating DESC LIMIT 6";
                     try (PreparedStatement ps = conn.prepareStatement(sqlAll)) {
                         ps.setString(1, city);

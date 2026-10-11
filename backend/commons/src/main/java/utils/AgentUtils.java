@@ -11,38 +11,56 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
-/** ReActAgent 工具类 */
+/**
+ * ReActAgent 工具类
+ */
 @Slf4j
 public class AgentUtils {
 
-        /** 构建主模型：DeepSeek（OpenAI 兼容接口） */
+    /**
+     * 构建主模型：DeepSeek（OpenAI 兼容接口）
+     */
     private static io.agentscope.core.model.Model buildDeepSeekModel(String apiKey) {
         return OpenAIChatModel.builder()
                 .apiKey(apiKey) // API Key
                 .baseUrl(Config.get("MODEL_BASE_URL", "https://api.deepseek.com")) // DeepSeek OpenAI 兼容接口
                 .modelName(Config.get("MODEL_NAME", "deepseek-v4-flash")) // 语言模型（快速版，支持工具调用）
-                //DeepSeek 专用 formatter：修复 tool 消息与 tool_calls 的配对
+                // DeepSeek 专用 formatter：修复 tool 消息与 tool_calls 的配对
                 .formatter(new DeepSeekToolFixFormatter())
-                //关闭流式增量，保证完整输出
+                // ★2026-09-11 输出上限：同 buildPrimaryModel（防长行程JSON被默认4096截断）
+                .generateOptions(io.agentscope.core.model.GenerateOptions.builder()
+                        .maxTokens(Config.getInt("LLM_MAX_OUTPUT_TOKENS", 8192))
+                        .build())
+                // 关闭流式增量，保证完整输出
                 .stream(false)
                 .build();
     }
 
-        /** 构建备用模型：OpenAI 兼容接口（默认阿里 DashScope 兼容模式 qwen）。 */
+    /**
+     * 构建备用模型：OpenAI 兼容接口（默认阿里 DashScope 兼容模式 qwen）。
+     * URL/KEY/NAME 从 ModelConfigHolder 读（管理端可热更），支持任意 OpenAI 兼容服务。
+     */
     private static io.agentscope.core.model.Model buildQwenModel(String apiKey) {
         var b = OpenAIChatModel.builder()
                 .apiKey(apiKey) // API Key
                 .baseUrl(utils.ModelConfigHolder.fbBaseUrl()) // OpenAI 兼容接口地址（可热更）
                 .modelName(utils.ModelConfigHolder.fbModelName()) // 语言模型（可热更）
-                //关闭流式增量，保证完整输出
+                // ★2026-09-11 输出上限：备用模型也要设，否则熔断降级后照样被默认上限截断
+                .generateOptions(io.agentscope.core.model.GenerateOptions.builder()
+                        .maxTokens(Config.getInt("LLM_MAX_OUTPUT_TOKENS", 8192))
+                        .build())
+                // 关闭流式增量，保证完整输出
                 .stream(false)
                 .build();
         return b;
     }
 
-        /** 构建主/备模型，包上 SafeModel（限速+重试+熔断动态降级，降级判断下沉到每次调用）。 */
+    /**
+     * 构建主/备模型，包上 SafeModel（限速+重试+熔断动态降级，降级判断下沉到每次调用）。
+     * 供 ReAct Agent 与确定性编排器的裸 LLM 调用复用。
+     */
     public static io.agentscope.core.model.Model buildModel() {
-        //热更配置中心：主模型 URL/KEY/NAME 从 ModelConfigHolder 读（管理端保存即更新）
+        // ★热更配置中心：主模型 URL/KEY/NAME 从 ModelConfigHolder 读（管理端保存即更新）
         String key = ModelConfigHolder.apiKey();
         if (key == null || key.isBlank()) {
             throw new IllegalStateException(
@@ -65,6 +83,13 @@ public class AgentUtils {
                 .baseUrl(baseUrl)
                 .apiKey(apiKey)
                 .modelName(modelName)
+                // ★2026-09-11 显式设输出上限（评审点：输出被截断 → JSON 不完整 → 报"行程数据缺失"）。
+                //   原来完全不设 → 走服务端默认（DeepSeek 默认输出 4096 tokens），
+                //   而一份完整行程 JSON 常达 8000+ 字符（中文≈1.5 token/字）→ 必被截断。
+                //   可用 LLM_MAX_OUTPUT_TOKENS 覆盖。（agentscope 的模型级默认值入口是 defaultOptions）
+                .generateOptions(io.agentscope.core.model.GenerateOptions.builder()
+                        .maxTokens(Config.getInt("LLM_MAX_OUTPUT_TOKENS", 8192))
+                        .build())
                 .stream(false); // 关闭流式增量，保证完整输出
         if (isDeepSeek) {
             b.formatter(new DeepSeekToolFixFormatter()); // 仅 DeepSeek 需要 tool 配对修复
@@ -72,7 +97,9 @@ public class AgentUtils {
         return b.build();
     }
 
-        /** 创建 ReAct Agent Builder */
+    /**
+     * 创建 ReAct Agent Builder
+     */
     public static ReActAgent.Builder getReActAgentBuilder(
             String name,
             String description
@@ -84,20 +111,22 @@ public class AgentUtils {
                         .name(name)
                         .description(description)
                         .sysPrompt(AgentPrompts.genericReActSystem(name))
-                        //设置最大迭代轮数，避免复杂任务被截断
+                        // 设置最大迭代轮数，避免复杂任务被截断
                         .maxIters(Config.getInt("MODEL_MAX_ITERS", 30))
                         .model(model)
                         ;
 
     }
 
-        /** ReAct Agent 流式响应 */
+    /**
+     * ReAct Agent 流式响应
+     */
     public static Flux<Event> streamResponse(
             AgentBase agent,
             String prompt) {
 
        return agent.stream(
-                        //Prompt
+                        // Prompt
                         Msg.builder()
                                 .role(MsgRole.USER) // 消息角色
                                 .content(List.of( // 消息内容

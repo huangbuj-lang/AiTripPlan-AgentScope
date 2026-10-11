@@ -18,7 +18,7 @@ public class NacosUtil {
                 if (aiService == null) {
                     Properties properties = new Properties(); // 设置 Nacos 地址
                     properties.put(PropertyKeyConst.SERVER_ADDR,
-                            utils.Config.get("NACOS_SERVER_ADDR", "localhost:8848"));
+                            utils.AgentEndpoints.nacosAddr()); // ★2026-09-11 端点集中配置
                     String namespace = utils.Config.get("NACOS_NAMESPACE", "");
                     if (!namespace.isBlank()) {
                         properties.put(PropertyKeyConst.NAMESPACE, namespace);

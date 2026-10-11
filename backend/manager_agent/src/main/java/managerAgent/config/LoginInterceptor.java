@@ -9,7 +9,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import java.util.List;
 import java.util.Map;
 
-/** 登录拦截器：未登录用户不能调用任务/保存接口 已登录 → 放行； */
+/** 登录拦截器：未登录用户不能调用任务/保存接口 已登录 -> 放行； */
 public class LoginInterceptor implements HandlerInterceptor {
 
     private final JdbcTemplate jdbcTemplate;

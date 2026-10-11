@@ -40,7 +40,7 @@ def sec(title):
 def pct(a, b):
     return f"{a}/{b} ({a*100//b}%)" if b else "0/0"
 
-#---------- ① 景点特征表 ----------
+#---------- (1) 景点特征表 ----------
 sec("① attractions_features 景点（1497条）")
 total_a = one("SELECT COUNT(*) FROM attractions_features")
 print(f"总量: {total_a}")
@@ -58,7 +58,7 @@ print(f"rating 非空: {pct(rt, total_a)}")
 addr = one("SELECT COUNT(*) FROM attractions_features WHERE address IS NOT NULL AND address!=''")
 print(f"address 非空: {pct(addr, total_a)}")
 
-#---------- ② 美食/酒店 ----------
+#---------- (2) 美食/酒店 ----------
 sec("② foods_features 美食 / hotels_features 酒店")
 total_f = one("SELECT COUNT(*) FROM foods_features")
 print(f"美食总量: {total_f}")
@@ -72,7 +72,7 @@ cost_h = one("SELECT COUNT(*) FROM hotels_features WHERE cost IS NOT NULL AND co
 rt_h = one("SELECT COUNT(*) FROM hotels_features WHERE rating IS NOT NULL")
 print(f"酒店总量: {total_h} | cost有效: {pct(cost_h,total_h)} | rating非空: {pct(rt_h,total_h)}")
 
-#---------- ③ 行程表城市标准化 ----------
+#---------- (3) 行程表城市标准化 ----------
 sec("③ trip_plans 城市标准化（待办②验证）")
 sys_path = os.path.join(BASE, "data-pipeline")
 if sys_path not in __import__("sys").path:
@@ -89,7 +89,7 @@ for (c,) in [(r[0],) for r in rows_all]:
 print(f"标准城市库({len(std_cities)}城) + 归一化扩展城({'、'.join(sorted(extended)) if extended else '无'})")
 print("⚠️ 脏值残留: " + str(dirty) if dirty else "✓ 全部行程 city 已标准化")
 
-#---------- ④ 定价输出 ----------
+#---------- (4) 定价输出 ----------
 sec("④ pricing_output 动态定价（20城）")
 pr = sql("SELECT city, hotel_base, food_base, ticket_base, food_price, ticket_price FROM pricing_output ORDER BY city")
 print(f"共 {len(pr)} 城 | 列: 城市 酒店/餐饮/门票基准 现价")
@@ -107,7 +107,7 @@ for c, hb, fb, tb, fp, tprice in pr:
         bad.append(f"{c}: {'、'.join(issues)} (门票={tb}, 餐饮={fb})")
 print("✓ 全城基准价正常" if not bad else "⚠️ 异常:\n  " + "\n  ".join(bad))
 
-#---------- ⑤ 客流预测输出 ----------
+#---------- (5) 客流预测输出 ----------
 sec("⑤ forecast_output 客流预测")
 fc_cities = sorted(set(r[0] for r in sql("SELECT DISTINCT city FROM forecast_output")))
 nonstd_fc = [c for c in fc_cities if normalize_city(c, std_cities) != c]
@@ -116,7 +116,7 @@ print(f"城市({len(fc_cities)}): {'、'.join(fc_cities)}")
 print(f"⚠️ 脏城市行(重跑forecast.py可清): {nonstd_fc}" if nonstd_fc else "✓ 城市全部干净")
 print(f"⚠️ 过期行(day<今天): {past}" if past else "✓ 无过期行")
 
-#---------- ⑥ 画像覆盖 & 跨表一致性 ----------
+#---------- (6) 画像覆盖 & 跨表一致性 ----------
 sec("⑥ 画像覆盖 & 跨表一致性 & 索引")
 up = sql("SELECT user_id FROM user_profiles_tags")
 users = {r[0] for r in sql("SELECT id FROM users")}

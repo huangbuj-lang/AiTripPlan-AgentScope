@@ -28,7 +28,7 @@ public final class AgentRuntimeConfig {
     private AgentRuntimeConfig() {}
 
     public static String serverAddr() {
-        return Config.get("NACOS_SERVER_ADDR", "localhost:8848");
+        return AgentEndpoints.nacosAddr(); // ★2026-09-11 端点集中配置（原硬编码 localhost:8848）
     }
 
     /** Briefly wait for the initial Nacos snapshot so restarted agents do not register with stale fallbacks. */

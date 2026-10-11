@@ -16,7 +16,7 @@ import java.util.Map;
 @RequestMapping("/events")
 public class EventController {
 
-        /** 查询该会话的事件列表 */
+    /** 查询该会话的事件列表 */
     @GetMapping
     public List<Map<String, String>> events(
             @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,
@@ -28,7 +28,7 @@ public class EventController {
         return EventStore.all(sessionId);
     }
 
-        /** SSE 实时事件流（替代前端轮询，阶段四 F-3） */
+    /** SSE 实时事件流（替代前端轮询，阶段四 F-3） */
     @GetMapping("/stream")
     public SseEmitter stream(
             @RequestParam(name = "sessionId", required = false, defaultValue = "default") String sessionId,

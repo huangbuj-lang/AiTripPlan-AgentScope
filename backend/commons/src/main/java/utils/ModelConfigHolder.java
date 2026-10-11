@@ -23,14 +23,14 @@ public final class ModelConfigHolder {
     public static String fbApiKey()    { return fbApiKey; }
     public static String fbModelName() { return fbModelName; }
 
-        /** 原子热更（管理端保存时调用）； */
+    /** 原子热更（管理端保存时调用）； */
     public static void update(String url, String key, String name) {
         if (url != null && !url.isBlank())  baseUrl = url.trim();
         if (key != null && !key.isBlank())  apiKey = key.trim();
         if (name != null && !name.isBlank()) modelName = name.trim();
     }
 
-        /** 备用模型原子热更（管理端保存时调用）； */
+    /** 备用模型原子热更（管理端保存时调用）； */
     public static void updateFallback(String url, String key, String name) {
         if (url != null && !url.isBlank())  fbBaseUrl = url.trim();
         if (key != null && !key.isBlank())  fbApiKey = key.trim();

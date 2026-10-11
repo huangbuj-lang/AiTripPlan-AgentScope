@@ -20,7 +20,7 @@ public class RateLimiter {
         return new RateLimiter(rate, (int) Math.max(1, Math.ceil(rate)));
     }
 
-        /** 取 1 个令牌； */
+    /** 取 1 个令牌； */
     public synchronized boolean tryAcquire(long maxWaitMs) {
         long deadline = System.nanoTime() + maxWaitMs * 1_000_000L;
         while (true) {

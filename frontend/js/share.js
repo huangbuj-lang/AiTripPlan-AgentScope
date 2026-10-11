@@ -1,4 +1,4 @@
-/* ============================================================ share.js — 行程分享只读页（share.html） 免登录，按 ?c=<share_code> 拉取行程，复用 A4 渲染组件展示。 */
+/* ============================================================ share.js - 行程分享只读页（share.html） 免登录，按 ?c=<share_code> 拉取行程，复用 A4 渲染组件展示。 */
 
 const STRUCT_ICON = { overview: '🗺️', timeline: '🕒', transport: '🚄', stay: '🏨', tips: '📌' };
 const STRUCT_CLASS = { overview: 'sec-overview', timeline: 'sec-timeline', transport: 'sec-transport', stay: 'sec-stay', tips: 'sec-tips' };
@@ -72,7 +72,7 @@ function formatSectionItem(type, item) {
     }
 }
 
-//结构化 TripPlanData → A4 行程表 HTML（与 app.js 的 renderStructuredPlan 对齐）
+//结构化 TripPlanData -> A4 行程表 HTML（与 app.js 的 renderStructuredPlan 对齐）
 function renderStructuredPlan(plan) {
     if (!plan) return '<div class="share-empty">（空行程）</div>';
     const sheet = document.createElement('div');
@@ -178,14 +178,14 @@ function render(data) {
         try { structured = typeof data.plan_json === 'string' ? JSON.parse(data.plan_json) : data.plan_json; } catch (e) { structured = null; }
     }
     //PlanSet（多方案）解包：plan_json 顶层是 {__planSet:true, set:{plans:[...]}} 容器，
-    //取第一套方案用于展示（原代码不解包→误判无结构化数据→整段 markdown 原文渲染）
+    //取第一套方案用于展示（原代码不解包->误判无结构化数据->整段 markdown 原文渲染）
     if (structured && structured.set && structured.set.plans && structured.set.plans.length) {
         const first = structured.set.plans[0];
         if (first && (first.sections || first.title)) {
             structured = Object.assign({}, first, { _planSet: structured.set });
         }
     }
-    //plan_json 列可能为空（旧数据/历史行程只把 JSON 追加在 plan_content 尾部）——从 plan_content 兜底解析
+    //plan_json 列可能为空（旧数据/历史行程只把 JSON 追加在 plan_content 尾部）-从 plan_content 兜底解析
     if (!structured && data.plan_content) {
         structured = parsePlanJsonFromContent(data.plan_content);
     }

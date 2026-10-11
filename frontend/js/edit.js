@@ -1,11 +1,11 @@
-/* ============================================================ edit.js — 行程二次编辑页（edit.html） 加载结构化 plan_json → 编辑每天行程 → 保存 / 增量重排某一天 ============================================================ */
+/* ============================================================ edit.js - 行程二次编辑页（edit.html） 加载结构化 plan_json -> 编辑每天行程 -> 保存 / 增量重排某一天 ============================================================ */
 
 const tripId = new URLSearchParams(location.search).get('id');
 let plan = null; // 内存中的 TripPlanData 对象（编辑时直接改，保存时序列化）
 
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-//判断一个 section 是否为“某一天”的 timeline 区块
+//判断一个 section 是否为某一天的 timeline 区块
 function isDaySection(sec) { return sec.type === 'timeline'; }
 
 //加载行程

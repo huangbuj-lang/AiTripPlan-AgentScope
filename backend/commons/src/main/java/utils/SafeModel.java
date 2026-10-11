@@ -75,7 +75,7 @@ public class SafeModel implements Model {
         return INFLIGHT_ACTIVE.get();
     }
 
-        /** 申请一个在途名额（阻塞等待，超时抛错）； */
+    /** 申请一个在途名额（阻塞等待，超时抛错）； */
     private static void acquireInflight(long timeoutMs) {
         long deadline = System.currentTimeMillis() + timeoutMs;
         synchronized (INFLIGHT_LOCK) {
@@ -95,7 +95,7 @@ public class SafeModel implements Model {
         }
     }
 
-        /** 释放一个在途名额； */
+    /** 释放一个在途名额； */
     private static void releaseInflight() {
         synchronized (INFLIGHT_LOCK) {
             INFLIGHT_ACTIVE.decrementAndGet();
@@ -112,9 +112,9 @@ public class SafeModel implements Model {
     //==================== Token/成本统计（观测用，进程内存累计） ====================
     public static final java.util.concurrent.atomic.AtomicLong TOKENS_INPUT = new java.util.concurrent.atomic.AtomicLong(0);
     public static final java.util.concurrent.atomic.AtomicLong TOKENS_OUTPUT = new java.util.concurrent.atomic.AtomicLong(0);
-    /** 按维度计的调用次数与token：dimension → counters（task=规划任务/pipeline=数据管线/forum=论坛AI等） */
+    /** 按维度计的调用次数与token：dimension -> counters（task=规划任务/pipeline=数据管线/forum=论坛AI等） */
     private static final java.util.concurrent.ConcurrentHashMap<String, long[]> DIM_STATS = new java.util.concurrent.ConcurrentHashMap<>();
-        /** 当前线程所属维度（由各入口在调用前设置，stream 内读取； */
+    /** 当前线程所属维度（由各入口在调用前设置，stream 内读取； */
     private static final ThreadLocal<String> DIMENSION = ThreadLocal.withInitial(() -> "task");
 
     /** 会话上下文：主管/TripOrchestrator 在调用前设置，MCP/LLM 的调用链 span 按 sessionId 归位（跨进程各自记录） */
@@ -122,7 +122,33 @@ public class SafeModel implements Model {
     public static void setSessionId(String sid) { CUR_SESSION.set(sid == null ? "" : sid); }
     public static String currentSessionId() { String s = CUR_SESSION.get(); return s == null ? "" : s; }
 
-    /** 当前阶段标注：主管在每次模型调用前设置（解析需求/偏好分类/聚合生成…），LLM span 说明据此描述"在做什么" */
+    // ==================== 错误语义透传（方案B）：最近 LLM 错误 ====================
+    /** 按 sessionId 记最近一次 LLM 最终失败原因（格式 epochMs|分类原因）。仅供子Agent端点暴露、manager 侧 A2A 失败时查询 */
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> LAST_ERROR =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 读取某会话最近一次 LLM 失败原因（无则 null）；子Agent端点 /lastError 直接返回它 */
+    public static String lastError(String sessionId) {
+        return sessionId == null || sessionId.isBlank() ? null : LAST_ERROR.get(sessionId);
+    }
+
+    /** 清除某会话的最近错误（任务成功结束时调用，避免下次误报旧错误） */
+    public static void clearLastError(String sessionId) {
+        if (sessionId != null) LAST_ERROR.remove(sessionId);
+    }
+
+    /** 记录最近错误（防无限增长：超 200 条清理最旧一半） */
+    private static void recordLastError(String sid, String reason) {
+        if (sid == null || sid.isBlank() || reason == null || reason.isBlank()) return;
+        LAST_ERROR.put(sid, System.currentTimeMillis() + "|" + reason);
+        if (LAST_ERROR.size() > 200) {
+            java.util.List<String> keys = new java.util.ArrayList<>(LAST_ERROR.keySet());
+            keys.sort(java.util.Comparator.comparing(k -> LAST_ERROR.getOrDefault(k, "")));
+            for (int i = 0; i < keys.size() / 2; i++) LAST_ERROR.remove(keys.get(i));
+        }
+    }
+
+    /** 当前阶段标注：主管在每次模型调用前设置（解析需求/偏好分类/聚合生成...），LLM span 说明据此描述"在做什么" */
     private static final ThreadLocal<String> CUR_STAGE = new ThreadLocal<>();
     public static void setStage(String stage) { CUR_STAGE.set(stage == null ? "" : stage); }
     public static String currentStage() { String st = CUR_STAGE.get(); return st == null ? "" : st; }
@@ -168,7 +194,7 @@ public class SafeModel implements Model {
         TOKENS_OUTPUT.addAndGet(u.getOutputTokens());
     }
 
-        /** 单条流结束时的 token 记账（含重试的最终 usage； */
+    /** 单条流结束时的 token 记账（含重试的最终 usage； */
     private static void recordUsage(io.agentscope.core.model.ChatUsage u) {
         if (u == null) return;
         String dim = getDimension();
@@ -183,7 +209,7 @@ public class SafeModel implements Model {
     }
 
     /** 维度统计快照：{dim: {calls,inTokens,outTokens}}（管理端 /admin/costs 用） */
-    /** JSON 友好版：按维度统计(调用数/入tokens/出tokens) → Map<String, List<Long>> */
+    /** JSON 友好版：按维度统计(调用数/入tokens/出tokens) -> Map<String, List<Long>> */
     public static java.util.Map<String, java.util.List<Long>> dimensionStatsSnapshotAsMap() {
         java.util.Map<String, java.util.List<Long>> out = new java.util.LinkedHashMap<>();
         for (var e : dimensionStatsSnapshot().entrySet()) {
@@ -234,10 +260,13 @@ public class SafeModel implements Model {
             return attempt(target, messages, tools, options, 0, retries, llmSpan, 1)
                     .doOnNext(resp -> recordUsageAs(dimAtCall, resp.getUsage())) // token记账：用捕获维度，每个成功响应块累计
                     .doOnError(err -> { // 失败原因进调用链：区分 余额/认证/限流/5xx/连接重置/超时
+                        String reason = classifyLlmError(err) + (retries.get() > 0 ? "（已重试" + retries.get() + "次）" : "");
                         if (llmSpan != null) {
-                            utils.CallTrace.appendDetail(llmSpan,
-                                    classifyLlmError(err) + (retries.get() > 0 ? "（已重试" + retries.get() + "次）" : ""));
+                            utils.CallTrace.appendDetail(llmSpan, reason);
                         }
+                        // ★2026-09-11 错误语义透传(方案B)：记一份"最近LLM错误"，供子Agent端点暴露、manager 侧 A2A 失败时查询真因
+                        //   背景：402/超时等错误在子Agent进程内被 A2A 框架变成"空响应"，manager 侧只能看到"返回为空"
+                        recordLastError(currentSessionId(), reason);
                     })
                     .doFinally(sig -> {
                         releaseInflight();
@@ -256,21 +285,28 @@ public class SafeModel implements Model {
         });
     }
 
-    /** LLM 失败原因分类（调用链明细展示）：把底层异常转成一眼能看懂的原因 */
-    private static String classifyLlmError(Throwable err) {
+    /** LLM 失败原因分类（调用链明细展示）：把底层异常转成一眼能看懂的原因。★2026-09-11 改 public：manager 侧 A2A 失败透传复用同一套分类，避免两处各写一份 */
+    public static String classifyLlmError(Throwable err) {
         String m = err.getMessage() == null ? "" : err.getMessage();
+        return classifyErrorText(m);
+    }
+
+    /** LLM/A2A 失败原因分类（纯文本版）：manager 侧 RemoteAgentTool 复用它把 A2A 异常归成可读类别 */
+    public static String classifyErrorText(String m) {
+        if (m == null) m = "";
         if (m.contains("Insufficient Balance") || m.contains("402")) return "余额不足(402)";
         if (m.contains("401") || m.contains("403") || m.contains("invalid api key") || m.contains("Authentication")) return "认证失败(401/403)";
         if (m.contains("429")) return "被限流(429)";
         if (m.contains("500") || m.contains("502") || m.contains("503")) return "服务端错误(5xx)";
         if (m.contains("Connection reset")) return "连接被重置(Connection reset)";
-        if (m.contains("timeout") || m.contains("Timed out")) return "超时";
+        if (m.contains("timeout") || m.contains("Timed out") || m.contains("超时")) return "超时";
+        if (m.contains("chunked") || m.contains("READING_LENGTH") || m.contains("Broken pipe")) return "连接中断(响应流被切断)";
         if (m.contains("限速") || m.contains("频繁")) return "本地限速等待超时";
         if (m.contains("在途并发")) return "在途并发闸超时";
         return m.isBlank() ? "未知错误" : (m.length() > 80 ? m.substring(0, 80) : m);
     }
 
-        /** 带重试的调用（retryCount 从 0 开始，最多 MAX_RETRIES 次； */
+    /** 带重试的调用（retryCount 从 0 开始，最多 MAX_RETRIES 次； */
     private Flux<ChatResponse> attempt(Model target, List<Msg> messages, List<ToolSchema> tools, GenerateOptions options, int retryCount,
                                        java.util.concurrent.atomic.AtomicInteger retries,
                                        utils.CallTrace.Span llmSpan, int attemptNo) {

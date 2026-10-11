@@ -64,7 +64,7 @@ def main(cities=None):
     total = 0
     for city in targets:
         for table, label, types in KINDS:
-            for page in range(1, 4):  # 每类每城最多 3 页 × 25 = 75 条
+            for page in range(1, 4):  # 每类每城最多 3 页 x 25 = 75 条
                 try:
                     d = amap_place(city, label, types, page)
                 except Exception as e:

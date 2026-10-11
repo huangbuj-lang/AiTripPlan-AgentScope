@@ -6,7 +6,7 @@ import io.agentscope.core.tool.mcp.McpClientWrapper;
 
 import java.util.Map;
 
-/** 高德复合工具：把「geocode→目标工具」固定依赖链封装成一次调用，省去ReAct多轮思考。 */
+/** 高德复合工具：把「geocode->目标工具」固定依赖链封装成一次调用，省去ReAct多轮思考。 */
 public class AmapCompositeTool {
 
     private final McpClientWrapper mcp;
@@ -32,7 +32,7 @@ public class AmapCompositeTool {
                     }
                 });
                 String text = sb.length() == 0 ? String.valueOf(result) : sb.toString();
-                //高德返回错误文本 → 标注数据缺失
+                //高德返回错误文本 -> 标注数据缺失
                 if (text.contains("错误") || text.contains("error") || text.contains("Error")
                         || text.contains("超限") || text.contains("LIMIT") || text.contains("EXCEEDED")
                         || text.contains("未找到")) {
@@ -44,7 +44,7 @@ public class AmapCompositeTool {
             }
         }
 
-    /** 地名 → "经度,纬度"（内部调 maps_geo，失败返回null） */
+    /** 地名 -> "经度,纬度"（内部调 maps_geo，失败返回null） */
     private String geo(String name) {
         try {
             String r = callMcp("maps_geo", Map.of("address", name));
@@ -163,7 +163,7 @@ public class AmapCompositeTool {
 
     //============ 综合工具A：行程数据一站式 ============
 
-        /** 行程Agent专用综合工具。 */
+    /** 行程Agent专用综合工具。 */
     @Tool(name = "query_trip", description = "一站式获取规划行程所需的全部真实数据。单城游传 destination 查城市景点/天气/酒店/美食；跨城自驾传 waypoints(途经城市,逗号分隔)查沿途途经景点,不查两端城市内部景点。一次调用返回完整数据。")
     public String queryTrip(
             @ToolParam(name = "destination", description = "目的地城市名（单城游用），如：重庆") String destination,
@@ -226,20 +226,20 @@ public class AmapCompositeTool {
         return sb.toString();
     }
 
-    /** 拼接偏好关键词：preference 非空时 → "基础词 偏好词"(如"景点 亲子")，否则用基础词。 */
+    /** 拼接偏好关键词：preference 非空时 -> "基础词 偏好词"(如"景点 亲子")，否则用基础词。 */
     private String kw(String base, String preference) {
         return (preference == null || preference.isBlank()) ? base : base + " " + preference.trim();
     }
 
     //============ 综合工具5：路线一站式查询 ============
 
-        /** 路线Agent专用综合工具。 */
+    /** 路线Agent专用综合工具。 */
     @Tool(name = "query_route_all", description = "一站式获取两地之间的自驾路线与距离：传两个地名即可，内部自动处理坐标，返回驾车路线文本与两段间的驾车距离。")
     public String queryRouteAll(
             @ToolParam(name = "origin", description = "起点地名，如：重庆解放碑") String origin,
             @ToolParam(name = "destination", description = "终点地名，如：重庆磁器口") String destination,
             @ToolParam(name = "day", description = "第几天（仅标签提示，可选）") String day) {
-        //固定依赖链：地名→坐标→驾车路线→距离
+        //固定依赖链：地名->坐标->驾车路线->距离
         String o = geo(origin);
         if (o == null) return "⚠️[query_route_all] 无法定位起点坐标: " + origin;
         String d = geo(destination);
@@ -262,7 +262,7 @@ public class AmapCompositeTool {
 
     //============ 综合工具6：市内衔接（步行/公交） ============
 
-        /** 市内游专属综合工具：城市内景点/地点间的衔接方式（步行或公共交通）。 */
+    /** 市内游专属综合工具：城市内景点/地点间的衔接方式（步行或公共交通）。 */
     @Tool(name = "query_urban_route", description = "查询城市内两个地点之间的衔接方式：传两个地名，内部自动算距离，短距离推荐步行、较长距离返回公共交通(公交/地铁)路线。适合市内景点间的串联。")
     public String queryUrbanRoute(
             @ToolParam(name = "origin", description = "起点地名，如：拙政园") String origin,
@@ -300,7 +300,7 @@ public class AmapCompositeTool {
         return sb.toString();
     }
 
-    /** 调用链明细：从工具输出提取首个 ⚠️ 失败片段（内部归因：哪个环节挂的） */
+    /** 调用链明细：从工具输出提取首个 失败片段（内部归因：哪个环节挂的） */
     private static String extractWarn(String out) {
         if (out == null) return "";
         int i = out.indexOf("⚠️");
@@ -330,7 +330,7 @@ public class AmapCompositeTool {
 
     //============ 综合工具7：路线统一（自驾/步行/公交合一） ============
 
-        /** 路线Agent唯一综合工具。 */
+    /** 路线Agent唯一综合工具。 */
     @Tool(name = "query_route_unified", description = "路线统一查询工具：查两点间路线。mode=driving查自驾路线与距离；mode=urban查市内衔接(短距步行/长距公交)。可选routePref偏好(如公交/骑行/步行/不走高速)影响出行方式。跨城自驾用driving，市内景区串联用urban。")
     /** 观测包装：综合工具成败/耗时统计 */
     public String queryRouteUnified(
@@ -362,10 +362,10 @@ public class AmapCompositeTool {
 
     /** 原实现（观测包装拆出，无 @Tool 注解） */
     private String doQueryRouteUnified(String origin, String destination, String mode, String day, String routePref) {
-        //路线偏好→出行方式映射
+        //路线偏好->出行方式映射
         if (routePref != null && !routePref.isBlank()) {
             if (routePref.contains("公交") || routePref.contains("地铁") || routePref.contains("公共交通")) {
-                mode = "urban";       // 公交优先→市内衔接
+                mode = "urban";       // 公交优先->市内衔接
             } else if (routePref.contains("骑") || routePref.contains("自行車") || routePref.contains("bike")) {
                 mode = "cycling";    // 骑行
             } else if (routePref.contains("步行") || routePref.contains("走路")) {

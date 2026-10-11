@@ -28,7 +28,7 @@ public final class NacosModelConfig {
     private NacosModelConfig() {}
 
     public static String serverAddr() {
-        return Config.get("NACOS_SERVER_ADDR", "localhost:8848");
+        return AgentEndpoints.nacosAddr(); // ★2026-09-11 端点集中配置（原硬编码 localhost:8848）
     }
 
     /** Starts asynchronous loading so a temporarily unavailable Nacos cannot block application startup. */
@@ -105,7 +105,7 @@ public final class NacosModelConfig {
         return fallback;
     }
 
-        /** Returns the python section from the latest Nacos snapshot. */
+    /** Returns the python section from the latest Nacos snapshot. */
     public static Map<String, Object> pythonConfig() {
         Map<String, Object> root = latestConfig;
         if (root == null) return null;
@@ -117,7 +117,7 @@ public final class NacosModelConfig {
         return python;
     }
 
-        /** Returns the orchestration section from the latest Nacos snapshot. */
+    /** Returns the orchestration section from the latest Nacos snapshot. */
     public static Map<String, Object> orchestrationConfig() {
         Map<String, Object> root = latestConfig;
         if (root == null) return null;
@@ -129,7 +129,7 @@ public final class NacosModelConfig {
         return orchestration;
     }
 
-        /** Returns direct LLM call timeouts. */
+    /** Returns direct LLM call timeouts. */
     public static Map<String, Object> timeoutsConfig() {
         Map<String, Object> root = latestConfig;
         if (root == null) return new LinkedHashMap<>();

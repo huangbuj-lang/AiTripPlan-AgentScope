@@ -12,7 +12,7 @@ public final class CostDimension {
 
     private CostDimension() {}
 
-        /** 在业务维度内执行一段逻辑（推荐用法：自动恢复默认，防串味）。 */
+    /** 在业务维度内执行一段逻辑（推荐用法：自动恢复默认，防串味）。 */
     public static <T> T runAs(String dimension, java.util.function.Supplier<T> body) {
         String prev = SafeModel.getDimension();
         SafeModel.setDimension(dimension);

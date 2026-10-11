@@ -52,7 +52,7 @@ public final class TracePersistence {
         }
     }
 
-        /** 批量落库某任务的调用链 span（任务终态时调用； */
+    /** 批量落库某任务的调用链 span（任务终态时调用； */
     public static void saveSpans(String sessionId, List<Map<String, Object>> spans) {
         if (spans == null || spans.isEmpty()) return;
         try (Connection c = getConn()) {

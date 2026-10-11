@@ -44,6 +44,11 @@ class SafeModelTest {
     void resetBreaker() {
         CircuitBreaker.getInstance().reset();
         CircuitBreaker.setCoolDownMs(60_000);
+        // ★2026-09-11 测试隔离修复：CallTrace 是进程内静态共享，跨测试残留会导致
+        //   “取第一个 LLM span”之类的断言拿到别的测试留下的 span —— 表现为全类跑红、单跑绿。
+        //   同理 SafeModel 的 sessionId 是 ThreadLocal，也需复位。
+        CallTrace.clear();
+        SafeModel.setSessionId("");
     }
 
     @Test
@@ -95,10 +100,20 @@ class SafeModelTest {
                 new RuntimeException("500 Internal Server Error")); // 第1次失败→重试→第2次成功(空流)
         SafeModel safe = new SafeModel(primary, null);
         safe.stream(null, null, null).blockLast();
-        CallTrace.Span llm = CallTrace.trace("test-llm-retry").stream()
-                .filter(sp -> sp.layer.equals("LLM")).findFirst().orElse(null);
-        assertNotNull(llm);
-        assertTrue(llm.success);
+        // ★2026-09-11 修 flaky（单跑绿、全类跑红）：span 的 success/detail 由 reactor 的 doFinally
+        //   在信号线程上落定，与主线程断言之间存在时序竞态。这里轮询等待落定，最多 ~1s。
+        CallTrace.Span llm = null;
+        for (int i = 0; i < 50; i++) {
+            llm = CallTrace.trace("test-llm-retry").stream()
+                    .filter(sp -> sp.layer.equals("LLM")).findFirst().orElse(null);
+            if (llm != null && llm.success && llm.detail != null
+                    && llm.detail.contains("重试1次后成功")) {
+                break;
+            }
+            try { Thread.sleep(20); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+        }
+        assertNotNull(llm, "应记录 LLM span");
+        assertTrue(llm.success, "span 应标记成功（等待 doFinally 落定后）");
         assertTrue(llm.detail.contains("重试1次后成功"), "实际: " + llm.detail);
         CallTrace.clear("test-llm-retry");
     }

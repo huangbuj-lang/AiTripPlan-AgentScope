@@ -1,5 +1,6 @@
 package managerAgent.controller;
 
+import managerAgent.tool.ConcurrencyGate;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

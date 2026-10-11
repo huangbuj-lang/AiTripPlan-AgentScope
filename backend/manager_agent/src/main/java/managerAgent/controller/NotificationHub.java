@@ -12,7 +12,7 @@ public final class NotificationHub {
 
     private NotificationHub() {}
 
-    /** userId → 该用户所有在线窗口的 emitter */
+    /** userId -> 该用户所有在线窗口的 emitter */
     private static final Map<Long, List<SseEmitter>> EMITTERS = new ConcurrentHashMap<>();
 
     /** 订阅：返回 emitter（onCompletion/onTimeout 时需调用 unsubscribe） */

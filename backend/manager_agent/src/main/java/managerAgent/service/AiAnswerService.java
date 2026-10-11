@@ -34,7 +34,7 @@ public class AiAnswerService {
     /** AI 回答作为评论落库的保留用户 ID（无真实用户，前端按 is_ai 显示「AI答主」） */
     public static final long AI_USER_ID = 0L;
 
-    /** 异步生成 AI 回答：读帖子 → 生成 → 落评论(is_ai=1) → 通知楼主 */
+    /** 异步生成 AI 回答：读帖子 -> 生成 -> 落评论(is_ai=1) -> 通知楼主 */
     public void answerAsync(long postId, long requesterId) {
         AI_POOL.submit(() -> {
             if (!AI_SLOTS.tryAcquire()) {

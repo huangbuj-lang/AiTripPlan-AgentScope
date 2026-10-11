@@ -1,5 +1,7 @@
 package managerAgent.controller;
 
+import managerAgent.repository.InsightsRepository;
+import managerAgent.service.InsightsService;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -46,12 +48,22 @@ class InsightsControllerTest {
     }
 
     private InsightsController controller(JdbcTemplate jdbcTemplate) throws Exception {
+        InsightsRepository repository = new InsightsRepository();
+        inject(repository, "jdbcTemplate", jdbcTemplate);
+        InsightsService service = new InsightsService();
+        inject(service, "insightsRepository", repository);
         InsightsController controller = new InsightsController();
-        Field field = InsightsController.class.getDeclaredField("jdbcTemplate");
-        field.setAccessible(true);
-        field.set(controller, jdbcTemplate);
+        inject(controller, "insightsService", service);
         return controller;
     }
+
+    /** 反射注入：重构后 SQL 在 repository、业务在 service，测试按同一条链装配 */
+    private static void inject(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
 
     private static class RecordingJdbcTemplate extends JdbcTemplate {
         private List<Map<String, Object>> pricingRows = List.of();

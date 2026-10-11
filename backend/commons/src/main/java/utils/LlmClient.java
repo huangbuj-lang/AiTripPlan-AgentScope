@@ -30,7 +30,7 @@ public final class LlmClient {
         return sharedModel;
     }
 
-        /** 同步调用：sysPrompt + userPrompt → 文本。 */
+    /** 同步调用：sysPrompt + userPrompt -> 文本。 */
     public static String chat(String sysPrompt, String userPrompt, boolean jsonMode, long timeoutMillis) {
         Msg system = Msg.builder().role(MsgRole.SYSTEM)
                 .content(TextBlock.builder().text(sysPrompt).build()).build();

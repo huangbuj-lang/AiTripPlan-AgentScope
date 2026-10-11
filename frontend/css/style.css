@@ -74,8 +74,6 @@ body {
 /* Hero 搜索条：毛玻璃胶囊 */
 .hero-search {
   margin-top: 30px; display: flex; align-items: stretch; gap: 0; width: min(48vw, 1200px); max-width: 100%;
-  /*★用户口径：下拉面板不能伸进下方白色内容区被挡住 → 给搜索条自己的层叠上下文（先修根因）*/
-  position: relative; z-index: 6;
   background: rgba(255,255,255,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255,255,255,.4);
   background: rgba(251,248,243,.96); border-radius: 20px; padding: 8px;
@@ -85,17 +83,7 @@ body {
 .hero-search .hs-field + .hs-field { border-left: 1px solid var(--sand-200); }
 .hero-search label { font-size: 11px; letter-spacing: 2px; color: var(--green-600); font-weight: 700; display: flex; align-items: center; gap: 6px; }
 .hero-search label i { font-size: 12px; color: var(--green-600); }
-.hs-pax { min-width: 120px; flex: 0 0 120px; }
-    /* ★用户口径：预算框与天数框【等宽对齐】（原来 flex:0 0 auto → 宽度随内容，预算框更宽 ✗） */
-    .hs-pax > input, .hs-pax > .hs-select { width: 100%; box-sizing: border-box; margin-left: 0; margin-right: 0; }
-/* ★用户口径：预算框文字必须与左边「天数」的文字左边缘对齐 ——
-   天数那个 .hs-select 带 11px 水平内边距（原本靠 margin:-11px 抵消，上次修宽度的把它 margin 归零了 ✗），
-   导致「5 天」比「人均预算」右移 11px。这里把内边距归零，两条文字左边缘就齐了。 */
-.hs-pax > .hs-select { padding-left: 0; padding-right: 0; }
-/* ★自适应：目的地吃剩余空间，天数/预算按内容收窄，按钮不溢出（原来 hs-pax=190px ×2 + 目的地 + 按钮 = 挤爆）*/
-.hero-search .hs-field { min-width: 0; }
-.hero-search { flex-wrap: wrap; row-gap: 6px; }
-.btn-explore { flex: 0 0 auto; white-space: nowrap; }
+.hs-pax { min-width: 190px; }
 .hs-select { position: relative; display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 7px 11px; margin: 2px -11px; border-radius: 11px; transition: background .15s, box-shadow .15s; user-select: none; }
 .hs-select:hover { background: rgba(63,140,90,.08); }
 .hs-select.open { background: rgba(63,140,90,.1); box-shadow: 0 0 0 2px rgba(63,140,90,.3); }
@@ -107,18 +95,11 @@ body {
   position: absolute; top: calc(100% + 9px); left: 0; min-width: 100%; z-index: 80;
   background: #fff; border: 1px solid var(--sand-200); border-radius: 13px;
   box-shadow: 0 14px 36px rgba(10,20,14,.18); padding: 6px; display: none;
-  /*★用户口径：选项多时不能一路撑到盖住下面的白色内容区 → 限高 + 内部滑动 */
-  max-height: min(180px, 17vh); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
 }
-/* 细滚动条（Chrome/Edge，桌面端生效） */
-.hs-menu::-webkit-scrollbar { width: 8px; }
-.hs-menu::-webkit-scrollbar-thumb { background: rgba(63,140,90,.28); border-radius: 8px; }
-.hs-menu::-webkit-scrollbar-thumb:hover { background: rgba(63,140,90,.45); }
-.hs-menu::-webkit-scrollbar-track { background: transparent; }
 .hs-select.open .hs-menu { display: block; animation: hsMenuIn .16s ease; }
 @keyframes hsMenuIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
 .hs-opt {
-  padding: 5px 13px; border-radius: 9px; font-size: 13.5px; color: var(--ink);
+  padding: 8px 13px; border-radius: 9px; font-size: 13.5px; color: var(--ink);
   cursor: pointer; transition: background .12s, color .12s; white-space: nowrap;
 }
 .hs-opt:hover { background: rgba(63,140,90,.1); color: var(--green-600); }
@@ -508,96 +489,3 @@ footer { margin-top: 60px; padding: 26px 0 8px; border-top: 1px solid var(--line
 
 /* ★修复：打印视图平时隐藏，仅 @media print（print.css）时显示；否则日历关闭触发 buildPrintView 后整块概览+详情会显示在页面上 */
 .print-view { display: none; }
-
-/* 天卡片的当天概览（由后端聚合 LLM 写好、前端只显示；详细逐条在弹窗里） */
-.day-ov { font-size: 13.5px; line-height: 1.75; color: var(--text-2, #5b6b61); padding: 4px 2px 2px; }
-.day-card.active .day-ov { color: var(--text, #24332a); }
-
-/* ★酒店行可点（用户口径：只加可点击提示，不改原布局/原样式） */
-.poi-row { cursor: pointer; }
-.poi-row:hover { background: rgba(31,174,143,.06); }
-.poi-go { margin-left: 6px; font-size: 12px; opacity: .75; }
-
-/* ★详情/区块里的酒店名：和景点名一样带虚线，提示可点击（用户口径） */
-.poi-name { color: inherit; cursor: pointer; border-bottom: 1px dotted rgba(31,174,143,.45); }
-.poi-name:hover { color: #D4880F; border-bottom-color: #D4880F; }
-
-/* ★点酒店弹出的高德信息卡片 */
-.poi-card table { width: 100%; border-collapse: collapse; }
-.poi-card td { padding: 9px 4px; border-bottom: 1px dashed var(--line, #e6e6e6); font-size: 13.5px; color: var(--ink, #24332a); vertical-align: top; }
-.poi-card td.pk { width: 108px; color: var(--muted, #7A8A80); white-space: nowrap; }
-.poi-hit { margin-top: 10px; font-size: 12px; color: var(--muted, #7A8A80); }
-.poi-src { margin-top: 12px; font-size: 11.5px; color: var(--muted, #7A8A80); }
-
-/* ★区域天气弹窗（行程涉及城市 × 未来三天，城市级，来自高德） */
-.wx-wrap { display: flex; flex-direction: column; gap: 14px; }
-.wx-city { border: 1px solid var(--line, #e6ece8); border-radius: 12px; padding: 12px 14px; background: #fbfcfa; }
-.wx-city-name { font-weight: 700; font-size: 14px; color: var(--ink, #24332a); margin-bottom: 10px; }
-.wx-days { display: flex; gap: 10px; flex-wrap: wrap; }
-.wx-day { flex: 1 1 96px; min-width: 96px; text-align: center; border: 1px solid var(--line, #e6ece8);
-  border-radius: 10px; padding: 8px 6px; background: #fff; }
-.wx-date { font-size: 11.5px; color: var(--muted, #74857f); margin-bottom: 4px; }
-.wx-txt { font-size: 13.5px; color: var(--ink, #24332a); margin-bottom: 4px; }
-.wx-temp { font-size: 12.5px; font-weight: 600; color: #1a8a72; }
-/* ★高德参考价小表格 */
-.wx-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.wx-table td { padding: 7px 10px; border-bottom: 1px solid var(--line, #eef2f1); color: var(--ink, #24332a); }
-.wx-table td:first-child { color: var(--text-2, #5b6b61); }
-.wx-table td:last-child { text-align: right; font-weight: 600; }
-
-/* ===== 调度中心 × 生成进度（合并面板·白底黑框）===== */
-.think { background: #FFFFFF; border: 1.5px solid var(--forest-950); border-radius: 22px; padding: 22px 24px 18px; color: var(--forest-900); box-shadow: 0 10px 34px rgba(15,26,20,.07); }
-.think .think-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.think .think-head .t { font-family: var(--serif); font-size: 17px; font-weight: 600; color: var(--forest-900); }
-.think .think-head .live { background: #F7EFDD; color: #8A6D2F; font-family: var(--mono); font-size: 10.5px; letter-spacing: 2px; padding: 3px 12px; border-radius: 9999px; border: 1px solid rgba(201,169,106,.75); }
-.think .think-head .live.done { background: var(--green-100); color: var(--green-600); border-color: rgba(58,97,73,.5); }
-.think .think-head .live.stop { background: #FBEBE2; color: #B4663C; border-color: rgba(180,102,60,.5); }
-.think .think-clock { margin-left: auto; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
-.think .think-clock b { color: #8A6D2F; font-weight: 700; }
-.think .think-prog { margin-top: 14px; }
-.think .tp-bigrow { display: flex; align-items: baseline; gap: 14px; margin: 4px 0 11px; }
-.think .tp-pct { font-family: var(--mono); font-size: 36px; font-weight: 800; color: #8A6D2F; line-height: 1; letter-spacing: -1px; min-width: 92px; }
-.think .tp-stage { font-family: var(--serif); font-size: 15px; color: var(--forest-900); }
-.think .tp-stage small { display: block; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 12.5px; color: var(--muted); margin-top: 4px; letter-spacing: .3px; }
-.think .gen-track { height: 9px; background: var(--sand-200); border-radius: 99px; overflow: hidden; position: relative; }
-.think .gen-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--green-500), #7fd4c0); border-radius: 99px; transition: width .7s cubic-bezier(.4,0,.2,1); position: relative; }
-.think .gen-fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.6), transparent); animation: gen-shimmer 1.6s infinite; }
-.think .tp-rail { display: flex; margin: 14px 0 2px; }
-.think .tp-node { flex: 1; text-align: center; position: relative; }
-.think .tp-node .dot { width: 13px; height: 13px; border-radius: 50%; margin: 0 auto 7px; background: #FFFFFF; border: 1.5px solid var(--sand-200); position: relative; z-index: 2; transition: background .25s, border-color .25s; }
-.think .tp-node .nm { font-size: 11.5px; color: var(--muted); letter-spacing: .3px; transition: color .25s; }
-.think .tp-node::before { content: ''; position: absolute; top: 6px; left: -50%; width: 100%; height: 1px; background: var(--sand-200); z-index: 1; }
-.think .tp-node:first-child::before { display: none; }
-.think .tp-node.on .dot { background: var(--gold); border-color: var(--gold); box-shadow: 0 0 0 4px rgba(201,169,106,.22); }
-.think .tp-node.on .nm { color: var(--forest-900); font-weight: 600; }
-.think .tp-node.now .dot { animation: tp-pulse 1.5s infinite; }
-.think .tp-node.done .dot { background: var(--green-600); border-color: var(--green-600); }
-.think .tp-node.done .dot::after { content: '\2713'; position: absolute; inset: 0; font-size: 9px; color: #FFFFFF; line-height: 11px; font-weight: 700; }
-.think .tp-node.done .nm { color: var(--muted); }
-@keyframes tp-pulse { 0%,100% { box-shadow: 0 0 0 4px rgba(201,169,106,.22); } 50% { box-shadow: 0 0 0 9px rgba(201,169,106,.07); } }
-.think .tp-chips { display: flex; gap: 8px; margin: 14px 0 2px; }
-.think .tp-chip { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 12px; color: var(--muted); background: var(--sand-100); border-radius: 10px; padding: 8px 6px; border: 1px solid var(--sand-200); white-space: nowrap; }
-.think .tp-chip .dotled { width: 7px; height: 7px; border-radius: 50%; background: #C7CEC9; flex-shrink: 0; }
-.think .tp-chip.run { background: #FBF3E3; border-color: rgba(201,169,106,.8); color: var(--forest-900); }
-.think .tp-chip.run .dotled { background: var(--gold); animation: tp-blink 1.3s infinite; }
-.think .tp-chip.ok { color: var(--forest-900); }
-.think .tp-chip.ok .dotled { background: var(--green-500); }
-@keyframes tp-blink { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
-.think .think-body { max-height: 132px; margin-top: 14px; }
-.think .think-body .item, .think .think-item { background: var(--sand-50); border-left: 2px solid var(--gold); border-radius: 12px; padding: 6px 11px; font-size: 12.5px; color: var(--forest-900); display: flex; gap: 10px; }
-.think .think-body .item .ts, .think .think-item .think-time { font-family: var(--mono); font-size: 11px; color: #8A6D2F; flex-shrink: 0; padding-top: 1px; }
-.think .think-body .item .msg, .think .think-item .think-type { color: var(--forest-900); }
-.think .think-item .think-time + .think-type { margin-right: 2px; }
-.think .think-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--sand-200); font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
-.think .think-foot .k { color: #8A6D2F; font-family: var(--mono); }
-
-/* ★预算框：去掉右侧的数字微调按钮（用户口径：只能自己手动输入，不要快速调整按钮）
-   只作用于 #budgetInput，不影响任何其他 input */
-#budgetInput::-webkit-outer-spin-button,
-#budgetInput::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
-#budgetInput { -moz-appearance: textfield; appearance: textfield; }
-
-
-/* ★用户口径：通知入口从论坛页移到首页 —— 补它的定位与红色未读徽标（只作用于首页导航） */
-.hero-nav .chip { position: relative; }
-.hero-nav .badge { position: absolute; top: -6px; right: -6px; background: #e17055; color: #fff; border-radius: 10px; font-size: 10px; padding: 1px 5px; display: none; line-height: 1.4; }

@@ -58,7 +58,7 @@ def _is_type_word(tag):
     parts = [re.sub(r"相关$", "", p) for p in parts if p]
     if parts and all(p in _TIP_TYPE_WORDS for p in parts):
         return True
-    #名词后缀型："市中心公园"以场馆类名词结尾 → 类型词
+    #名词后缀型："市中心公园"以场馆类名词结尾 -> 类型词
     if any(t.endswith(s) for s in _TIP_NOUN_SUFFIX):
         return True
     return False
@@ -92,10 +92,10 @@ def pick_tips_and_grade(biz):
     if m:
         grade = m.group()
     if not _is_type_word(rectag):
-        return rectag, grade          # rectag 是真评价标签 → 首选
+        return rectag, grade          # rectag 是真评价标签 -> 首选
     if keytag and not _is_type_word(keytag):
-        return keytag, grade          # rectag 是类型词 → 回退 keytag("4A景区/人文景观"等)
-    return "", grade                  # 都不合格 → 置空（宁缺勿滥）
+        return keytag, grade          # rectag 是类型词 -> 回退 keytag("4A景区/人文景观"等)
+    return "", grade                  # 都不合格 -> 置空（宁缺勿滥）
 
 def _baidu_fill(fid, name, city, ak):
     """百度 Place API(scope=2) 兜底：只补 best_time 和空值 rating，成功返回True"""
@@ -151,7 +151,7 @@ def main():
             pois = d.get("pois") or []
             if not pois:
                 miss += 1
-                #高德未匹配 → 百度兜底（补 best_time/空rating）
+                #高德未匹配 -> 百度兜底（补 best_time/空rating）
                 if baidu_ak and _baidu_fill(fid, name, city, baidu_ak):
                     miss -= 1; ok += 1
                 continue
@@ -176,7 +176,7 @@ def main():
             ok += 1
         except Exception as e:
             print(f"  [WARN] {name}: {str(e)[:60]}")
-            #高德异常(如配额耗尽) → 百度兜底
+            #高德异常(如配额耗尽) -> 百度兜底
             if baidu_ak and _baidu_fill(fid, name, city, baidu_ak):
                 ok += 1
         time.sleep(0.35)  # 高德QPS限速

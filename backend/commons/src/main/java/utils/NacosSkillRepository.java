@@ -30,7 +30,7 @@ public class NacosSkillRepository implements AgentSkillRepository {
     private volatile long lastVersion = -1; // 远端版本号（内容hash），变化才重建
     private volatile boolean writeable = false; // 本仓库只读（管理端经 Nacos 控制台上传）
 
-    /** 缓存的 skill：名称 → (AgentSkill, 原始md) */
+    /** 缓存的 skill：名称 -> (AgentSkill, 原始md) */
     private record CachedSkill(AgentSkill skill, String md) {}
 
     public NacosSkillRepository(AiService aiService) {
@@ -38,7 +38,7 @@ public class NacosSkillRepository implements AgentSkillRepository {
         refresh(); // 初始拉取一次
     }
 
-        /** 拉取全部 skill 并重建缓存； */
+    /** 拉取全部 skill 并重建缓存； */
     public synchronized boolean refresh() {
         try {
             //1) 列出全部 skill 名：Nacos 3.2 admin API 无法从 AiService 列举，
@@ -110,7 +110,7 @@ public class NacosSkillRepository implements AgentSkillRepository {
         return null;
     }
 
-    /** 解析 SKILL.md → AgentSkill（front-matter name/description + 正文全文作为 skillContent） */
+    /** 解析 SKILL.md -> AgentSkill（front-matter name/description + 正文全文作为 skillContent） */
     private static AgentSkill parseSkill(String fallbackName, String md) {
         String name = fallbackName;
         String description = "";
@@ -172,7 +172,7 @@ public class NacosSkillRepository implements AgentSkillRepository {
 
     @Override public AgentSkillRepositoryInfo getRepositoryInfo() { return null; } // 可空：仅信息展示用
 
-    @Override public String getSource() { return "nacos:" + Config.get("NACOS_SERVER_ADDR", "localhost:8848"); }
+    @Override public String getSource() { return "nacos:" + AgentEndpoints.nacosAddr(); }
 
     @Override public void setWriteable(boolean w) { this.writeable = w; }
     @Override public boolean isWriteable() { return writeable; }

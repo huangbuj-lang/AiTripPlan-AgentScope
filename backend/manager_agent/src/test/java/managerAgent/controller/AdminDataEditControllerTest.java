@@ -1,5 +1,7 @@
 package managerAgent.controller;
 
+import managerAgent.repository.AdminDataRepository;
+import managerAgent.service.AdminDataService;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -18,7 +20,7 @@ class AdminDataEditControllerTest {
     void reportsMissingRecordWithoutFeatureUpdate() throws Exception {
         RecordingJdbcTemplate jdbc = new RecordingJdbcTemplate();
         jdbc.mainRows = 0;
-        AdminController controller = controller(jdbc);
+        AdminDataController controller = controller(jdbc);
 
         Map<String, Object> result = controller.editDataDetail(
                 "attractions", 99L, "cost", "120");
@@ -33,7 +35,7 @@ class AdminDataEditControllerTest {
         RecordingJdbcTemplate jdbc = new RecordingJdbcTemplate();
         jdbc.mainRows = 1;
         jdbc.featureRows = 0;
-        AdminController controller = controller(jdbc);
+        AdminDataController controller = controller(jdbc);
 
         Map<String, Object> result = controller.editDataDetail(
                 "foods", 12L, "cost", "45");
@@ -51,7 +53,7 @@ class AdminDataEditControllerTest {
         RecordingJdbcTemplate jdbc = new RecordingJdbcTemplate();
         jdbc.mainRows = 1;
         jdbc.featureRows = 1;
-        AdminController controller = controller(jdbc);
+        AdminDataController controller = controller(jdbc);
 
         Map<String, Object> result = controller.editDataDetail(
                 "foods", 12L, "cost", "45");
@@ -66,7 +68,7 @@ class AdminDataEditControllerTest {
     void reportsMissingRecordForPlainField() throws Exception {
         RecordingJdbcTemplate jdbc = new RecordingJdbcTemplate();
         jdbc.mainRows = 0;
-        AdminController controller = controller(jdbc);
+        AdminDataController controller = controller(jdbc);
 
         Map<String, Object> result = controller.editDataDetail(
                 "hotels", 99L, "name", "测试酒店");
@@ -75,13 +77,23 @@ class AdminDataEditControllerTest {
         assertEquals("记录不存在，未保存", result.get("message"));
     }
 
-    private AdminController controller(JdbcTemplate jdbcTemplate) throws Exception {
-        AdminController controller = new AdminController();
-        Field field = AdminController.class.getDeclaredField("jdbcTemplate");
-        field.setAccessible(true);
-        field.set(controller, jdbcTemplate);
+    private AdminDataController controller(JdbcTemplate jdbcTemplate) throws Exception {
+        AdminDataRepository repository = new AdminDataRepository();
+        inject(repository, "jdbcTemplate", jdbcTemplate);
+        AdminDataService service = new AdminDataService();
+        inject(service, "adminDataRepository", repository);
+        AdminDataController controller = new AdminDataController();
+        inject(controller, "adminDataService", service);
         return controller;
     }
+
+    /** 反射注入：重构后 SQL 在 repository、业务在 service，测试按同一条链装配 */
+    private static void inject(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
 
     private static class RecordingJdbcTemplate extends JdbcTemplate {
         private int mainRows;

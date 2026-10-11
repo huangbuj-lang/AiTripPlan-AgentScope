@@ -2,12 +2,10 @@ package managerAgent.controller;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import managerAgent.service.LoginService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /** 用户登录注册接口 */
@@ -16,111 +14,34 @@ import java.util.Map;
 public class LoginController {
 
     @Resource
-    private JdbcTemplate jdbcTemplate;
+    private LoginService loginService;
 
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(); // BCrypt密码加密器
-
-    //登录失败计数（防爆破）：连续失败达上限后短时间冷却
-    private static final java.util.concurrent.ConcurrentHashMap<String, FailEntry> LOGIN_FAILS = new java.util.concurrent.ConcurrentHashMap<>();
-    private static final int MAX_FAILS = 5;                 // 连续失败上限
-    private static final long COOLDOWN_MS = 60_000L;        // 冷却时长（60秒）
-
-    /** 单个账号的失败记录 */
-    private static class FailEntry {
-        final java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger();
-        volatile long lastFailMs = 0;
-    }
-
-        /** 注册新用户 */
+    /** 注册新用户 */
     @PostMapping("/register")
     public Map<String, Object> register(@RequestParam String username, @RequestParam String password) {
-        Map<String, Object> result = new HashMap<>();
-        if (username == null || username.isBlank() || password == null || password.length() < 6) { // 基本校验
-            result.put("success", false);
-            result.put("message", "用户名不能为空，密码至少6位");
-            return result;
-        }
-        Integer count = jdbcTemplate.queryForObject( // 用户名查重
-                "SELECT COUNT(*) FROM users WHERE username = ?", Integer.class, username);
-        if (count != null && count > 0) {
-            result.put("success", false);
-            result.put("message", "用户名已存在，请换一个");
-            return result;
-        }
-        String hashed = passwordEncoder.encode(password); // 加密密码后插入
-        jdbcTemplate.update("INSERT INTO users(username, password) VALUES (?, ?)", username, hashed);
-        result.put("success", true);
-        result.put("message", "注册成功，请登录");
-        return result;
+        return loginService.register(username, password);
     }
 
-    /** 判断账号是否处于失败冷却期 */
-    private boolean inCooldown(String username) {
-        FailEntry f = LOGIN_FAILS.get(username);
-        if (f == null) return false;
-        return f.count.get() >= MAX_FAILS && (System.currentTimeMillis() - f.lastFailMs) < COOLDOWN_MS;
-    }
-
-    /** 记录一次登录失败 */
-    private void recordFail(String username) {
-        FailEntry f = LOGIN_FAILS.computeIfAbsent(username, k -> new FailEntry());
-        f.count.incrementAndGet();
-        f.lastFailMs = System.currentTimeMillis();
-    }
-
-        /** 登录（成功把用户信息存入Session） */
+    /** 登录（成功把用户信息存入Session） */
     @PostMapping("/login")
     public Map<String, Object> login(@RequestParam String username, @RequestParam String password, HttpSession session) {
+        LoginService.LoginResult r = loginService.login(username, password);
         Map<String, Object> result = new HashMap<>();
-        if (inCooldown(username)) { // 防爆破：冷却期内拒绝尝试
-            result.put("success", false);
-            result.put("message", "尝试次数过多，请 " + (COOLDOWN_MS / 1000) + " 秒后再试");
-            return result;
+        result.put("success", r.success());
+        result.put("message", r.message());
+        if (r.success()) { // 登录成功：用户信息存入Session（供拦截器与各接口使用）
+            session.setAttribute("userId", r.userId());
+            session.setAttribute("username", username);
+            session.setAttribute("role", r.role());
+            session.setAttribute("pwdVersion", r.pwdVersion());
+            session.setAttribute("status", r.status());
+            result.put("username", username);
+            result.put("role", r.role());
         }
-        List<Map<String, Object>> users = jdbcTemplate.queryForList( // 查用户
-                "SELECT * FROM users WHERE username = ?", username);
-        if (users.isEmpty()) {
-            recordFail(username); // 用户不存在也计入失败，防用户名枚举撞库
-            result.put("success", false);
-            result.put("message", "用户名或密码错误");
-            return result;
-        }
-        Map<String, Object> user = users.get(0);
-        String hashed = (String) user.get("password");
-        if (!passwordEncoder.matches(password, hashed)) { // BCrypt比对密码
-            recordFail(username);
-            result.put("success", false);
-            result.put("message", "用户名或密码错误");
-            return result;
-        }
-        LOGIN_FAILS.remove(username); // 登录成功：清除失败记录
-        //P0：账号状态校验（注销/封禁禁止登录）
-        int status = user.get("status") == null ? 1 : ((Number) user.get("status")).intValue();
-        if (status != 1) {
-            result.put("success", false);
-            result.put("message", "账号已被禁用，请联系管理员");
-            return result;
-        }
-        session.setAttribute("userId", ((Number) user.get("id")).longValue()); // 登录成功：用户信息存入Session
-        session.setAttribute("username", username);
-        //角色：优先读库 role 字段（老库无此列则默认 user）
-        String role = user.get("role") == null ? "user" : user.get("role").toString();
-        String adminUser = System.getenv("ADMIN_USERNAME");
-        if (adminUser != null && !adminUser.isBlank() && adminUser.equals(username)) {
-            role = "admin";
-        }
-        session.setAttribute("role", role);
-        //P0：凭证版本号 + 账号状态入会话，LoginInterceptor 据此强制下线
-        session.setAttribute("pwdVersion", user.get("pwd_version") == null ? 0 : ((Number) user.get("pwd_version")).intValue());
-        session.setAttribute("status", status);
-        result.put("success", true);
-        result.put("message", "登录成功");
-        result.put("username", username);
-        result.put("role", role);
         return result;
     }
 
-        /** 退出登录（销毁Session） */
+    /** 退出登录（销毁Session） */
     @PostMapping("/logout")
     public Map<String, Object> logout(HttpSession session) {
         session.invalidate();
@@ -130,7 +51,7 @@ public class LoginController {
         return result;
     }
 
-        /** 检查当前是否已登录（前端页面加载时调用） */
+    /** 检查当前是否已登录（前端页面加载时调用） */
     @GetMapping("/check-login")
     public Map<String, Object> checkLogin(HttpSession session) {
         Map<String, Object> result = new HashMap<>();

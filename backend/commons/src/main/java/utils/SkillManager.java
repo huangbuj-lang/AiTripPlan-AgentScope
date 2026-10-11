@@ -29,7 +29,7 @@ public final class SkillManager {
         return repository;
     }
 
-        /** 为 Agent 构建接线：创建 SkillBox、注册仓库内全部 skill、启动热刷线程、返回要拼进 sysPrompt 的技能说明。 */
+    /** 为 Agent 构建接线：创建 SkillBox、注册仓库内全部 skill、启动热刷线程、返回要拼进 sysPrompt 的技能说明。 */
     public static String wireAndPrompt(AgentSkillRepository repo, io.agentscope.core.tool.Toolkit toolkit, int refreshIntervalSec) {
         try {
             if (!enabled()) {
@@ -52,7 +52,7 @@ public final class SkillManager {
         }
     }
 
-        /** 供 Agent 直接调用的安全入口：传 toolkit（SkillBox 绑定必需）； */
+    /** 供 Agent 直接调用的安全入口：传 toolkit（SkillBox 绑定必需）； */
     public static String wireAndPromptSafely(io.agentscope.core.tool.Toolkit toolkit, int refreshIntervalSec) {
         try {
             if (toolkit == null) throw new IllegalArgumentException("Toolkit cannot be null");

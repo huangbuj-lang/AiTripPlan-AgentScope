@@ -15,7 +15,7 @@ for line in open(os.path.join(BASE, ".env"), encoding="utf-8"):
     if m:
         ENV[m.group(1)] = m.group(2).strip().strip('"').strip("'")
 
-from llm_config import chat as _llm_chat  # ★统一模型配置（管理端可热更）
+from llm_config import chat as _llm_chat  # 统一模型配置（管理端可热更）
 RDS_HOST = ENV.get("RDS_HOST", "127.0.0.1:3306")
 RDS_USER = ENV.get("RDS_USER", "root")
 RDS_PASS = ENV.get("RDS_PASSWORD", "")

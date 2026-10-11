@@ -11,7 +11,7 @@ public final class JsonUtils {
     /** 复用单例 ObjectMapper（性能：避免反复 new） */
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-        /** 从自由文本中提取首个完整 JSON 对象（容忍 ``` 围栏与前后缀）。 */
+    /** 从自由文本中提取首个完整 JSON 对象（容忍 ``` 围栏与前后缀）。 */
     public static String extractJsonObject(String text) {
         if (text == null) {
             return null;
@@ -49,7 +49,7 @@ public final class JsonUtils {
         return null; // 括号未闭合
     }
 
-        /** 解析 JSON 到指定类型（失败返回 null，不抛异常）。 */
+    /** 解析 JSON 到指定类型（失败返回 null，不抛异常）。 */
     public static <T> T parse(String json, Class<T> clazz) {
         if (json == null || json.isBlank()) {
             return null;
@@ -61,12 +61,12 @@ public final class JsonUtils {
         }
     }
 
-        /** 提取并解析：自由文本 → 类型化对象（失败返回 null）。 */
+    /** 提取并解析：自由文本 -> 类型化对象（失败返回 null）。 */
     public static <T> T extractAndParse(String text, Class<T> clazz) {
         return parse(extractJsonObject(text), clazz);
     }
 
-        /** 序列化对象为 JSON 字符串（失败返回 null）。 */
+    /** 序列化对象为 JSON 字符串（失败返回 null）。 */
     public static String toJson(Object obj) {
         if (obj == null) {
             return null;

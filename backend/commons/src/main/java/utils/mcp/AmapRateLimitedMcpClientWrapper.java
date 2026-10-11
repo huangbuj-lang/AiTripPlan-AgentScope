@@ -39,7 +39,7 @@ public class AmapRateLimitedMcpClientWrapper extends McpClientWrapper {
 
     @Override
     public Mono<McpSchema.CallToolResult> callTool(String name, Map<String, Object> arguments) {
-        //用 defer：每次重试都会重新走"acquire→call→release"完整闭环
+        //用 defer：每次重试都会重新走"acquire->call->release"完整闭环
         return Mono.defer(() ->
                 Mono.fromRunnable(AmapMcpClientFactory::acquire)   // 申请并发许可（排队）
                         .then(delegate.callTool(name, arguments))    // 真正调高德
@@ -69,7 +69,7 @@ public class AmapRateLimitedMcpClientWrapper extends McpClientWrapper {
     //==================== 观测埋点（轻量：进程内存计数 + 耗时） ====================
     public static final java.util.concurrent.atomic.AtomicLong MCP_CALLS = new java.util.concurrent.atomic.AtomicLong(0);
     public static final java.util.concurrent.atomic.AtomicLong MCP_FAILS = new java.util.concurrent.atomic.AtomicLong(0);
-    /** 按工具名统计：name → {calls, fails}（管理端子Agent健康页展示高德工具调用成功率） */
+    /** 按工具名统计：name -> {calls, fails}（管理端子Agent健康页展示高德工具调用成功率） */
     private static final java.util.concurrent.ConcurrentHashMap<String, long[]> MCP_NAME_STATS = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** 按工具名的调用/失败统计快照：{name: {calls, fails}} */
@@ -99,7 +99,7 @@ public class AmapRateLimitedMcpClientWrapper extends McpClientWrapper {
     private static final ThreadLocal<String> CURRENT_SESSION_ID = new ThreadLocal<>();
     public static void setCurrentSessionId(String sid) { CURRENT_SESSION_ID.set(sid); }
 
-        /** 判断是否可重试：网络连接类失败 + 高德QPS/并发超限 均可重试（带退避避开瞬时峰值）。 */
+    /** 判断是否可重试：网络连接类失败 + 高德QPS/并发超限 均可重试（带退避避开瞬时峰值）。 */
     private static boolean isRetryable(Throwable t) {
         String msg = t == null ? "" : (t.getMessage() == null ? "" : t.getMessage());
         //网络类：连接超时/拒绝/IO/读取失败

@@ -1,4 +1,4 @@
-/* ============================================================ post.js — 帖子详情页（post.html） 内容渲染 / 点赞收藏 / 同款行程复制 / 两级评论 ============================================================ */
+/* ============================================================ post.js - 帖子详情页（post.html） 内容渲染 / 点赞收藏 / 同款行程复制 / 两级评论 ============================================================ */
 
 const postId = new URLSearchParams(location.search).get('id');
 let replyTo = null; // 当前回复的评论（null=回复帖子）
@@ -229,7 +229,7 @@ function reportPost() {
     }).then(r => r.json()).then(d => alert(d.message || '已提交'));
 }
 
-/** 删帖：楼主→真删； */
+/** 删帖：楼主->真删； */
 function delPost() {
     const isMine = currentUserId != null && String(currentUserId) === String(postAuthorId);
     if (!confirm(isMine ? '确认删除这篇帖子？删除后不可恢复。' : '（管理员）下架该帖子？可在管理端恢复。')) return;

@@ -1,38 +1,38 @@
-package managerAgent.controller;
+package managerAgent.tool;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Bounds concurrently running orchestration tasks while allowing runtime retuning. */
-final class ConcurrencyGate {
-    static final int MIN_LIMIT = 1;
-    static final int HARD_LIMIT = 32;
+/** 并发闸门：限制同时运行的编排任务数，支持运行时调整（管理端/Nacos）。 */
+public final class ConcurrencyGate {
+    public static final int MIN_LIMIT = 1;
+    public static final int HARD_LIMIT = 32;
 
     private final AtomicInteger active = new AtomicInteger();
     private volatile int max;
 
-    ConcurrencyGate(int initialMax) {
+    public ConcurrencyGate(int initialMax) {
         max = normalize(initialMax);
     }
 
-    synchronized boolean tryAcquire() {
+    public synchronized boolean tryAcquire() {
         if (active.get() >= max) return false;
         active.incrementAndGet();
         return true;
     }
 
-    void release() {
+    public void release() {
         active.decrementAndGet();
     }
 
-    void setMax(int value) {
+    public void setMax(int value) {
         max = normalize(value);
     }
 
-    int max() {
+    public int max() {
         return max;
     }
 
-    int active() {
+    public int active() {
         return active.get();
     }
 

@@ -41,7 +41,7 @@ HOLIDAYS = {"2026-01-01": "元旦", "2026-02-16": "春节", "2026-02-17": "春�
 def holiday_factor(date_str):
     return get_pricing_config().get("holidayFactor", 1.3) if date_str in HOLIDAYS else 1.0
 
-#用户输入城市归一化："成都三日"/"成都七日自行车"→"成都"；
+#用户输入城市归一化："成都三日"/"成都七日自行车"->"成都"；
 def normalize_city(raw, std_cities):
     if not raw:
         return None
@@ -51,11 +51,11 @@ def normalize_city(raw, std_cities):
     cands = [c for c in std_cities if raw.startswith(c)]
     if cands:
         return max(cands, key=len)
-    #剥离 "14日"/"0.5周" 前缀 + 旅行词尾 → "香港"/"西藏"；
+    #剥离 "14日"/"0.5周" 前缀 + 旅行词尾 -> "香港"/"西藏"；
     import re as _re
     stripped = _re.sub(r'^\d+(\.\d+)?(日|天|周)?', '', raw)
-    stripped = _re.sub(r'\d+(\.\d+)?(日|天|周)', '', stripped)  # 中间的数字日/周：西藏14日→西藏
-    stripped = _re.sub(r'[两三四五六七八九十]+(日|天|周)', '', stripped)  # 中文数字：西藏两周→西藏
+    stripped = _re.sub(r'\d+(\.\d+)?(日|天|周)', '', stripped)  # 中间的数字日/周：西藏14日->西藏
+    stripped = _re.sub(r'[两三四五六七八九十]+(日|天|周)', '', stripped)  # 中文数字：西藏两周->西藏
     stripped = _re.sub(r'(自行车|自驾|自驾车|游|行|旅|旅行|美食|蜜月|漫游|朝圣|深度游|周末|亲子游|行程|计划)$', '', stripped)
     if stripped:
         if stripped in std_cities:
@@ -66,7 +66,7 @@ def normalize_city(raw, std_cities):
         return stripped if len(stripped) >= 2 else raw
     return raw
 
-#提取价格文本里的数字（"54元"→54.0，"约20元"→20.0，非数字→None）
+#提取价格文本里的数字（"54元"->54.0，"约20元"->20.0，非数字->None）
 def parse_price(text):
     if not text: return None
     m = re.search(r"\d+(\.\d+)?", str(text))

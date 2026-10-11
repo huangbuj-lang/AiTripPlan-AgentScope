@@ -1,4 +1,4 @@
-/* ============================================================ forum.js — 论坛首页（forum.html）：版块 Tab + 帖子流 + 搜索 ============================================================ */
+/* ============================================================ forum.js - 论坛首页（forum.html）：版块 Tab + 帖子流 + 搜索 ============================================================ */
 
 let currentBoard = null;  // null = 全部
 let me = { id: null, role: 'user' }; // 当前登录者（控制删帖键可见性）
@@ -44,7 +44,7 @@ function selectBoard(id) {
     reload();
 }
 
-//发帖：带上当前浏览的版块，发帖页自动预选（在问答版发帖→AI答主入口不再踩空）
+//发帖：带上当前浏览的版块，发帖页自动预选（在问答版发帖->AI答主入口不再踩空）
 function goNewPost() {
     location.href = currentBoard ? 'new-post.html?boardId=' + currentBoard : 'new-post.html';
 }
@@ -82,7 +82,7 @@ function reload() {
     }).catch(() => { document.getElementById('postList').innerHTML = '<div class="empty">加载失败</div>'; });
 }
 
-/** 删帖：本人→真删接口； */
+/** 删帖：本人->真删接口； */
 function delPost(id) {
     const btn = document.querySelector('.post-del[data-pid="' + id + '"]');
     const isMine = me.id != null && btn && String(btn.dataset.uid) === String(me.id);
