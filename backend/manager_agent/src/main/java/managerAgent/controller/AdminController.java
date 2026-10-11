@@ -46,7 +46,7 @@ public class AdminController {
         manager.put("name", "Orchestrator"); // 主管（确定性编排器 TripOrchestrator）
         manager.put("label", "主管");
         manager.put("status", "running");
-        manager.put("port", 9091);
+        manager.put("port", 8081);
         r.put("manager", manager);
 
         boolean nacosOk = true;
@@ -314,7 +314,7 @@ public class AdminController {
         Map<String, Object> m = new HashMap<>();
         m.put("name", "ManagerAgent");
         m.put("label", "主管Agent");
-        m.put("port", 9091);
+        m.put("port", 8081);
         m.put("alive", true);
         m.put("uptimeMs", java.lang.management.ManagementFactory.getRuntimeMXBean().getUptime());
         m.put("modelCalls", utils.SafeModel.MODEL_CALLS.get());

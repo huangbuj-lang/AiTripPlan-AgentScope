@@ -454,7 +454,12 @@ public class PersonalMapController {
         try {
             StringBuilder sb = new StringBuilder();
             sb.append("行程目的地：").append(dest == null ? "" : dest).append("\n");
-            sb.append("本次处理范围：").append(dayHint == null ? "" : dayHint).append("\n");
+            //★用户口径（2026-09-13）：行程上下文必须一起给 —— 光凭地点名猜行政区不准 ✗
+            String ctx = dayHint == null ? "" : dayHint.trim();
+            if (!ctx.isEmpty()) {
+                sb.append("【行程上下文】下面这条行程的走向是已经生成好的事实，请结合它判断每个地点真实所在的行政区：\n");
+                sb.append(ctx).append("\n");
+            }
             sb.append("需要在地图上定位的地点（原词，可能不规范或含错别字）：\n");
             for (String n : names) sb.append("- ").append(n).append("\n");
             sb.append("\n请为每个地点给出高德地图能检索到的标准名称与所在城市。");
@@ -507,6 +512,85 @@ public class PersonalMapController {
             }
         } catch (Exception e) { /* 查不到就算了 */ }
         return null;
+    }
+
+    /**
+     * ★用户口径（2026-09-13）：点地名 → 高德搜索框里该填什么词。
+     *   原来是把【整串行程目的地】当前缀（如「川西（成都—都江堰—…—海螺沟）」）✗ → 高德搜不到、城市还被认成大连 ✗。
+     *   这里接上与个人地图同一套 llmResolveQueries：LLM 判断【标准检索词 + 真实所在城市】，
+     *   查不到就让 LLM 用原词（前端照旧跳，高德自己兜底）；结果进程内缓存，避免每次点击都调 LLM。
+     *   入参：{"places":[{"name":"中路藏寨"}], "dest":"川西"}
+     *   出参：{"ok":true,"items":[{"in":"中路藏寨","query":"中路藏寨","city":"丹巴县"}]}
+     */
+    @PostMapping("/search-hints")
+    public Map<String, Object> amapSearchHints(@RequestBody(required = false) byte[] body) {
+        Map<String, Object> res = new HashMap<>();
+        List<Map<String, Object>> out = new ArrayList<>();
+        try {
+            String reqText = body == null ? "{}" : new String(body, java.nio.charset.StandardCharsets.UTF_8);
+            JsonNode root = om.readTree(reqText);
+            String dest = root.path("dest").asText("").trim();
+            //★用户口径：给 LLM 的上下文只能是【短城市】——原来把「川西（成都—都江堰—…—海螺沟）」整串给它 ✗，
+            //  模型就把这串原样拼进检索词 → 高德搜不到、城市还被认成别的 ✗
+            dest = shortDest(dest);
+            //★用户口径（2026-09-13）：光凭景点名判断行政区不准 ✗ → 把【生成出来的行程大纲】当上下文一起给模型 ✓
+            //  （例如行程里写着"乌鲁木齐→天山天池→精河→赛里木湖→霍城→那拉提→巴音布鲁克→库尔勒"，
+            //    模型才能把「赛里木湖」判到博乐市、「那拉提草原」判到新源县 ✓）
+            String outline = root.path("context").asText("").trim();
+            if (outline.length() > 1200) outline = outline.substring(0, 1200);
+            List<String> names = new ArrayList<>();
+            for (JsonNode nd : root.path("places")) {
+                String n = nd.path("name").asText("").trim();
+                if (!n.isEmpty() && n.length() <= 30 && !names.contains(n)) names.add(n);
+            }
+            List<String> miss = new ArrayList<>();
+            for (String n : names) if (!HINT_CACHE.containsKey(n)) miss.add(n);
+            if (!miss.isEmpty()) {
+                Map<String, String[]> got = llmResolveQueries(miss, dest, outline);
+                for (String n : miss) {
+                    String[] v = got.get(n);
+                    HINT_CACHE.put(n, (v == null || v.length < 1 || v[0] == null || v[0].isEmpty())
+                            ? new String[]{ n, "" } : v);
+                }
+                if (HINT_CACHE.size() > 1000) HINT_CACHE.clear();   // 简单封顶，防内存膨胀
+            }
+            for (String n : names) {
+                String[] v = HINT_CACHE.get(n);
+                Map<String, Object> one = new HashMap<>();
+                one.put("in", n);
+                //★清洗模型返回的检索词：去掉括号里的路线、去掉过长内容（防它把整串目的地拼进来 ✗）
+                String q = (v == null || v[0] == null || v[0].isEmpty()) ? n : cleanQuery(v[0]);
+                one.put("query", q.isEmpty() ? n : q);
+                one.put("city", shortDest((v == null || v.length < 2 || v[1] == null) ? "" : v[1]));
+                out.add(one);
+            }
+            res.put("ok", true);
+        } catch (Exception e) {
+            res.put("ok", false);
+            res.put("message", "检索词整理失败：" + e.getMessage());
+        }
+        res.put("items", out);
+        return res;
+    }
+
+    /** 地点 → [高德检索词, 真实城市] 的进程内缓存（重启即清） */
+    private static final Map<String, String[]> HINT_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** ★短城市：把「川西（成都—都江堰—…—海螺沟）」「大连五日」这类收敛成「川西」「大连」 */
+    private static String shortDest(String c) {
+        if (c == null) return "";
+        String s = c.trim().replaceAll("[（(].*$", "").trim();
+        s = s.replaceAll("\\d+\\s*日.*$", "").trim();
+        s = s.split("[—\\-/、,，]")[0].trim();
+        return s.length() > 12 ? s.substring(0, 12) : s;
+    }
+
+    /** ★清洗检索词：去掉括号里的路线、压掉多余空白、超长直接截断 */
+    private static String cleanQuery(String q) {
+        if (q == null) return "";
+        String s = q.replaceAll("[（(][^）)]*[）)]", " ").replaceAll("\\s{2,}", " ").trim();
+        s = s.replaceAll("^(行程目的地|目的地)[：: ]*", "").trim();
+        return s.length() > 24 ? s.substring(0, 24) : s;
     }
 
 }

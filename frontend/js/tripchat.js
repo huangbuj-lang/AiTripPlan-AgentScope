@@ -108,9 +108,6 @@
         host.innerHTML = barHtml();
         bind(host);
         host.style.display = '';
-        if (!state.planId) {
-            notice('这条行程还没保存到「我的行程」，保存后才能对话式修改', 'warn');
-        }
     }
 
     function detach() {
@@ -125,8 +122,7 @@
     function barHtml() {
         return '<div class="tripchat-summary" id="tripchatSummary"></div>'
             + '<div class="tripchat-card">'
-            + '<div class="tripchat-head"><span class="tripchat-title">✦ 对话式改行程</span>'
-            + '<span class="tripchat-sub">只重排你点名的那一天，其他天不动</span></div>'
+            + '<div class="tripchat-head"><span class="tripchat-title">✦ 对话式改行程</span></div>'
             + '<div class="tripchat-chips">' + CHIPS.map(function (c, i) {
                 return '<button type="button" class="tripchat-chip" data-chip="' + i + '">' + esc(c) + '</button>';
             }).join('') + '</div>'
@@ -168,20 +164,30 @@
             return;
         }
         var pid = state.planId || readViewingPlanId();
-        if (!pid) {
-            notice('这条行程还没保存到「我的行程」，保存后才能对话式修改', 'warn');
+        //★用户口径：没保存到「我的行程」也要能改 —— 把当前画面上的这条行程一起发给后端
+        //  （后端用前端带上来的数据做重排，既不读库、也不写库；保存才落库的口径不变）
+        if (!pid && !state.plan) {
+            notice('这条行程没有结构化数据，无法对话式修改（请重新生成行程）', 'warn');
             return;
         }
-        state.planId = pid;
+        state.planId = pid || null;
         var dayGuess = guessDay(text);           // 1 起的第几天；识别不到 0
         state.busy = true;
         hideSummary();                            // 上一次的小结先收起来（避免旧绿框误导）
         setBusyUi(true, dayGuess);
         if (dayGuess > 0) markPending(dayGuess - 1, true);
 
-        var url = '/api/trip-chat-edit?planId=' + encodeURIComponent(pid)
-            + '&instruction=' + encodeURIComponent(text);
-        fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+        var url = '/api/trip-chat-edit?instruction=' + encodeURIComponent(text)
+            + (pid ? '&planId=' + encodeURIComponent(pid) : '');
+        //★planJson 走 POST body（几十 KB，放 URL 会超 Tomcat 的请求行上限 ✗）
+        var body = new URLSearchParams();
+        body.append('instruction', text);
+        body.append('planJson', JSON.stringify(state.plan || {}));
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body
+        })
             .then(function (r) {
                 return r.json().catch(function () {
                     return { success: false, message: '后端返回了非 JSON 响应（HTTP ' + r.status + '）' };

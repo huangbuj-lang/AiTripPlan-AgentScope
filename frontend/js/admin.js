@@ -109,7 +109,7 @@ function setPulse(id, cls, valueHtml) {
 }
 function renderPulseFromStatus(s) {
     // 主管
-    setPulse('manager', 'ok breathe', '运行中<small>:9091</small>');
+    setPulse('manager', 'ok breathe', '运行中<small>:8081</small>');
     // Nacos
     setPulse('nacos', s.nacos.connected ? 'ok' : 'bad', s.nacos.connected ? '已连接' : '断开');
 }
@@ -163,8 +163,8 @@ function loadStatus(btn) {
         b.innerHTML =
             '<div class="card-grid cols-auto">' +
             '<div class="card"><h3>🧭 ManagerAgent</h3>' +
-            '<div class="kv"><span>状态</span><b><span class="badge ok">运行中</span></b></div>' +
-            '<div class="kv"><span>端口</span><b class="num-cell">' + d.manager.port + '</b></div></div>' +
+            '<div class="kv"><span>端口</span><b class="num-cell">' + d.manager.port + '</b></div>' +
+            '<div class="kv"><span>状态</span><b><span class="badge ok">运行中</span></b></div></div>' +
             '<div class="card"><h3>🔗 Nacos 注册中心</h3>' +
             '<div class="kv"><span>地址</span><b>' + esc(d.nacos.addr) + '</b></div>' +
             '<div class="kv"><span>连接</span><b>' + nacosBadge + '</b></div>' +

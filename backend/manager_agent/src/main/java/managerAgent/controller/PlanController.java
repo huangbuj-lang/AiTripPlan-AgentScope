@@ -1,10 +1,15 @@
 package managerAgent.controller;
 
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +20,8 @@ import utils.JsonUtils;
 @RequestMapping("/api")
 public class PlanController {
 
+    private static final Logger log = LoggerFactory.getLogger(PlanController.class);
+
     @Resource
     private JdbcTemplate jdbcTemplate;
 
@@ -24,7 +31,8 @@ public class PlanController {
                                         @RequestParam int days,
                                         @RequestParam String planContent,
                                         @RequestParam(required = false) String planJson,
-                                        HttpSession session) {
+                                        HttpSession session,
+                                        HttpServletRequest request) {
         Map<String, Object> result = new HashMap<>();
         Object userIdObj = session.getAttribute("userId");
         if (userIdObj == null) {
@@ -51,6 +59,27 @@ public class PlanController {
             return ps;
         }, kh);
         long newPlanId = kh.getKey() != null ? kh.getKey().longValue() : -1L;
+        //★用户口径：保存接口加"来源留痕" —— 以后再出现重复行程，一看日志就知道是【浏览器点击】还是【脚本调用】
+        try {
+            String md5 = planContent == null ? ""
+                    : DigestUtils.md5DigestAsHex(planContent.getBytes(StandardCharsets.UTF_8));
+            String ua = request == null ? "" : String.valueOf(request.getHeader("User-Agent"));
+            String ref = request == null ? "" : String.valueOf(request.getHeader("Referer"));
+            String ip = request == null ? "" : String.valueOf(request.getRemoteAddr());
+            //同一用户已存在完全相同内容 → 明确打上 DUP 标记，便于事后归因（只读，不改任何数据）
+            int dup = 0;
+            try {
+                Integer c = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM trip_plans WHERE user_id = ? AND MD5(plan_content) = ?",
+                        Integer.class, userId, md5);
+                dup = c == null ? 0 : c;
+            } catch (Exception ignore) {
+            }
+            log.info("[SAVE-PLAN]{} user={} planId={} city={} days={} bytes={} md5={} ip={} referer={} ua={}",
+                    dup > 0 ? "[DUP" + dup + "]" : "", userId, newPlanId, city, days,
+                    planContent == null ? 0 : planContent.length(), md5, ip, ref, ua);
+        } catch (Exception ignore) {
+        }
         result.put("success", true);
         result.put("message", "保存成功！可在「我的行程」中查看");
         result.put("planId", newPlanId);

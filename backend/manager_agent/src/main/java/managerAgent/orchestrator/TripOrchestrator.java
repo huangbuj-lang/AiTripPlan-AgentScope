@@ -494,7 +494,7 @@ public class TripOrchestrator {
         if (!missingInput.isBlank()) {
             EventStore.add(sessionId, "整合", "⚠️ " + missingInput + "，本次结果可能不完整，将如实标注缺失部分");
         }
-        EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（主路线 / 环线换序 / 替代路线）...");
+        EventStore.add(sessionId, "整合", "正在生成 3 套差异化方案（三种风格各不相同）...");
         PlanSet set = aggregateMulti(rd.req, rd.routeResult, rd.planResult);
         //每套方案补降级 markdown（前端打印/导出用）
         if (set != null) {
@@ -528,6 +528,12 @@ public class TripOrchestrator {
                 req.getDestination(), req.getDays(), req.getOrigin(), storedPrefs, req.getPreference());
         if (hit != null) {
             EventStore.add(sessionId, "解析", "· 命中结果缓存，跳过专家调用 ·");
+            //★用户口径（2026-09-13）：缓存命中后两个专家 Agent 不再调用，但前端的阶段卡片是
+            //  「只有事件真到达才打勾」✗ → 「行程安排 / 路线规划」会一直停在"待命"，用户看到的是没做完 ✗
+            //  按要求：命中缓存也要显示【已完成】✓ —— 本次结果确实来自这两步（只是复用上次产出），
+            //  因此按事实补发这两条事件，前端据此把两个阶段标为「已完成」。
+            EventStore.add(sessionId, "行程", "命中结果缓存：行程安排复用上次结果（已完成）");
+            EventStore.add(sessionId, "路线", "命中结果缓存：路线与车程复用上次结果（已完成）");
             return new ReqAndData(req, hit.routeResult, hit.planResult);
         }
 
@@ -555,8 +561,17 @@ public class TripOrchestrator {
         //     跨城时前 5 个匹配很可能全落在第一个省，路线Agent 会拿不到动线。
         String sights = crossCity ? extractCrossCityAnchors(planFirst, req)
                                   : extractSights(planFirst, req.getDestination());
+        //★用户口径（2026-09-13）：补上「路线」阶段事件 —— 编排器以前【从不发这个事件】✗
+        //  → 前端「路线规划」那张卡永远显示"待命"（其实路线Agent 一直在跑 ✓），进度条也从行程直接跳到整合 ✗
+        //  这里只增加事件，不动任何判定与调用逻辑。
+        EventStore.add(sessionId, "路线", crossCity
+                ? "正在补算跨城路线与里程（停靠点 " + (sights == null || sights.isBlank() ? 0 : sights.split("[，,、\\n]").length) + " 个）..."
+                : "正在计算市内各景点之间的路线与车程...");
         String routeResult2 = await(PARALLEL_POOL.submit(() ->
                 remoteTool.callRouteMakingAgent(routeTask(req, sights))), "路线Agent");
+        EventStore.add(sessionId, "路线", routeResult2 == null || routeResult2.isBlank()
+                ? "路线Agent 未返回有效内容（已如实标注，不影响行程交付）"
+                : "路线计算完成（" + routeResult2.strip().length() + " 字符），已并入行程");
         checkCancel();
         //★防线：行程Agent 产出为空（超时/被中断/只回了一句开场白）时，绝不能写缓存 ——
         //  空行程一旦入缓存，后续同一请求会命中它、跳过真实调用，校验只能基于残缺数据报一堆错、
@@ -1181,23 +1196,24 @@ public class TripOrchestrator {
         return String.join("、", gaps);
     }
 
-    /** 3 套差异化方案并行聚合（按实际路线差异：主路线 / 环线换序 / 替代路线占 1 位） */
+    /** 3 套差异化方案并行聚合（按【旅行风格】区分：风格由模型按本次目的地自己定，不固定） */
     private PlanSet aggregateMulti(TripRequest req, String routeResult, String planResult) {
-        //★2026-09-12 改：多方案按【实际路线差异】生成（不再用美食/出片/省钱这类主题向）。
-        //  差异必须体现在**途经顺序 / 主干路线 / 停靠点**上，禁止只换措辞或主题。
-        //  第 3 套固定为「替代路线」，即"替代路线占 1 位"。
-        String changeNote = "【硬性要求】本方案与其它方案必须【实际路线不同】："
-                + "途经顺序、主干道路或停靠点组合至少有一项实质差异；"
-                + "禁止只改措辞、只换主题或把同一路线换个说法。"
-                + "每天仍须满足：游玩+车程≤8h、纯游玩≥4h、单日赶路≤6h、23:00–05:00 不赶路。";
+        //★用户口径（最新）：三套方案按【旅行风格】区分，风格由模型按本次目的地自己定（不要固定三件套、不要路线说法）
+        String styleNote = "【风格要求】三套方案必须按【旅行风格】区分，风格由你【根据本次目的地与行程特点自己选定】，"
+                + "不要套用固定的三件套；三套之间玩法侧重必须真的不同 —— "
+                + "每天的景点取舍、餐饮安排、住宿区段、节奏强度，至少有两项有实质差异。"
+                + "禁止只改措辞、只换个标题、或把同一套行程换个说法。"
+                + "每天仍须满足：游玩+车程≤8h、纯游玩≥4h、单日赶路≤6h、23:00–05:00 不赶路。"
+                + "【命名要求】标题用 6~14 个字点明这套的风格并带上目的地，前后两段【用「/」分隔】，"
+                + "例如「大连五日 / 海风老街慢游」「川西五日 / 雪山出片线」；"
+                + "严禁出现「方案一/方案二/方案三」「方案1/2/3」「主路线」「环线换序」「替代路线」「备用路线」这类生硬字样。";
         String[][] styles = {
-                {"main", "主路线", "本次方案为「主路线」：按最优主路线编排，优先少绕路、里程最小，"
-                        + "景点顺序按地理相邻关系串联，不走回头路。" + changeNote},
-                {"loop", "环线换序", "本次方案为「环线换序」：使用与主方案【不同的途经顺序】（如反向环线），"
-                        + "把同一批核心景点按另一条链串起来，尽量避开主方案的必经段，减少重复路段。" + changeNote},
-                {"alt", "替代路线", "本次方案为「替代路线」（用于对比的备选行程）：换一条与主方案不同的主干路线，"
-                        + "可增减沿途停靠点或改走另一条通道；若某段确实无法改道，请如实说明代价（多出的里程/时间）。"
-                        + changeNote},
+                {"s1", "", "本次方案请你先判断本次目的地最适合哪种旅行风格，选【第一个风格】并围绕它编排："
+                        + "把该风格在景点取舍、餐饮、节奏、住宿上的特点落到实处。" + styleNote},
+                {"s2", "", "本次方案请你换一个【与第一套明显不同、但同样贴合本次目的地的风格】，"
+                        + "在景点取舍、餐饮安排、住宿区段、节奏强度上体现差别。" + styleNote},
+                {"s3", "", "本次方案请你再换一个【与前两套都不同、同样贴合本次目的地的风格】，"
+                        + "三套合起来覆盖不同人群的偏好。" + styleNote},
         };
         //并行提交 3 套聚合（PARALLEL_POOL 已 4 线程）
         @SuppressWarnings("unchecked")
@@ -1245,9 +1261,11 @@ public class TripOrchestrator {
                 }
                 if (plan == null) {
                     plan = fallbackPlan(req, routeResult, planResult); // 重试仍失败退回 markdown 兜底
-                    plan.setTitle(req.getDestination() + req.getDays() + "日游（" + styles[i][1] + "）");
+                    plan.setTitle(req.getDestination() + req.getDays() + "日游");
                 }
             }
+            //★用户口径：方案标题必须用「/」分隔前后两段（模型偶尔用 · 或 ｜，或干脆不分隔）→ 这里统一兜底
+            plan.setTitle(normalizeSchemeTitle(plan.getTitle(), req));
             set.getPlans().add(plan);
             set.getStyles().add(styles[i][0]);
             set.getSlogans().add(styles[i][1]);
@@ -1257,6 +1275,30 @@ public class TripOrchestrator {
         }
         //全部结构化失败则返回 null（调用方兜底为单方案）
         return successCount > 0 ? set : null;
+    }
+
+    /** ★方案标题统一成「A / B」形式：模型用了 · ｜ | — ： 等分隔符就换成「/」；完全没分隔的按目的地+天数切开 */
+    private String normalizeSchemeTitle(String title, TripRequest req) {
+        String t = title == null ? "" : title.trim().replace('\n', ' ').replace("  ", " ");
+        if (t.isEmpty()) {
+            return (req.getDestination() == null ? "" : req.getDestination()) + req.getDays() + "日游 / 风格方案";
+        }
+        if (t.contains("/")) {
+            return t;                                    // 已经有 / 了，直接用
+        }
+        for (String sep : new String[]{"·", "｜", "|", "—", " － ", "：", ":"}) {
+            int idx = t.indexOf(sep);
+            if (idx > 0 && idx + sep.length() < t.length()) {
+                return t.substring(0, idx).trim() + " / " + t.substring(idx + sep.length()).trim();
+            }
+        }
+        String dest = req.getDestination() == null ? "" : req.getDestination().trim();
+        String head = dest + (req.getDays() > 0 ? req.getDays() + "日" : "");
+        if (!dest.isEmpty() && t.startsWith(dest) && t.length() > head.length()) {
+            return head + " / " + t.substring(dest.length()).trim();
+        }
+        int mid = Math.max(4, t.length() / 2);
+        return t.substring(0, mid).trim() + " / " + t.substring(mid).trim();
     }
 
     /** 风格约束文案（style=null 返回空串） */

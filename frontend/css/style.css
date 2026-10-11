@@ -88,6 +88,10 @@ body {
 .hs-pax { min-width: 120px; flex: 0 0 120px; }
     /* ★用户口径：预算框与天数框【等宽对齐】（原来 flex:0 0 auto → 宽度随内容，预算框更宽 ✗） */
     .hs-pax > input, .hs-pax > .hs-select { width: 100%; box-sizing: border-box; margin-left: 0; margin-right: 0; }
+/* ★用户口径：预算框文字必须与左边「天数」的文字左边缘对齐 ——
+   天数那个 .hs-select 带 11px 水平内边距（原本靠 margin:-11px 抵消，上次修宽度的把它 margin 归零了 ✗），
+   导致「5 天」比「人均预算」右移 11px。这里把内边距归零，两条文字左边缘就齐了。 */
+.hs-pax > .hs-select { padding-left: 0; padding-right: 0; }
 /* ★自适应：目的地吃剩余空间，天数/预算按内容收窄，按钮不溢出（原来 hs-pax=190px ×2 + 目的地 + 按钮 = 挤爆）*/
 .hero-search .hs-field { min-width: 0; }
 .hero-search { flex-wrap: wrap; row-gap: 6px; }

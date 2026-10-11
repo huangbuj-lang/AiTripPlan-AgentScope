@@ -24,16 +24,65 @@
    *   编号由后端 /api/amap/poi-locations 从高德真实返回里带回来（绝不编造）。
    *   编号还没取到时先返回搜索页占位，点击路径（openNav）会先把编号查回来再打开。
    */
+  /** ★城市名归一（用户口径 2026-09-13）：目的地可能是「川西（成都—都江堰—…—海螺沟）」这种整串路线 ✗
+   *  实测：搜索词里塞进这串 → 高德搜不到、城市还被认成别的城市 ✗ → 这里只取括号前的短城市 */
+  function shortCity(c) {
+    var s = String(c || '').trim();
+    if (!s) return '';
+    s = s.replace(/[（(].*$/, '').trim();            // 去掉括号内的路线
+    s = s.replace(/\d+\s*日.*$/, '').trim();          // 去掉「大连五日」里的天数尾巴
+    s = s.split(/[—\-\/、,，]/)[0].trim();            // 多城市只取第一个
+    if (s.length > 12) s = s.slice(0, 12);
+    return s;
+  }
+
+  /** 地点 → [LLM 转义后的检索词, 真实城市]，进程内缓存（点击时直接用，不再现调 LLM） */
+  var hintCache = {};
+
+  /** ★用户口径：把本页所有地点交给后端做 LLM 转义（一次批量、结果缓存），点击时用转义后的词 */
+  function loadHints(places, dest, outline, done) {
+    try {
+      var names = [];
+      (places || []).forEach(function (p) {
+        var n = String((p && p.name) || p || '').trim();
+        if (n && n.length <= 30 && names.indexOf(n) < 0 && !hintCache[n]) names.push(n);
+      });
+      if (!names.length) { if (done) { try { done(); } catch (e) {} } return; }
+      fetch('/api/amap/search-hints', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          places: names.map(function (n) { return { name: n }; }),
+          dest: dest || CTX.city || '',
+          context: String(outline || '')            //★行程大纲：让模型结合行程判断行政区，不靠猜 ✓
+        })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        ((d && d.items) || []).forEach(function (it) {
+          if (it && it.in) hintCache[it.in] = { query: it.query || it.in, city: it.city || '' };
+        });
+      }).catch(function () { /* 转义失败 → 仍用原词，不影响跳转 */ })
+        .then(function () { if (done) { try { done(); } catch (e) {} } });
+    } catch (e) { if (done) { try { done(); } catch (e2) {} } }
+  }
+
+  /** 取某个地点被解析出的真实城市（区域天气/POI 查询都用它） */
+  function hintOf(name) { return hintCache[String(name || '').trim()] || null; }
+
   function url(name, city) {
     var n = String(name || '').trim();
     if (!n) return '';
     //★用户口径（2026-09-13 最终）：统一跳【高德搜索页】——用他能正常显示的那个形式
-    //  https://ditu.amap.com/search?query=<地名>
-    //  注意不能用 www.amap.com/search?...（会被高德重定向成 &src=uriapi 的形式 → 搜索框是空的 ✗ 实测）
-    //★用户口径：搜索框里要有【城市前缀】（否则同名地点会跑到别的城市 ✗）
-    //  用"城市 地点"的形式；city 为空时退化为纯地名
-    var c = String(city || '').trim();
-    var q = (c && n.indexOf(c) < 0) ? (c + ' ' + n) : n;
+    //  https://ditu.amap.com/search?query=<城市 地名>，不能用 www.amap.com/search?...（会被重定向成空搜索框 ✗ 实测）
+    //★用户口径：搜索词 = 【短城市前缀 + 我点的那个地名】；
+    //  优先用后端 LLM 转义后的检索词（有些地名高德搜不到，需要转义），没有才用短城市前缀兜底。
+    var q;
+    var h = hintCache[n];
+    if (h && h.query) {
+      var hc = shortCity(h.city || '');
+      q = (hc && h.query.indexOf(hc) < 0) ? (hc + ' ' + h.query) : h.query;
+    } else {
+      var c = shortCity(city);
+      q = (c && n.indexOf(c) < 0) ? (c + ' ' + n) : n;
+    }
     return 'https://ditu.amap.com/search?query=' + encodeURIComponent(q);
   }
 
@@ -94,7 +143,10 @@
     if (!fp || fp === lastFp) return;
     lastFp = fp;
     var ps = collectFromDom();
-    if (ps.length) load(ps, CTX.city ? [CTX.city] : []);
+    if (ps.length) {
+      load(ps, CTX.city ? [CTX.city] : []);
+      loadHints(ps, CTX.city, '', null);   //★用户口径：同时把地点交给 LLM 转义成高德能搜到的检索词
+    }
   }
 
   /** 给酒店/餐饮卡片补两个搜索按钮（只加按钮，不动卡片既有内容） */
@@ -199,7 +251,11 @@
   }
 
   window.AmapNav = {
-    url: url, openNav: openNav, ctripUrl: ctripUrl, fliggyUrl: fliggyUrl, load: load,
+    //★修正（2026-09-13 实测）：原来这里引用了不存在的 ctripUrl / fliggyUrl ✗
+    //  → 整段 nav.js 一加载就抛 ReferenceError ✗ → AmapNav 根本没挂上 ✗
+    //  → 城市前缀归一 / LLM 转义 / 点地名兜底 全都没生效（这才是"搜索词一直不对"的根因）
+    //  这两个函数全项目没有任何地方使用（已 grep 确认），直接从导出里去掉。
+    url: url, openNav: openNav, load: load, loadHints: loadHints, hintOf: hintOf,
     setCity: function (c) { CTX.city = c || ''; }, coords: coordCache
   };
 

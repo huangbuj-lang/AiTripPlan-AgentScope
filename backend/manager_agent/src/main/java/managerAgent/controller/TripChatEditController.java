@@ -126,11 +126,13 @@ public class TripChatEditController {
     @PostMapping("/trip-chat-edit")
     public Map<String, Object> chatEdit(@RequestParam(value = "planId", required = false) Long planId,
                                         @RequestParam(value = "instruction", required = false) String instruction,
+                                        @RequestParam(value = "planJson", required = false) String planJson,
                                         HttpSession session) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("success", false);
         //① 入参校验：一律返回 JSON（绝不 500 / HTML 错误页）
-        if (planId == null) {
+        //★用户口径：没保存到「我的行程」的行程也要能改 → 没有 planId 时用前端带上来的当前画面数据
+        if (planId == null && (planJson == null || planJson.isBlank())) {
             result.put("message", "缺少行程ID（请在 URL 里带 planId）");
             return result;
         }
@@ -148,22 +150,33 @@ public class TripChatEditController {
 
         try {
             //③ 取行程（仅本人）
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT city, days, plan_json, plan_content FROM trip_plans WHERE id = ? AND user_id = ?",
-                    planId, userId);
-            if (rows.isEmpty()) {
-                result.put("message", "行程不存在或无权访问");
-                return result;
+            Map<String, Object> row = null;
+            if (planId != null) {
+                List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                        "SELECT city, days, plan_json, plan_content FROM trip_plans WHERE id = ? AND user_id = ?",
+                        planId, userId);
+                if (!rows.isEmpty()) {
+                    row = rows.get(0);
+                }
             }
-            Map<String, Object> row = rows.get(0);
-            TripPlanData plan = row.get("plan_json") == null ? null
-                    : JsonUtils.parse(String.valueOf(row.get("plan_json")), TripPlanData.class);
-            if (plan == null) {
-                //兜底：旧数据 plan_json 为空时，从 plan_content 尾部的 JSON 标记解析（与编辑页同口径）
-                plan = parsePlanFromContent(row.get("plan_content"));
+            TripPlanData plan = null;
+            if (row != null) {
+                plan = row.get("plan_json") == null ? null
+                        : JsonUtils.parse(String.valueOf(row.get("plan_json")), TripPlanData.class);
+                if (plan == null) {
+                    //兜底：旧数据 plan_json 为空时，从 plan_content 尾部的 JSON 标记解析（与编辑页同口径）
+                    plan = parsePlanFromContent(row.get("plan_content"));
+                }
+            }
+            //★用户口径：未保存的行程（没有 planId / 查不到记录）→ 直接用前端带上来的当前画面数据
+            //  本接口全程不读库、不写库，只把重排结果返回给页面（保存才落库的口径不变）
+            if (plan == null && planJson != null && !planJson.isBlank()) {
+                plan = JsonUtils.parse(planJson, TripPlanData.class);
             }
             if (plan == null) {
-                result.put("message", "这条行程没有结构化数据，无法对话式修改（请重新生成行程）");
+                //★保持原行为：明确传了 planId 却查不到（越权/已删）→ 仍是原来那句提示 ✓
+                result.put("message", planId != null ? "行程不存在或无权访问"
+                        : "这条行程没有结构化数据，无法对话式修改（请重新生成行程）");
                 return result;
             }
             if (plan.getSections() == null || plan.getSections().isEmpty()) {
@@ -210,7 +223,7 @@ public class TripChatEditController {
 
             //⑥ 真实数据预取（高德，带 city=目的地城市；查不到写"暂无"，绝不编造）
             String city = plan.getDestination() == null || plan.getDestination().isBlank()
-                    ? (row.get("city") == null ? "" : String.valueOf(row.get("city")))
+                    ? (row == null || row.get("city") == null ? "" : String.valueOf(row.get("city")))
                     : plan.getDestination();
             List<String> facts = new ArrayList<>();
             int factsUsed = 0;

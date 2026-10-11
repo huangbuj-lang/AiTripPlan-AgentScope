@@ -24,15 +24,15 @@ let sessionId = (function () {
 //===== 调度中心 × 生成进度（合并面板）：阶段刻度 / 各环节状态 / 计时 =====
 //文案口径（用户要求）：只用大白话，不出现 Agent、编排、校验通过这类专业名词
 const THINK_STAGES = [
-    { key: '解析', rail: '需求规划完成', doing: '正在理解需求', desc: '正在看清你要去哪里、去几天', pct: 8 },
-    { key: '路线', rail: '路线规划完成', doing: '正在规划路线', desc: '正在安排先去哪、后去哪', pct: 20 },
-    { key: '行程', rail: '行程规划完成', doing: '正在安排行程', desc: '正在安排每天玩什么、吃什么、住哪儿', pct: 35 },
-    { key: '整合', rail: '整合校验完成', doing: '正在整合检查', desc: '正在检查每天的节奏合不合理', pct: 85 },
-    { key: '完成', rail: '全部完成', doing: '行程已生成', desc: '正在准备展示', pct: 100 }
+    { key: '解析', nm: '需求规划', rail: '需求规划完成', doing: '正在理解需求', desc: '正在看清你要去哪里、去几天', pct: 6 },
+    { key: '行程', nm: '行程规划', rail: '行程规划完成', doing: '正在安排行程', desc: '正在安排每天玩什么、吃什么、住哪儿', pct: 30 },
+    { key: '路线', nm: '路线规划', rail: '路线规划完成', doing: '正在规划路线', desc: '正在安排先去哪、后去哪', pct: 55 },
+    { key: '整合', nm: '整合校验', rail: '整合校验完成', doing: '正在整合检查', desc: '正在检查每天的节奏合不合理', pct: 85 },
+    { key: '完成', nm: '全部完成', rail: '全部完成', doing: '行程已生成', desc: '正在准备展示', pct: 100 }
 ];
 const THINK_CHIPS = [
-    { nm: '需求理解', at: '解析' }, { nm: '路线规划', at: '路线' },
-    { nm: '行程安排', at: '行程' }, { nm: '整体检查', at: '整合' }
+    { nm: '需求理解', at: '解析' }, { nm: '行程安排', at: '行程' },
+    { nm: '路线规划', at: '路线' }, { nm: '整体检查', at: '整合' }
 ];
 let thinkIdx = -1, thinkClockTimer = null, thinkStartTs = 0;
 let thinkFired = new Set();   // 真正到达过的事件类型：没发生过的绝不打勾（用户抓到过假勾）
@@ -59,8 +59,12 @@ function renderThinkStages() {
     const rail = document.getElementById('tpRail');
     if (rail) rail.innerHTML = THINK_STAGES.map(function (s) {
         const done = thinkFired.has(s.key) && s.key !== cur;
-        const cls = done ? 'done' : (s.key === cur ? 'on now' : '');
-        return '<div class="tp-node ' + cls + '"><div class="dot"></div><div class="nm">' + s.rail + '</div></div>';
+        const isCur = s.key === cur;
+        const cls = done ? 'done' : (isCur ? 'on now' : '');
+        //★用户口径：不要一直显示"完成" —— 进行中写「XX中」，已完成打勾，未开始只写名字
+        const label = s.key === '完成' ? '全部完成'
+            : (done ? (s.nm + ' ✓') : (isCur ? (s.nm + '中') : s.nm));
+        return '<div class="tp-node ' + cls + '"><div class="dot"></div><div class="nm">' + label + '</div></div>';
     }).join('');
     const chips = document.getElementById('tpChips');
     if (chips) chips.innerHTML = THINK_CHIPS.map(function (c) {
@@ -114,9 +118,9 @@ function resetThinkPanel(pct, label) {
 
 //===== 生成进度条（阶段驱动）：提交->解析->路线->行程->整合->完成 =====
 const GEN_STAGES = {
-    '解析': { pct: 8, label: '解析旅行需求...' },
-    '路线': { pct: 20, label: '路线Agent规划路线...' },
-    '行程': { pct: 35, label: '行程Agent规划行程...' },
+    '解析': { pct: 6, label: '解析旅行需求...' },
+    '路线': { pct: 55, label: '路线Agent规划路线...' },
+    '行程': { pct: 30, label: '行程Agent规划行程...' },
     '整合': { pct: 85, label: '主管整合生成方案...' },
     '完成': { pct: 100, label: '生成完成！' }
 };
@@ -293,12 +297,19 @@ function parsePlanJson(content) {
     }
 }
 
+let savePlanBusy = false;   //★用户口径：保存的一次性锁 —— 请求没回来之前，再点也不提交，避免存出两条一模一样的行程
+
 function savePlan() {
+    if (savePlanBusy) return;                       //★忽略重复提交（实测库里出现过同一秒两条一模一样的记录）
     let text = stripPlanJson(lastResultMarkdown).trim();
     if (!text || text.includes('正在生成') || text.includes('等待生成')) {
         document.getElementById('saveMsg').textContent = '暂无结果可保存';
         return;
     }
+    savePlanBusy = true;
+    const btn = document.querySelector('.save-btn');
+    const btnOld = btn ? btn.innerHTML : '';
+    if (btn) { btn._oldHtml = btnOld; btn.disabled = true; btn.style.opacity = '.6'; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在保存…'; }
     //F-8：若当前有结构化行程数据，把 JSON 追加进 planContent，历史行程可还原轨迹/卡片
     //多方案时保存整个方案集(PlanSet)，历史行程可切换其他方案并再保存
     let payload = text;
@@ -351,8 +362,33 @@ function savePlan() {
             document.getElementById('saveMsg').textContent =
                 data.success ? '✅ ' + data.message : '❌ ' + data.message;
             if (!data.success && data.message.includes('登录')) location.href = 'login.html';
+            //★用户口径（实测 bug）：保存成功后必须记住这条行程的 id
+            //  后端 /api/save-plan 本来就返回 planId ✓，但前端原来只读 success/message ✗
+            //  → viewingPlanId 一直是 null → 对话式改行程一直提示"还没保存" ✗
+            if (data.success && data.planId) {
+                viewingPlanId = data.planId;
+                if (typeof rememberPlanId === 'function') rememberPlanId(data.planId);
+                if (window.TripChatState && window.TripChatState.set) {
+                    window.TripChatState.set(lastResultMarkdown, currentPlanData, data.planId);
+                } else if (window.TripChat) {
+                    window.TripChat.attach(data.planId, currentPlanData);
+                }
+            }
+            releaseSaveLock();
         })
-        .catch(() => { document.getElementById('saveMsg').textContent = '❌ 保存失败，请重试'; });
+        .catch(() => {
+            document.getElementById('saveMsg').textContent = '❌ 保存失败，请重试';
+            releaseSaveLock();
+        });
+}
+
+/** ★保存锁释放：按钮恢复可点、文案还原 */
+function releaseSaveLock() {
+    savePlanBusy = false;
+    const btn = document.querySelector('.save-btn');
+    if (btn && btn._oldHtml !== undefined) {
+        btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = btn._oldHtml;
+    }
 }
 
 //打开"我的行程"弹层
@@ -768,8 +804,10 @@ function appendThinkItem(ev) {
         thinkFired.add(ev.type);   // ★先登记：只有真到达的阶段才会被打勾
         if (window.__restoreWatch) { clearTimeout(window.__restoreWatch); window.__restoreWatch = null; }
         updateGenProgress(st.pct, st.label);
-        if (ev.type === '行程') startGenSmooth(80);      // 行程Agent 1-2分钟：35%->80% 平滑
-        else if (ev.type === '整合') startGenSmooth(96); // 整合阶段：85%->96% 平滑
+        if (ev.type === '解析') startGenSmooth(12);        // 需求解析：6%->12%
+        else if (ev.type === '行程') startGenSmooth(45);   // 行程Agent 1-2分钟：30%->45%（不再拱到 80%）
+        else if (ev.type === '路线') startGenSmooth(75);   // 路线Agent：55%->75%
+        else if (ev.type === '整合') startGenSmooth(96);   // 整合阶段：85%->96%
         else if (ev.type === '完成') { stopGenSmooth(); stopThinkClock(true); setThinkLive('done'); }
     }
     //调度中心只给用户看人话：内部阶段（诊断/校验）不显示；失败字样、工具名、字符数、括号内容一律不显示
@@ -1362,7 +1400,13 @@ function renderPlanSet(set) {
     //顶部风格胶囊栏（复用 scheme 样式）
     let tabs = '<div class="schemes"><div class="schemes-label">旅行风格 · PICK A STYLE</div><div class="scheme-row">';
     plans.forEach((p, i) => {
-        const label = STYLE_LABELS[set.styles?.[i]] || ('方案' + (i + 1));
+        //★用户口径：不要"方案1/2/3"这种生硬标签 —— 优先用模型给这套方案起的名字（贴合目的地风格）
+        let label = STYLE_LABELS[set.styles?.[i]];
+        if (!label) {
+            //★用户口径：三套方案按【风格】区分，标题形如「大连五日 / 海风老街慢游」→ 胶囊上直接显示整条标题
+            const t = String((p && p.title) || '').split(/[：:|｜]/)[0].trim();
+            label = t ? (t.length > 16 ? t.slice(0, 16) + '…' : t) : ('方案' + (i + 1));
+        }
         tabs += '<div class="scheme' + (i === 0 ? ' active' : '') + '" onclick="switchPlan(' + i + ')">' + label + '</div>';
     });
     tabs += '</div></div>';
@@ -1379,9 +1423,15 @@ function renderPlanSet(set) {
 function refreshPlanSetBody() {
     if (!planSetData) return;
     const p = planSetData.plans[planSetIndex];
+    //★用户口径：方案一有时缺出行日期 → 日历入口就没了。这里用其它方案（或本集合里任一）的日期补上，
+    //  保证每套方案都有「📅 日期」这个可点的日历入口。
+    if (p && !p.date) {
+        const withDate = (planSetData.plans || []).find(x => x && x.date);
+        if (withDate) p.date = withDate.date;
+    }
     const label = STYLE_LABELS[planSetData.styles?.[planSetIndex]] || '';
     const slogan = planSetData.slogans?.[planSetIndex] || '';
-    let html = '<div class="planset-slogan">' + label + (slogan ? ' · ' + slogan : '') + '</div>';
+    let html = '<div class="planset-slogan">' + (label ? (label + (slogan ? ' · ' + slogan : '')) : slogan) + '</div>';
     html += renderStructuredPlan(p); // 复用单方案渲染
     document.getElementById('plansetBody').innerHTML = html;
     //更新胶囊高亮(胶囊在 resultBody 里)
@@ -1449,7 +1499,8 @@ function renderStructuredPlan(plan) {
         + d0Shown.map((it, i) => {
             const hl = i === 1 || i === d0Shown.length - 2; // 关键点高亮（第2个与倒数第2个）
             //★用户口径：轨迹里的酒店/餐饮也点开卡片、不跳转（其余条目仍是原来的高德链接）
-            const pl = poiOrLinkHtml(it, it.place || it.activity || '');
+            //★用户口径：显示的必须是名词（地名/店名），移动条目取目的地 to，不显示"步行前往X"
+            const pl = poiOrLinkHtml(it, placeNoun(it));
             return '<div class="stop' + (hl ? ' hl' : '') + '">'
                 + '<div class="dot"></div><div class="tm">' + escapeHtml(it.time || '') + '</div>'
                 + '<div class="pl">' + pl.html + '</div>'
@@ -1467,7 +1518,7 @@ function renderStructuredPlan(plan) {
         //★用户口径：概览卡片不能有重复地点 —— 与轨迹同样按"首次出现"去重（详情弹窗不受影响）
         //★保留原始 item（酒店/餐饮要能点开卡片，用户口径）；文案/去重/兜底逻辑一字不改
         let stopObjs = dedupeByPlace(items)
-            .map(it => ({ pl: stripParens(it.place || it.activity || ''), it: it }))
+            .map(it => ({ pl: placeNoun(it), it: it }))
             .filter(o => o.pl && !isNoise(o.pl));
         if (!stopObjs.length) {
             let bs = (day.stops || []).map(s => stripParens(s)).filter(s => s && !isNoise(s));
@@ -1619,7 +1670,11 @@ function amapLink(place, cityOverride) {
     if (window.AmapNav && AmapNav.setCity) { try { AmapNav.setCity(city); } catch (e) { } }
     const navBase = (window.AmapNav && AmapNav.url) ? AmapNav.url(name, city)
         : ((window.AmapNav && AmapNav.url) ? AmapNav.url(name, city)
-            : ('https://ditu.amap.com/search?query=' + encodeURIComponent((String(city || '').trim() ? String(city).trim() + ' ' : '') + name)));
+            //★兜底也要用【短城市】+ 地名（原来把「川西（成都—…—海螺沟）」整串当前缀 ✗ → 高德搜不到）
+            : ('https://ditu.amap.com/search?query=' + encodeURIComponent(((function (c) {
+                c = String(c || '').replace(/[（(].*$/, '').replace(/\d+\s*日.*$/, '').split(/[—\-\/、,，]/)[0].trim();
+                return (c && name.indexOf(c) < 0) ? (c + ' ') : '';
+            })(city)) + name)));
     //★根因修复：name/city 会进入【属性】里（href/title/onclick）✗
     //  名字里只要带 " 或 < 就会把标签截断 → 页面显示成乱码文字（实测"好运酒店"那行整段代码露出来）
     //  → 属性值一律转义；JS 字符串里再转义引号
@@ -1773,7 +1828,7 @@ function selectDay(di) {
                 const hl = i === 1 || i === items.length - 2;
                 return '<div class="stop' + (hl ? ' hl' : '') + '">'
                     + '<div class="dot"></div><div class="tm">' + escapeHtml(it.time || '') + '</div>'
-                    + '<div class="pl">' + amapLink(it.place || it.activity || '', cityOfItem(it)) + '</div>'
+                    + '<div class="pl">' + amapLink(placeNoun(it), cityOfItem(it)) + '</div>'
                     + '<div class="d">' + escapeHtml(it.cost || '') + '</div></div>';
             }).join('')
             + '</div>';
@@ -2282,8 +2337,17 @@ function extrasInputOf(plan) {
             (day.items || []).forEach(it => {
                 const to = String(it.to || '').trim(), from = String(it.from || '').trim();
                 if (!dayCity && to) dayCity = to;
-                [from, to].forEach(c => { if (c && c.length <= 12 && cities.indexOf(c) < 0) cities.push(c); });
+                //★只保留【像行政区】的 from/to：≤7 字、以 市/县/区/州/旗 结尾、且不是"景区/风景区"这类
+                //  （实测 from/to 里常混进「天山天池风景区」「赛里木湖国家级风景名胜区」这种 ✗ → 白跑一次高德还查不到）
+                [from, to].forEach(c => {
+                    if (!c || c.length > 7 || cities.indexOf(c) >= 0) return;
+                    if (!/(市|县|区|州|旗)$/.test(c)) return;
+                    if (/(景区|风景区|城区|市区|园区|小区|郊区|街区|片区|辖区|库区|湖区|山区)$/.test(c)) return;
+                    cities.push(c);
+                });
             });
+            //★区域天气的行政区覆盖：见下方 hintOf 那一段（用 LLM 解析出的真实城市补齐 ✓）
+            //  这里【不再用正则硬抽】—— 实测那样会抽出「入住精河县」「出湖区」这类垃圾 ✗
             (day.items || []).forEach(it => {
                 //① 住宿条目里的酒店名（详情弹窗点的就是它）
                 if (isHotelItem(it)) {
@@ -2317,7 +2381,57 @@ function extrasInputOf(plan) {
             });
         });
     } catch (e) { /* 抽取失败就不取数，行程不受影响 */ }
-    return { cities: cities.slice(0, 12), places: hotels.concat(foods, sights).slice(0, 48) };
+    //★用户口径（2026-09-13）：区域天气要给出【行程涉及的行政区】，不是景点 ——
+    //  光靠文字抽不出「新源县」（行程里只写了"那拉提草原"✗）。这里用项目已有的
+    //  LLM 转义能力把每个地点解析成真实行政区（那拉提草原 → 新源县 ✓ 赛里木湖 → 博乐市 ✓）
+    //  → 这些城市才拿得到高德的城市级天气 ✓；解析不出来的（景区本身）后端查不到会自动丢掉 ✓
+    try {
+        const all = hotels.concat(foods, sights);
+        if (window.AmapNav && AmapNav.hintOf) {
+            all.forEach(p => {
+                const h = AmapNav.hintOf(p.name);
+                const c = h && h.city ? String(h.city).trim() : '';
+                if (c && c.length <= 12 && cities.indexOf(c) < 0) cities.push(c);
+            });
+        }
+        //解析结果还没到 → 先发起解析，拿到后再补一次（同一份行程只补一次）
+        if (window.AmapNav && AmapNav.loadHints && all.length) {
+            AmapNav.loadHints(all, (plan && plan.destination) || '', tripOutlineOf(plan), function () {
+                try {
+                    let added = 0;
+                    all.forEach(p => {
+                        const h = AmapNav.hintOf(p.name);
+                        const c = h && h.city ? String(h.city).trim() : '';
+                        if (c && c.length <= 12 && cities.indexOf(c) < 0) { cities.push(c); added++; }
+                    });
+                    if (added) {
+                        tripExtras = null; tripExtrasBusy = false;   // 城市变多 → 重新取一次（只在首次补齐时）
+                        loadTripExtras(plan);
+                    }
+                } catch (e) { }
+            });
+        }
+    } catch (e) { }
+    return { cities: cities.slice(0, 24), places: hotels.concat(foods, sights).slice(0, 48) };
+}
+
+/** ★行程大纲（给 LLM 判断行政区用的上下文，用户口径：不能只凭景点名猜 ✓）
+ *  形如「第1天: 乌鲁木齐市 → 天山天池风景区 → 精河县；第2天: 赛里木湖 → 霍城县…」，压到 1200 字以内 */
+function tripOutlineOf(plan) {
+    try {
+        const days = ((plan || {}).sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+        const lines = [];
+        days.forEach((d, i) => {
+            const names = (d.items || [])
+                .map(it => stripParens(String(it.place || it.to || '').trim()))
+                .filter(n => n && n.length <= 16);
+            const uniq = names.filter((n, k) => names.indexOf(n) === k).slice(0, 8);
+            if (uniq.length) lines.push('第' + (i + 1) + '天: ' + uniq.join(' → '));
+        });
+        let s = lines.join('；');
+        if (!s && plan && plan.destination) s = String(plan.destination);
+        return s.length > 1200 ? s.slice(0, 1200) : s;
+    } catch (e) { return ''; }
 }
 
 /** 行程生成完整后调用：异步取数并缓存（同一份行程只取一次） */
@@ -2408,6 +2522,22 @@ function openRegionWeather() {
 }
 
 /**
+ * ★用户口径：概览卡片 / 轨迹时间轴里显示的必须是【名词】（地名 / 酒店名 / 餐馆名），不许出现动词短语。
+ *   两个地点之间的「移动 / 交通」条目没有 place，原来回退到 activity 就成了"步行前往X""乘地铁前往X" ✗
+ *   → 这里改成取目的地 to（名词）；取到之后与目的地自己那条重名，正好被 dedupeByPlace 去掉，只剩一个名词。
+ */
+function placeNoun(it) {
+    if (!it) return '';
+    let nm = stripParens(it.place || '');
+    if (!nm) nm = stripParens(it.to || '');        // 移动/交通条目 → 用【目的地】这个名词
+    if (!nm) nm = stripParens(it.activity || '');  // 再兜底
+    nm = String(nm).trim();
+    // 最后一道保险（只在前两步都没取到时才会走到）：砍掉开头的动词链，如"乘地铁3号线前往金石滩"
+    nm = nm.replace(/^(步行|骑行|自驾|打车|乘车|坐车|乘地铁|地铁|公交|换乘|经|沿|从|继续|前往|出发|抵达)[^，,。；;、]{0,10}?(前往|至|到|抵达)/, '').trim();
+    return nm;
+}
+
+/**
  * ★去重（用户口径）：同一天内同一个地点只保留【首次出现】，用于「轨迹时间轴」和「概览卡片」。
  * 详情弹窗（openDayModal）不用它 —— 那边允许出现重复。
  */
@@ -2416,7 +2546,7 @@ function dedupeByPlace(items) {
     const out = [];
     (items || []).forEach(it => {
         if (!it) return;
-        const raw = stripParens(it.place || it.activity || '');
+        const raw = placeNoun(it);
         const key = String(raw).replace(/\s+/g, '');
         if (!key || isNoise(key) || seen.has(key)) return;
         seen.add(key);
@@ -2657,15 +2787,25 @@ function wrapHotelNames(html, item) {
         const targets = [];
         if (isHotelItem(item)) hotelNamesOf(item).forEach(n => targets.push({ n: n, cat: '住宿' }));
         if (isFoodItem(item)) restaurantNamesOf(item).forEach(n => targets.push({ n: n, cat: '餐饮' }));
+        //★★乱码根因（2026-09-13 实测）：同一个名字会被推两次 —— 例如「甲居瑞吉民宿」这种
+        //  名字里既含"民宿"（判成住宿）又属于餐饮条目 → 两次都去 out 里替换 ✗；
+        //  第二次是在【刚插入的 <a …> 内部】又替换了一遍 → 标签被撕碎 → 页面出现
+        //  「甲居瑞吉民宿', '川西（…）');return false" title="在高德查看并导航到「甲居瑞吉民宿」">」这种乱码 ✗
+        //  修法：① 同名只处理一次 ② 绝不替换已经生成的链接内部（只在纯文本段落里替换）
+        const doneNames = {};
         targets.forEach(t => {
-            const pid = registerPoi(t.n, city, t.cat);
+            const nm = String((t && t.n) || '').trim();
+            if (!nm || doneNames[nm]) return;              //① 同名只处理一次
+            doneNames[nm] = 1;
+            const pid = registerPoi(nm, city, t.cat);
             if (!pid) return;
             if (!firstId) firstId = pid;
-            const eh = escapeHtml(t.n);
-            if (eh && out.indexOf(eh) >= 0) {
-                //★用户口径：不再弹卡片 → 店名直接跳高德搜索页（效果与点击轨迹地点完全一样）
-                out = out.replace(eh, amapLink(t.n, cityOfItem(item)));   //参数名是 item（不是 it）
-            }
+            const eh = escapeHtml(nm);
+            const at = out.indexOf(eh);
+            const anchorAt = out.indexOf('<a ');           //② 已经插入的链接，从它开始就是 HTML，不能再动
+            if (!eh || at < 0 || (anchorAt >= 0 && at > anchorAt)) return;
+            //★用户口径：不再弹卡片 → 店名直接跳高德搜索页（效果与点击轨迹地点完全一样）
+            out = out.replace(eh, amapLink(nm, cityOfItem(item)));
         });
     } catch (e) { /* 替换失败就用原文 */ }
     return { html: out, firstId: firstId };
