@@ -116,7 +116,17 @@ export RDS_PASSWORD="你的密码"
 
 ### 4. API Key 配置（★必须，否则功能缺失/启动报错）
 
-API Key **只从项目根目录的 `.env` 文件读取**（已被 .gitignore 忽略，不会提交）。在项目根目录创建 `.env`：
+API Key **只从项目根目录的 `.env` 文件读取**（已被 .gitignore 忽略，不会提交）。
+仓库里只提供 `.env.example`，复制成 `.env` 后填自己的 key：
+
+```bash
+cp .env.example .env
+```
+
+Python 数据管线另外读 `data-pipeline/llm_config.json`（同样已忽略），仓库里只提供
+`data-pipeline/llm_config.example.json` 作为模板。
+
+`.env` 内容示例：
 
 ```bash
 # 主模型（必填）
