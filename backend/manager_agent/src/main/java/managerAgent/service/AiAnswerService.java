@@ -34,7 +34,12 @@ public class AiAnswerService {
     /** AI 回答作为评论落库的保留用户 ID（无真实用户，前端按 is_ai 显示「AI答主」） */
     public static final long AI_USER_ID = 0L;
 
-    /** 异步生成 AI 回答：读帖子 -> 生成 -> 落评论(is_ai=1) -> 通知楼主 */
+    /**
+     * 作用：异步生成论坛帖的 AI 回答并通知提问者（独立线程池执行，不阻塞请求）
+     * 参数：postId 帖子 ID；requesterId 提问用户 ID
+     * 返回值：无
+     * 异常：无（生成或通知失败只记日志）
+     */
     public void answerAsync(long postId, long requesterId) {
         AI_POOL.submit(() -> {
             if (!AI_SLOTS.tryAcquire()) {
@@ -75,10 +80,21 @@ public class AiAnswerService {
         });
     }
 
-    /** 生成回答文本（成本维度=forum：AI答主的LLM消耗单独记账） */
+    /**
+     * 作用：生成 AI 回答：按时长预算调用模型，超时或空结果走兜底文案
+     * 参数：title 帖子标题；content 帖子正文
+     * 返回值：回答文本，永不为空
+     * 异常：无（异常内部捕获，返回兜底文案）
+     */
     private String generate(String title, String content) {
         return utils.CostDimension.runAs(utils.CostDimension.FORUM, () -> generate0(title, content));
     }
+    /**
+     * 作用：实际模型调用：拼提示词并要求回答控制在限定篇幅
+     * 参数：title 帖子标题；content 帖子正文
+     * 返回值：模型回答文本，可能为空串
+     * 异常：无（异常内部捕获）
+     */
 
     private String generate0(String title, String content) {
         String sysPrompt = "你是专业的旅行问答 AI 答主。请用中文详细、具体、可操作地回答用户问题，"
@@ -91,6 +107,12 @@ public class AiAnswerService {
                 .blockLast(ModelTimeouts.aiAnswerDuration());
         return textOf(resp);
     }
+    /**
+     * 作用：从 ChatResponse 中拼接全部文本块
+     * 参数：resp 模型响应
+     * 返回值：文本；响应为空返回空串
+     * 异常：无
+     */
 
     private String textOf(ChatResponse resp) {
         if (resp == null) {
@@ -105,7 +127,12 @@ public class AiAnswerService {
         return sb.toString();
     }
 
-    /** 写入通知 + SSE 实时推送 */
+    /**
+     * 作用：向用户推送一条站内通知
+     * 参数：userId 用户 ID；type 通知类型；content 通知内容；linkUrl 跳转链接
+     * 返回值：无
+     * 异常：无（推送失败内部捕获）
+     */
     private void notifyUser(long userId, int type, String content, String linkUrl) {
         try {
             jdbcTemplate.update(

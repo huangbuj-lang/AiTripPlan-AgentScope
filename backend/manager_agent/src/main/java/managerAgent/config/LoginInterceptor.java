@@ -13,11 +13,22 @@ import java.util.Map;
 public class LoginInterceptor implements HandlerInterceptor {
 
     private final JdbcTemplate jdbcTemplate;
+    /**
+     * 作用：构造登录拦截器，注入数据库模板用于会话/用户校验
+     * 参数：jdbcTemplate 数据库模板
+     * 返回值：无
+     * 异常：无
+     */
 
     public LoginInterceptor(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
-
+    /**
+     * 作用：登录拦截器：校验登录态，未登录或无权访问时直接返回 JSON 错误
+     * 参数：request HTTP 请求；response HTTP 响应；handler 目标处理器
+     * 返回值：true=放行；false=已拦截
+     * 异常：Exception 写响应失败时抛出
+     */
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         HttpSession session = request.getSession(false);
@@ -40,6 +51,12 @@ public class LoginInterceptor implements HandlerInterceptor {
         }
         return true; // 已登录，放行
     }
+    /**
+     * 作用：输出统一的 JSON 拒绝响应
+     * 参数：response HTTP 响应；status 状态码；message 提示信息
+     * 返回值：恒为 false（表示已拦截）
+     * 异常：Exception 写响应失败时抛出
+     */
 
     private boolean reject(HttpServletResponse response, int status, String message) throws Exception {
         response.setStatus(status);

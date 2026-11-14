@@ -22,6 +22,12 @@ public class AdminAgentConfigService {
 
 
     private final AtomicBoolean agentRestarting = new AtomicBoolean();
+    /**
+     * 作用：读取 Agent 运行时开关与提示词概览（管理端 Agent 配置页）
+     * 参数：无
+     * 返回值：配置 Map（工具开关/远程 Agent 开关/提示词定制状态）
+     * 异常：无
+     */
 
     public Map<String, Object> getAgentConfig() {
         Map<String, Object> r = new HashMap<>();
@@ -36,6 +42,12 @@ public class AdminAgentConfigService {
         r.put("success", true);
         return r;
     }
+    /**
+     * 作用：保存 Agent 运行时开关并发布到 Nacos 热更（高德工具/本地知识库/两个远程子 Agent）
+     * 参数：amap 高德工具开关；localKnowledge 本地知识库开关；remoteRouteAgent 路线子 Agent 开关；remoteTripAgent 行程子 Agent 开关；均允许为 null 表示不改
+     * 返回值：保存结果 Map
+     * 异常：无（发布失败返回含错误信息的 Map）
+     */
 
     public Map<String, Object> saveAgentConfig(Boolean amap, Boolean localKnowledge, Boolean remoteRouteAgent, Boolean remoteTripAgent) {
         Map<String, Object> r = new HashMap<>();
@@ -78,6 +90,12 @@ public class AdminAgentConfigService {
         }
         return r;
     }
+    /**
+     * 作用：读取全部提示词（内置默认值与当前定制值）
+     * 参数：无
+     * 返回值：提示词 Map（键/中文名/默认/当前值/是否定制）
+     * 异常：无
+     */
 
     public Map<String, Object> getAgentPrompts() {
         Map<String, Object> r = new HashMap<>();
@@ -98,6 +116,12 @@ public class AdminAgentConfigService {
         r.put("success", true);
         return r;
     }
+    /**
+     * 作用：读取高德凭据配置（脱敏展示）
+     * 参数：无
+     * 返回值：凭据 Map（Web Key / MCP Key，已脱敏）
+     * 异常：无
+     */
 
     public Map<String, Object> getAmapCredentials() {
         Map<String, Object> r = new HashMap<>();
@@ -114,6 +138,12 @@ public class AdminAgentConfigService {
         r.put("success", true);
         return r;
     }
+    /**
+     * 作用：保存高德凭据并发布到 Nacos 热更
+     * 参数：webKey 高德 Web 服务 Key；mcpKey 高德 MCP Key；均允许为空表示不改
+     * 返回值：保存结果 Map
+     * 异常：无（发布失败返回含错误信息的 Map）
+     */
 
     public Map<String, Object> saveAmapCredentials(String webKey, String mcpKey) {
         Map<String, Object> r = new HashMap<>();
@@ -172,6 +202,12 @@ public class AdminAgentConfigService {
         }
         return r;
     }
+    /**
+     * 作用：异步重启三个 Agent 进程（管理端一键重启）
+     * 参数：无
+     * 返回值：true=重启脚本已启动；false=脚本不存在或启动失败
+     * 异常：无（异常内部捕获）
+     */
 
     private boolean startAgentRestart() {
         if (!agentRestarting.compareAndSet(false, true)) return false;
@@ -226,6 +262,12 @@ public class AdminAgentConfigService {
         thread.start();
         return true;
     }
+    /**
+     * 作用：定位可用的 bash 可执行文件（供重启脚本调用）
+     * 参数：无
+     * 返回值：bash 路径；找不到返回空串
+     * 异常：无
+     */
 
     private String bashExecutable() {
         String configured = Config.get("BASH_BIN", "");
@@ -272,6 +314,12 @@ public class AdminAgentConfigService {
         log.warn("Windows Git Bash not found; falling back to PATH bash. Set BASH_BIN to Git Bash's bash.exe");
         return "bash";
     }
+    /**
+     * 作用：通过 git 安装目录推断 bash 路径
+     * 参数：无
+     * 返回值：bash 路径；推断不到返回空串
+     * 异常：无
+     */
 
     private String bashExecutableFromGitWhere() {
         try {

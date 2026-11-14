@@ -1,0 +1,13 @@
+# 编译与运行产物、大目录不进构建上下文（否则 docker build 极慢）
+.git
+.idea
+target
+backend/*/target
+logs
+work
+tests
+derby.log
+*.log
+frontend/node_modules
+.env
+.env.*

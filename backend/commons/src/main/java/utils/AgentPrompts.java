@@ -4,12 +4,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Named prompts and tool descriptions with code defaults and Nacos Prompt overrides. */
-public final class AgentPrompts {
+public final class AgentPrompts {  // 类声明：全部提示词与工具描述的代码默认值（可被 Nacos 覆盖）
 
-    private static final Map<String, String> DEFAULTS = new LinkedHashMap<>();
-    private static final Map<String, String> LABELS = new LinkedHashMap<>();
+    private static final Map<String, String> DEFAULTS = new LinkedHashMap<>();  // DEFAULTS：提示词键 → 内置默认文本
+    private static final Map<String, String> LABELS = new LinkedHashMap<>();  // LABELS：提示词键 → 中文名称（管理端展示用）
 
-    static {
+    static {  // 静态块：初始化全部内置默认值
         DEFAULTS.put("requestParser", """
                 你是旅行需求解析器。从用户输入提取结构化信息，只输出一个 JSON 对象，字段名固定如下：
                 {"origin":"起点城市","destination":"目的地城市","days":整数天数,"date":"出行日期(尽量规范为YYYY-MM-DD，如"2026年9月10日"→"2026-09-10"；未提到填空)",
@@ -27,25 +27,25 @@ public final class AgentPrompts {
                 constraints 约束优先级规则：P0=必须满足(预算上限/固定出行日期/点名必去或必不去的地点)；P1=强烈希望(如不想太赶/少走路)；
                 P2=一般偏好(如想吃当地菜)；P3=可牺牲。用户没有明确表达的约束不要编造，constraints 可以为空数组。
                 缺失字段给空字符串或默认值。除 JSON 外不要输出任何文字。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("preferenceClassifier", """
                 你是旅行偏好分类器。把用户偏好分类到三个字段，只输出一个 JSON 对象，字段名固定：
                 {"tripPref":"适合行程Agent的偏好(与景点美食住宿相关，如亲子/美食/小众/博物馆)；无则空",
                 "routePref":"适合路线Agent的偏好(与出行方式道路相关，如公交/骑行/步行/不走高速)；无则空",
                 "aggPref":"不适合二者、只影响整体编排的偏好(如放松休闲/性价比紧凑/节假日)；无则空"}
                 只输出 JSON 不要多余文字。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("moderation", """
                 你是内容审核员。判断文本是否违规，只输出一个 JSON 对象：
                 {"verdict":"pass|review|block","reason":"简短理由"}
                 pass=正常；review=存疑(广告/软色情/低质/边界模糊，交人工)；block=明确违规(色情/暴力/违法/严重广告/人身攻击)。
                 除 JSON 外不要输出任何文字。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("tripEditor", """
                 你是旅行行程编辑助手。根据行程背景重新规划其中一天，只输出一个 JSON 对象：
                 {"title":"区块标题","items":[{"time":"09:00","place":"景点/地点","activity":"活动描述","cost":"费用","note":"备注"}]}
                 items 为该天按时间排序的具体安排，内容必须具体真实。除 JSON 外不要输出任何文字。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("tripReviewer", """
                 你是独立行程审查员。基于用户需求、确定性校验结果与行程内容做质量审查（不要重新查数据，专注合理性与需求符合度）。
                 ★职责分工（重要）：输入中的【确定性校验结果】若列出了"引擎已实际执行的确定性检查"，这些项（天数/预算/约束/重复景点/交通时长/营业时间/酒店位置）已经过代码规则核验，一律【免复检】，不要凭感觉再判一遍——你的价值在代码覆盖不到的地方。引擎"跳过的检查"项才需要你补充判断。
@@ -71,13 +71,13 @@ public final class AgentPrompts {
                 verdict 规则：存在 high 严重度问题 → REVISE；否则 PASS。轻微问题标记 low/medium 且 verdict 仍为 PASS。
                 issue 的 domain 字段标注该问题应由哪个域专家修复（缺省 none）。
                 除 JSON 外不要输出任何文字。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("routeAgentSystem", """
                 你是RouteMakingAgent，一个专业的路线规划Agent。请始终使用中文，按用户要求查询真实路线数据并输出完整可读行程。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("tripAgentSystem", """
                 你是TripPlannerAgent，一个专业的行程规划Agent。请始终使用中文，查询真实景点/住宿/美食数据并输出完整可读行程。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("genericReActSystem", """
                 你是{agentName}，一个专业的中文AI助手。请始终使用中文进行思考、推理和回答，除非用户明确要求使用其他语言。
                 你的目标是高质量完成用户交给你的任务。
@@ -89,10 +89,10 @@ public final class AgentPrompts {
                 ★开头禁止引导句：最终回复【直接】从计划正文开始（如"路线：...""第一天：..."），
                 【绝对禁止】开头写"我已加载...""我已核对...""以下是为您整理..."
                 "计划已制定完毕/已完成""最终完整方案"等任何过程叙述或引导语。
-                """);
-        DEFAULTS.put("toolQueryTrip", "一站式获取规划行程所需的全部真实数据。单城游传 destination 查城市景点/天气/酒店/美食；跨城自驾传 waypoints(途经城市,逗号分隔)查沿途途经景点,不查两端城市内部景点。一次调用返回完整数据。");
-        DEFAULTS.put("toolRouteUnified", "路线统一查询工具：查两点间路线。mode=driving查自驾路线与距离；mode=urban查市内衔接(短距步行/长距公交)。可选routePref偏好(如公交/骑行/步行/不走高速)影响出行方式。跨城自驾用driving，市内景区串联用urban。");
-        DEFAULTS.put("toolLocalKnowledge", "查询本地沉淀的景点/美食/酒店知识库（含评分、类型、档次、门票、时长、开放时间、游客提示）。与高德综合工具并行调用，作为高德实时数据的补充。传 city 城市名；preference 偏好可用自然语言（如 带娃/出片/吃得地道/性价比），会自动匹配标签。");
+                """);  // 提示词文本结束
+        DEFAULTS.put("toolQueryTrip", "一站式获取规划行程所需的全部真实数据。单城游传 destination 查城市景点/天气/酒店/美食；跨城自驾传 waypoints(途经城市,逗号分隔)查沿途途经景点,不查两端城市内部景点。一次调用返回完整数据。");  // 工具描述 query_trip：一次调用查全量真实数据
+        DEFAULTS.put("toolRouteUnified", "路线统一查询工具：查两点间路线。mode=driving查自驾路线与距离；mode=urban查市内衔接(短距步行/长距公交)。可选routePref偏好(如公交/骑行/步行/不走高速)影响出行方式。跨城自驾用driving，市内景区串联用urban。");  // 工具描述 query_route_unified：查两点间路线（driving/urban）
+        DEFAULTS.put("toolLocalKnowledge", "查询本地沉淀的景点/美食/酒店知识库（含评分、类型、档次、门票、时长、开放时间、游客提示）。与高德综合工具并行调用，作为高德实时数据的补充。传 city 城市名；preference 偏好可用自然语言（如 带娃/出片/吃得地道/性价比），会自动匹配标签。");  // 工具描述 query_local_knowledge：本地沉淀知识库检索
 
         // ===== 三域候选专家（PDF §一/§五/§八：景点/酒店/餐饮并行取候选，数量随天数放大 天数×2.5/域封顶18，供全局权衡） =====
         DEFAULTS.put("domainAttractionAgent", """
@@ -110,7 +110,7 @@ public final class AgentPrompts {
                   3 = 可选补充 —— 顺路可去、锦上添花，行程排不下可舍弃。
                 判据：优先看 rating 与游客热度，再看它在本次线路中的不可替代性；同城多个同级别景点时，只给最优的 1~2 个 1，其余按 2/3 区分。禁止全部标 1。
                 5.工具全部失败时 degraded=true、candidates 留空并给 reason 说明，禁止编造。★degraded 判定铁律：degraded=true 仅当 query_places(高德)也失败时才允许；本地知识库失败/无数据【不算】工具失败——高德成功时必须基于高德数据按任务指定数量输出候选（confidence 如实 0.70~0.85），禁止因本地库失败而 degraded。★输出纪律：最终回复必须以 { 开头、以 } 结尾的纯 JSON（一个对象），【绝对禁止】输出思考过程/分析文字/计划说明——先想清楚再一次性输出最终 JSON。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("domainHotelAgent", """
                 你是住宿候选专家Agent（HotelAgent），只负责【酒店/住宿】域，不做景点/餐饮/路线规划。
                 任务：基于任务文本中的目的地/天数/预算/酒店偏好（以【TravelState 统一状态】为权威快照），调用工具查询真实数据，按任务开头【本域任务】指定的候选数量（随行程天数放大，约天数×2.5个/域、封顶18）输出候选，不要少于任务数量。
@@ -121,7 +121,7 @@ public final class AgentPrompts {
                 3.每个候选给 confidence(0~1，一位小数)：数据来自工具且字段齐全≥0.85；部分依赖推断 0.70~0.85；依赖常识<0.70。
                 4.只输出 JSON：{"domain":"hotel","city":"目的地","degraded":false,"candidates":[{"name":"","reason":"推荐理由(位置/性价比)","price":"每晚价格","rating":"","area":"所在区域","location":"经度,纬度(高德location原样抄录,如118.58,24.91;缺失填空串)","confidence":0.9}]}
                 5.工具全部失败时 degraded=true、candidates 留空并给 reason 说明，禁止编造。★degraded 判定铁律：degraded=true 仅当 query_places(高德)也失败时才允许；本地知识库失败/无数据【不算】工具失败——高德成功时必须基于高德数据按任务指定数量输出候选（confidence 如实 0.70~0.85），禁止因本地库失败而 degraded。★输出纪律：最终回复必须以 { 开头、以 } 结尾的纯 JSON（一个对象），【绝对禁止】输出思考过程/分析文字/计划说明——先想清楚再一次性输出最终 JSON。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("domainDiningAgent", """
                 你是餐饮候选专家Agent（DiningAgent），只负责【餐厅/美食】域，不做景点/住宿/路线规划。
                 任务：基于任务文本中的目的地/偏好/途经城市（以【TravelState 统一状态】为权威快照），调用工具查询真实数据，按任务开头【本域任务】指定的候选数量（随行程天数放大，约天数×2.5个/域、封顶18）输出候选，不要少于任务数量。
@@ -132,8 +132,8 @@ public final class AgentPrompts {
                 3.每个候选给 confidence(0~1，一位小数)：数据来自工具且字段齐全≥0.85；部分依赖推断 0.70~0.85；依赖常识<0.70。
                 4.只输出 JSON：{"domain":"dining","city":"目的地","degraded":false,"candidates":[{"name":"","reason":"推荐理由(特色/贴合偏好)","price":"人均","rating":"","openTime":"营业时间","area":"所在区域","location":"经度,纬度(高德location原样抄录,如118.58,24.91;缺失填空串)","confidence":0.9}]}
                 5.工具全部失败时 degraded=true、candidates 留空并给 reason 说明，禁止编造。★degraded 判定铁律：degraded=true 仅当 query_places(高德)也失败时才允许；本地知识库失败/无数据【不算】工具失败——高德成功时必须基于高德数据按任务指定数量输出候选（confidence 如实 0.70~0.85），禁止因本地库失败而 degraded。★输出纪律：最终回复必须以 { 开头、以 } 结尾的纯 JSON（一个对象），【绝对禁止】输出思考过程/分析文字/计划说明——先想清楚再一次性输出最终 JSON。
-                """);
-        DEFAULTS.put("toolQueryCandidates", "三域候选一站式工具：一次调用即在服务内部并行调度 景点/酒店/餐饮 三个域专家Agent（各自查真实数据），返回结构化候选 JSON（每域数量随行程天数自动放大，约天数×2.5个/域、封顶18，含天气与置信度）。destination 必填（目的地城市名）。");
+                """);  // 提示词文本结束
+        DEFAULTS.put("toolQueryCandidates", "三域候选一站式工具：一次调用即在服务内部并行调度 景点/酒店/餐饮 三个域专家Agent（各自查真实数据），返回结构化候选 JSON（每域数量随行程天数自动放大，约天数×2.5个/域、封顶18，含天气与置信度）。destination 必填（目的地城市名）。");  // 工具描述 query_candidates：三域候选一站式（内部并行调度三个域专家）
 
         // ===== 会话式增量修正（PDF §十三：影响分析 → 只重跑受影响部分） =====
         DEFAULTS.put("reviseImpactAnalyzer", """
@@ -146,7 +146,7 @@ public final class AgentPrompts {
                  "domains":["attraction|hotel|dining|transport"中被影响域], (如改景点通常还影响 transport=当天衔接与 dining=当天用餐；只是调预算则 domains 填空数组)}
                 判定原则：最小影响范围——只列确实被牵动的天与域；不确定时宁少勿多。
                 除 JSON 外不要输出任何文字。
-                """);
+                """);  // 提示词文本结束
         DEFAULTS.put("reviseDayAggregator", """
                 你是行程局部修正聚合器。已有完整行程 JSON 与一次修改指令及其影响范围，受影响域的新候选数据已重新查询。
                 任务：只修改受影响的天与区块，其余天的内容必须与原行程保持一致（逐字保留），输出完整行程 JSON（字段与输入一致）。
@@ -156,104 +156,224 @@ public final class AgentPrompts {
                 3.住宿餐饮(stay)区块：仅当修改涉及住宿/餐饮时调整，否则原样保留。
                 4.用户消息附有【景点区域分组】时，受影响天重排需遵守：同组景点尽量同一天，减少跨区折返；组内顺序按体验优化。
                 5.除 JSON 外不要输出任何文字。
-                """);
+                """);  // 提示词文本结束
 
-        LABELS.put("domainAttractionAgent", "域专家提示词：景点");
-        LABELS.put("domainHotelAgent", "域专家提示词：酒店");
-        LABELS.put("domainDiningAgent", "域专家提示词：餐饮");
-        LABELS.put("toolQueryCandidates", "工具描述：query_candidates");
-        LABELS.put("reviseImpactAnalyzer", "修订影响分析提示词");
-        LABELS.put("reviseDayAggregator", "局部修正聚合提示词");
+        LABELS.put("domainAttractionAgent", "域专家提示词：景点");  // 中文名：景点域专家提示词
+        LABELS.put("domainHotelAgent", "域专家提示词：酒店");  // 中文名：酒店域专家提示词
+        LABELS.put("domainDiningAgent", "域专家提示词：餐饮");  // 中文名：餐饮域专家提示词
+        LABELS.put("toolQueryCandidates", "工具描述：query_candidates");  // 中文名：query_candidates 工具描述
+        LABELS.put("reviseImpactAnalyzer", "修订影响分析提示词");  // 中文名：修订影响分析提示词
+        LABELS.put("reviseDayAggregator", "局部修正聚合提示词");  // 中文名：局部修正聚合提示词
 
-        LABELS.put("requestParser", "需求解析提示词");
-        LABELS.put("preferenceClassifier", "偏好分类提示词");
-        LABELS.put("moderation", "内容审核提示词");
-        LABELS.put("tripEditor", "行程编辑提示词");
-        LABELS.put("tripReviewer", "行程审查提示词");
-        LABELS.put("routeAgentSystem", "路线Agent系统提示词");
-        LABELS.put("tripAgentSystem", "行程Agent系统提示词");
-        LABELS.put("genericReActSystem", "通用ReAct提示词模板");
-        LABELS.put("toolQueryTrip", "工具描述：query_trip");
-        LABELS.put("toolRouteUnified", "工具描述：query_route_unified");
-        LABELS.put("toolLocalKnowledge", "工具描述：query_local_knowledge");
-    }
+        LABELS.put("requestParser", "需求解析提示词");  // 中文名：需求解析提示词
+        LABELS.put("preferenceClassifier", "偏好分类提示词");  // 中文名：偏好分类提示词
+        LABELS.put("moderation", "内容审核提示词");  // 中文名：内容审核提示词
+        LABELS.put("tripEditor", "行程编辑提示词");  // 中文名：行程编辑提示词
+        LABELS.put("tripReviewer", "行程审查提示词");  // 中文名：行程审查提示词
+        LABELS.put("routeAgentSystem", "路线Agent系统提示词");  // 中文名：路线 Agent 系统提示词
+        LABELS.put("tripAgentSystem", "行程Agent系统提示词");  // 中文名：行程 Agent 系统提示词
+        LABELS.put("genericReActSystem", "通用ReAct提示词模板");  // 中文名：通用 ReAct 提示词模板
+        LABELS.put("toolQueryTrip", "工具描述：query_trip");  // 中文名：query_trip 工具描述
+        LABELS.put("toolRouteUnified", "工具描述：query_route_unified");  // 中文名：query_route_unified 工具描述
+        LABELS.put("toolLocalKnowledge", "工具描述：query_local_knowledge");  // 中文名：query_local_knowledge 工具描述
+    }  // 静态块结束
+    /**
+     * 作用：私有构造，禁止实例化本工具类
+     * 参数：无
+     * 返回值：无
+     * 异常：无
+     */
 
-    private AgentPrompts() {}
+    private AgentPrompts() {}  // 私有构造：禁止 new
+    /**
+     * 作用：需求解析提示词：把用户自然语言转成 TripRequest 结构化字段
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String requestParser() {
-        return AgentPromptStore.prompt("requestParser", DEFAULTS.get("requestParser"));
-    }
+    public static String requestParser() {  // requestParser()：需求解析提示词
+        return AgentPromptStore.prompt("requestParser", DEFAULTS.get("requestParser"));  // 返回（优先 Nacos 覆盖，回退内置默认）
+    }  // 方法结束
+    /**
+     * 作用：偏好分流提示词：把用户偏好分成行程/路线/聚合三类
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String preferenceClassifier() {
-        return AgentPromptStore.prompt("preferenceClassifier", DEFAULTS.get("preferenceClassifier"));
-    }
+    public static String preferenceClassifier() {  // preferenceClassifier()：偏好分流提示词
+        return AgentPromptStore.prompt("preferenceClassifier", DEFAULTS.get("preferenceClassifier"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：内容审核提示词：判定论坛/评论内容是否违规
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String moderation() {
-        return AgentPromptStore.prompt("moderation", DEFAULTS.get("moderation"));
-    }
+    public static String moderation() {  // moderation()：内容审核提示词
+        return AgentPromptStore.prompt("moderation", DEFAULTS.get("moderation"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：对话式改行程提示词：按用户指令局部修改已有行程
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String tripEditor() {
-        return AgentPromptStore.prompt("tripEditor", DEFAULTS.get("tripEditor"));
-    }
+    public static String tripEditor() {  // tripEditor()：对话式改行程提示词
+        return AgentPromptStore.prompt("tripEditor", DEFAULTS.get("tripEditor"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：行程评审提示词：对候选行程做质量评审并给出否决/通过结论
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String tripReviewer() {
-        return AgentPromptStore.prompt("tripReviewer", DEFAULTS.get("tripReviewer"));
-    }
+    public static String tripReviewer() {  // tripReviewer()：行程评审提示词
+        return AgentPromptStore.prompt("tripReviewer", DEFAULTS.get("tripReviewer"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：路线子 Agent 的系统提示词：优先用 classpath 文件内容，缺失时回退内置文本
+     * 参数：fileFallback 从 agent-rules.md 读到的文本（可为空）
+     * 返回值：完整系统提示词文本
+     * 异常：无
+     */
 
-    public static String routeAgentSystem(String fileFallback) {
-        return AgentPromptStore.prompt("routeAgentSystem", fileFallback);
-    }
+    public static String routeAgentSystem(String fileFallback) {  // routeAgentSystem()：路线子 Agent 系统提示词
+        return AgentPromptStore.prompt("routeAgentSystem", fileFallback);  // 返回（优先 Nacos 覆盖，回退规则文件文本）
+    }  // 方法结束
+    /**
+     * 作用：行程子 Agent 的系统提示词：优先用 classpath 文件内容，缺失时回退内置文本
+     * 参数：fileFallback 从 agent-rules.md 读到的文本（可为空）
+     * 返回值：完整系统提示词文本
+     * 异常：无
+     */
 
-    public static String tripAgentSystem(String fileFallback) {
-        return AgentPromptStore.prompt("tripAgentSystem", fileFallback);
-    }
+    public static String tripAgentSystem(String fileFallback) {  // tripAgentSystem()：行程子 Agent 系统提示词
+        return AgentPromptStore.prompt("tripAgentSystem", fileFallback);  // 返回（优先 Nacos 覆盖，回退规则文件文本）
+    }  // 方法结束
+    /**
+     * 作用：通用 ReAct Agent 系统提示词（主管与未定制子 Agent 共用）
+     * 参数：agentName 当前 Agent 名称，用于文案
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String genericReActSystem(String agentName) {
-        return AgentPromptStore.prompt("genericReActSystem", DEFAULTS.get("genericReActSystem"))
-                .replace("{agentName}", agentName);
-    }
+    public static String genericReActSystem(String agentName) {  // genericReActSystem()：通用 ReAct 提示词
+        return AgentPromptStore.prompt("genericReActSystem", DEFAULTS.get("genericReActSystem"))  // 返回（优先 Nacos 覆盖）
+                .replace("{agentName}", agentName);  // 把模板里的 {agentName} 换成真实 Agent 名
+    }  // 方法结束
+    /**
+     * 作用：query_trip 聚合工具的描述文本（子 Agent 靠它决定一次调用拿全量数据）
+     * 参数：无
+     * 返回值：工具描述文本
+     * 异常：无
+     */
 
-    public static String toolQueryTrip() {
-        return AgentPromptStore.prompt("toolQueryTrip", DEFAULTS.get("toolQueryTrip"));
-    }
+    public static String toolQueryTrip() {  // toolQueryTrip()：query_trip 工具描述
+        return AgentPromptStore.prompt("toolQueryTrip", DEFAULTS.get("toolQueryTrip"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：query_route_unified 工具的描述文本
+     * 参数：无
+     * 返回值：工具描述文本
+     * 异常：无
+     */
 
-    public static String toolRouteUnified() {
-        return AgentPromptStore.prompt("toolRouteUnified", DEFAULTS.get("toolRouteUnified"));
-    }
+    public static String toolRouteUnified() {  // toolRouteUnified()：query_route_unified 工具描述
+        return AgentPromptStore.prompt("toolRouteUnified", DEFAULTS.get("toolRouteUnified"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：本地知识库工具的描述文本
+     * 参数：无
+     * 返回值：工具描述文本
+     * 异常：无
+     */
 
-    public static String toolLocalKnowledge() {
-        return AgentPromptStore.prompt("toolLocalKnowledge", DEFAULTS.get("toolLocalKnowledge"));
-    }
+    public static String toolLocalKnowledge() {  // toolLocalKnowledge()：本地知识库工具描述
+        return AgentPromptStore.prompt("toolLocalKnowledge", DEFAULTS.get("toolLocalKnowledge"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：景点域候选 Agent 的系统提示词（只负责景点候选，不排行程）
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String domainAttractionAgent() {
-        return AgentPromptStore.prompt("domainAttractionAgent", DEFAULTS.get("domainAttractionAgent"));
-    }
+    public static String domainAttractionAgent() {  // domainAttractionAgent()：景点域候选 Agent 提示词
+        return AgentPromptStore.prompt("domainAttractionAgent", DEFAULTS.get("domainAttractionAgent"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：酒店域候选 Agent 的系统提示词（只负责住宿候选）
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String domainHotelAgent() {
-        return AgentPromptStore.prompt("domainHotelAgent", DEFAULTS.get("domainHotelAgent"));
-    }
+    public static String domainHotelAgent() {  // domainHotelAgent()：酒店域候选 Agent 提示词
+        return AgentPromptStore.prompt("domainHotelAgent", DEFAULTS.get("domainHotelAgent"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：餐饮域候选 Agent 的系统提示词（只负责餐饮候选）
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String domainDiningAgent() {
-        return AgentPromptStore.prompt("domainDiningAgent", DEFAULTS.get("domainDiningAgent"));
-    }
+    public static String domainDiningAgent() {  // domainDiningAgent()：餐饮域候选 Agent 提示词
+        return AgentPromptStore.prompt("domainDiningAgent", DEFAULTS.get("domainDiningAgent"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：query_candidates 三域候选工具的描述文本
+     * 参数：无
+     * 返回值：工具描述文本
+     * 异常：无
+     */
 
-    public static String toolQueryCandidates() {
-        return AgentPromptStore.prompt("toolQueryCandidates", DEFAULTS.get("toolQueryCandidates"));
-    }
+    public static String toolQueryCandidates() {  // toolQueryCandidates()：query_candidates 工具描述
+        return AgentPromptStore.prompt("toolQueryCandidates", DEFAULTS.get("toolQueryCandidates"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：改行程影响分析提示词：判断某天改动会波及哪些天
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String reviseImpactAnalyzer() {
-        return AgentPromptStore.prompt("reviseImpactAnalyzer", DEFAULTS.get("reviseImpactAnalyzer"));
-    }
+    public static String reviseImpactAnalyzer() {  // reviseImpactAnalyzer()：改行程影响分析提示词
+        return AgentPromptStore.prompt("reviseImpactAnalyzer", DEFAULTS.get("reviseImpactAnalyzer"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：改行程按天聚合提示词：只重写受影响的天并保持其余不变
+     * 参数：无
+     * 返回值：系统提示词文本
+     * 异常：无
+     */
 
-    public static String reviseDayAggregator() {
-        return AgentPromptStore.prompt("reviseDayAggregator", DEFAULTS.get("reviseDayAggregator"));
-    }
+    public static String reviseDayAggregator() {  // reviseDayAggregator()：按天局部重聚合提示词
+        return AgentPromptStore.prompt("reviseDayAggregator", DEFAULTS.get("reviseDayAggregator"));  // 返回（优先 Nacos 覆盖）
+    }  // 方法结束
+    /**
+     * 作用：导出全部内置提示词默认值（管理端展示/重置用）
+     * 参数：无
+     * 返回值：提示词键到默认文本的 Map
+     * 异常：无
+     */
 
-    public static Map<String, String> defaults() {
-        return new LinkedHashMap<>(DEFAULTS);
-    }
+    public static Map<String, String> defaults() {  // defaults()：导出全部内置默认值（管理端展示/重置用）
+        return new LinkedHashMap<>(DEFAULTS);  // 返回拷贝（防止外部改内部 Map）
+    }  // 方法结束
+    /**
+     * 作用：导出提示词的中文名称映射
+     * 参数：无
+     * 返回值：提示词键到中文名的 Map
+     * 异常：无
+     */
 
-    public static Map<String, String> labels() {
-        return new LinkedHashMap<>(LABELS);
-    }
-}
+    public static Map<String, String> labels() {  // labels()：导出提示词中文名映射
+        return new LinkedHashMap<>(LABELS);  // 返回拷贝
+    }  // 方法结束
+}  // 类结束

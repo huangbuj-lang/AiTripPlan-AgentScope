@@ -16,7 +16,12 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Resource
     private JdbcTemplate jdbcTemplate;
-
+    /**
+     * 作用：注册登录/管理端拦截器及其放行路径
+     * 参数：registry 拦截器注册表
+     * 返回值：无
+     * 异常：无
+     */
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new LoginInterceptor(jdbcTemplate))
@@ -28,7 +33,12 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addInterceptor(new AdminInterceptor())
                 .addPathPatterns("/api/admin/**");
     }
-
+    /**
+     * 作用：注册静态资源映射（前端页面与静态文件）
+     * 参数：registry 资源处理器注册表
+     * 返回值：无
+     * 异常：无
+     */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/**") // 静态资源禁用缓存

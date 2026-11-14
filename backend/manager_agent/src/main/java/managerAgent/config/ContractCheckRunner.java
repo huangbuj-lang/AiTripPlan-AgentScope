@@ -25,81 +25,99 @@ import java.util.regex.Pattern;
  * </ol>
  * 不一致只 WARN，不阻断启动——诊断信息不该让服务起不来。
  */
-@Component
-public class ContractCheckRunner implements ApplicationRunner {
+@Component  // @Component：注册成 Spring Bean
+public class ContractCheckRunner implements ApplicationRunner {  // 类声明：实现 ApplicationRunner，应用启动后自动执行一次
 
     /** 与 TripOrchestrator.PLAN_STYLES[i][0] 保持一致（private static，跨类无法直接引用，故列在此处） */
-    private static final Set<String> BACKEND_STYLE_KEYS = new LinkedHashSet<>(java.util.List.of("classic", "loop", "leisure"));
+    private static final Set<String> BACKEND_STYLE_KEYS = new LinkedHashSet<>(java.util.List.of("classic", "loop", "leisure"));  // 后端方案风格 key（与 TripOrchestrator.PLAN_STYLES 对齐）
+    /**
+     * 作用：启动契约检查：应用启动后校验提示词声明的输出字段与 DTO/前端是否一致（不一致只告警）
+     * 参数：args Spring 应用参数
+     * 返回值：无
+     * 异常：无（检查异常内部捕获，不影响启动）
+     */
+    @Override  // @Override 覆写 Runner 入口
+    public void run(ApplicationArguments args) {  // run：Spring 启动完成后调用
+        checkPlanJsonContract();  // 校验【行程JSON】字段契约
+        checkFrontendStyleContract();  // 校验前端 STYLE_LABELS 风格 key 契约
+    }  // 方法结束
 
-    @Override
-    public void run(ApplicationArguments args) {
-        checkPlanJsonContract();
-        checkFrontendStyleContract();
-    }
+    /**
+     * 作用：校验提示词里约定的行程 JSON 字段与 TripPlanData 字段是否一致
+     * 参数：无
+     * 返回值：无
+     * 异常：无（只打印告警）
+     */
+    private void checkPlanJsonContract() {  // checkPlanJsonContract：行程 JSON 字段 ↔ DTO 字段
+        try {  // try：校验失败不影响启动
+            String rules = utils.ExternalRules.load("tripPlanner-agent-rules.md", "agent-rules.md");  // 读规则文件（磁盘优先，回退 classpath 的 agent-rules.md）
+            if (rules == null || rules.isBlank()) {  // 规则缺失（独立部署没带规则文件）
+                System.out.println("[ContractCheck] 磁盘无行程Agent规则（独立部署场景），跳过主管侧行程JSON校验");  // 打印跳过
+                return;  // return
+            }  // if 结束
+            ContractChecker.check(rules, "行程JSON", "主管侧读到的行程Agent规则",  // 调 ContractChecker 比对：规则里【行程JSON】声明的字段
+                    dto.TripPlanData.class, dto.Section.class, dto.SectionItem.class);  // 续：vs TripPlanData/Section/SectionItem 的字段
+        } catch (Exception e) {  // 捕获异常
+            System.err.println("[ContractCheck] 行程JSON契约校验失败（忽略）: " + e.getMessage());  // 打印“校验失败（忽略）”
+        }  // catch 结束
+    }  // 方法结束
 
-    /** ① 【行程JSON】字段 ↔ DTO
-     *  manager 自身不含 agent-rules 资源；但部署时与子Agent同机，磁盘上（agent-rules/）有行程Agent的规则，
-     *  直接读它做校验——这样主管侧解析端与 tripPlanner 产出端共享同一份字段契约认知。
-     *  （若各自独立部署、磁盘读不到，则本项自动跳过，由 tripPlanner 自己的启动校验兜住。） */
-    private void checkPlanJsonContract() {
-        try {
-            String rules = utils.ExternalRules.load("tripPlanner-agent-rules.md", "agent-rules.md");
-            if (rules == null || rules.isBlank()) {
-                System.out.println("[ContractCheck] 磁盘无行程Agent规则（独立部署场景），跳过主管侧行程JSON校验");
-                return;
-            }
-            ContractChecker.check(rules, "行程JSON", "主管侧读到的行程Agent规则",
-                    dto.TripPlanData.class, dto.Section.class, dto.SectionItem.class);
-        } catch (Exception e) {
-            System.err.println("[ContractCheck] 行程JSON契约校验失败（忽略）: " + e.getMessage());
-        }
-    }
+    /**
+     * 作用：校验前端样式常量与后端约定是否一致（防止样式口径漂移）
+     * 参数：无
+     * 返回值：无
+     * 异常：无（只打印告警）
+     */
+    private void checkFrontendStyleContract() {  // checkFrontendStyleContract：后端风格 key ↔ 前端 STYLE_LABELS
+        try {  // try：失败不影响启动
+            String js = readClasspath("/static/js/app.js");  // 从 classpath 读前端 app.js（被打进 jar）
+            if (js == null || js.isBlank()) {  // 文件不存在
+                System.out.println("[ContractCheck] 未找到前端 app.js，跳过风格 key 校验");  // 打印跳过
+                return;  // return
+            }  // if 结束
+            Set<String> frontKeys = new LinkedHashSet<>();  // frontKeys：前端声明的风格 key
+            Matcher block = Pattern.compile("STYLE_LABELS\\s*=\\s*\\{([^}]*)\\}").matcher(js);  // 正则匹配 STYLE_LABELS = { ... }
+            if (block.find()) {  // 匹配到配置块
+                Matcher key = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)\\s*:").matcher(block.group(1));  // 在块内匹配 key:
+                while (key.find()) frontKeys.add(key.group(1));  // 逐个加入集合
+            }  // for 结束
+            if (frontKeys.isEmpty()) {  // 一个都没解析到
+                System.out.println("[ContractCheck] 前端未解析到 STYLE_LABELS，跳过风格 key 校验");  // 打印跳过
+                return;  // return
+            }  // if 结束
+            Set<String> missingInFront = new TreeSet<>(BACKEND_STYLE_KEYS);  // missingInFront：后端有、前端没有的
+            missingInFront.removeAll(frontKeys);  // 求差集
+            Set<String> extraInFront = new TreeSet<>(frontKeys);  // extraInFront：前端有、后端不产出的
+            extraInFront.removeAll(BACKEND_STYLE_KEYS);  // 求差集
+            if (missingInFront.isEmpty() && extraInFront.isEmpty()) {  // 两边都为空
+                System.out.println("[ContractCheck] 方案风格 key 与前端 STYLE_LABELS 一致：" + frontKeys);  // 打印一致 + 前端 key 集合
+            } else {  // 否则
+                if (!missingInFront.isEmpty()) {  // 后端 key 前端缺失
+                    System.err.println("[ContractCheck][WARN] 后端风格 key " + missingInFront  // WARN：该方案标签会渲染成「方案N」
+                            + " 在前端 STYLE_LABELS 中缺失 → 该方案标签会渲染成「方案N」");  // 续行
+                }  // if 结束
+                if (!extraInFront.isEmpty()) {  // 前端多了后端不产出的
+                    System.err.println("[ContractCheck][WARN] 前端 STYLE_LABELS 多了后端不产出的 key "  // WARN：死配置
+                            + extraInFront + " → 死配置，后端不会输出这些风格");  // 续行
+                }  // if 结束
+            }  // if 结束
+        } catch (Exception e) {  // 捕获异常
+            System.err.println("[ContractCheck] 风格 key 校验失败（忽略）: " + e.getMessage());  // 打印“校验失败（忽略）”
+        }  // catch 结束
+    }  // 方法结束
 
-    /** ② 后端风格 key ↔ 前端 STYLE_LABELS（踩过的真 bug：key 不匹配 → 多方案标签空白） */
-    private void checkFrontendStyleContract() {
-        try {
-            String js = readClasspath("/static/js/app.js");
-            if (js == null || js.isBlank()) {
-                System.out.println("[ContractCheck] 未找到前端 app.js，跳过风格 key 校验");
-                return;
-            }
-            Set<String> frontKeys = new LinkedHashSet<>();
-            Matcher block = Pattern.compile("STYLE_LABELS\\s*=\\s*\\{([^}]*)\\}").matcher(js);
-            if (block.find()) {
-                Matcher key = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)\\s*:").matcher(block.group(1));
-                while (key.find()) frontKeys.add(key.group(1));
-            }
-            if (frontKeys.isEmpty()) {
-                System.out.println("[ContractCheck] 前端未解析到 STYLE_LABELS，跳过风格 key 校验");
-                return;
-            }
-            Set<String> missingInFront = new TreeSet<>(BACKEND_STYLE_KEYS);
-            missingInFront.removeAll(frontKeys);
-            Set<String> extraInFront = new TreeSet<>(frontKeys);
-            extraInFront.removeAll(BACKEND_STYLE_KEYS);
-            if (missingInFront.isEmpty() && extraInFront.isEmpty()) {
-                System.out.println("[ContractCheck] 方案风格 key 与前端 STYLE_LABELS 一致：" + frontKeys);
-            } else {
-                if (!missingInFront.isEmpty()) {
-                    System.err.println("[ContractCheck][WARN] 后端风格 key " + missingInFront
-                            + " 在前端 STYLE_LABELS 中缺失 → 该方案标签会渲染成「方案N」");
-                }
-                if (!extraInFront.isEmpty()) {
-                    System.err.println("[ContractCheck][WARN] 前端 STYLE_LABELS 多了后端不产出的 key "
-                            + extraInFront + " → 死配置，后端不会输出这些风格");
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("[ContractCheck] 风格 key 校验失败（忽略）: " + e.getMessage());
-        }
-    }
+    /**
+     * 作用：读取 classpath 下的文本资源
+     * 参数：path 资源路径
+     * 返回值：资源文本；读不到返回空串
+     * 异常：无（异常内部捕获）
+     */
+    private static String readClasspath(String path) {  // readClasspath：读 classpath 文本资源
+        try (InputStream in = ContractCheckRunner.class.getResourceAsStream(path)) {  // try-with-resources 打开资源流
+            return in == null ? null : new String(in.readAllBytes(), StandardCharsets.UTF_8);  // 读不到返回 null，否则解 UTF-8
+        } catch (Exception e) {  // 捕获异常
+            return null;  // 返回 null
+        }  // catch 结束
+    }  // 方法结束
+}  // 类结束
 
-    /** 从 classpath（jar 内 static）读文件为字符串，失败返回 null */
-    private static String readClasspath(String path) {
-        try (InputStream in = ContractCheckRunner.class.getResourceAsStream(path)) {
-            return in == null ? null : new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-}

@@ -15,6 +15,12 @@ import org.springframework.stereotype.Service;
 /** AdminModelConfig 的业务实现（自原控制器等价平移，逻辑未改）。 */
 @Service
 public class AdminModelConfigService {
+    /**
+     * 作用：读取主/备/数据管线三套模型配置（Key 已脱敏）
+     * 参数：无
+     * 返回值：配置 Map（URL/模型名 + 脱敏 Key + 备用模型配置）
+     * 异常：无
+     */
 
     public Map<String, Object> getModelConfig() {
         Map<String, Object> r = new java.util.HashMap<>();
@@ -49,6 +55,12 @@ public class AdminModelConfigService {
         r.put("success", true);
         return r;
     }
+    /**
+     * 作用：保存全部运行时配置：主/备/数据管线三套模型 + 并发与超时 + 限速/重试/熔断参数，写内存热更中心并发布 Nacos 生效（同时同步 python 侧模型配置）
+     * 参数：javaUrl 主模型地址；javaKey 主模型 Key；javaName 主模型名称；fbUrl 备用模型地址；fbKey 备用模型 Key；fbName 备用模型名称；pyUrl 数据管线模型地址；pyKey 数据管线模型 Key；pyName 数据管线模型名称；maxConcurrentTasks 最大并发任务数；remoteTimeoutSeconds 远程 Agent 超时秒数；defaultTimeoutSeconds 默认 LLM 超时秒数；moderationTimeoutSeconds 审核超时秒数；aiAnswerTimeoutSeconds AI 问答超时秒数；tripEditTimeoutSeconds 改行程超时秒数；qps 模型调用 QPS 上限；maxInflight 在途并发上限；maxRetries 重试次数；retryBaseMs 退避基数毫秒；breakerFailureThreshold 熔断失败阈值；breakerWindowMs 熔断统计窗口毫秒；breakerCoolDownMs 熔断冷却毫秒；以上数值型参数允许为 null 表示不修改
+     * 返回值：保存结果 Map（成功标记与已生效字段）
+     * 异常：无（部分失败或发布异常返回含错误信息的 Map）
+     */
 
     public Map<String, Object> saveModelConfig(String javaUrl, String javaKey, String javaName, String fbUrl, String fbKey, String fbName, String pyUrl, String pyKey, String pyName, Integer maxConcurrentTasks, Integer remoteTimeoutSeconds, Integer defaultTimeoutSeconds, Integer moderationTimeoutSeconds, Integer aiAnswerTimeoutSeconds, Integer tripEditTimeoutSeconds, Double qps, Integer maxInflight, Integer maxRetries, Long retryBaseMs, Integer breakerFailureThreshold, Long breakerWindowMs, Long breakerCoolDownMs) {
         Map<String, Object> r = new java.util.HashMap<>();
@@ -168,14 +180,32 @@ public class AdminModelConfigService {
         }
         return r;
     }
+    /**
+     * 作用：非空值才写入配置 Map（避免空值覆盖已有配置）
+     * 参数：config 目标配置 Map；key 键名；value 值
+     * 返回值：无
+     * 异常：无
+     */
 
     private void putIfPresent(Map<String, Object> config, String key, String value) {
         if (value != null && !value.isBlank()) config.put(key, value.trim());
     }
+    /**
+     * 作用：定位数据管线侧（python）的模型配置文件
+     * 参数：无
+     * 返回值：配置文件对象
+     * 异常：无
+     */
 
     private java.io.File pyConfigFile() {
         return new java.io.File(managerAgent.tool.ProjectPaths.root(), "data-pipeline/llm_config.json");
     }
+    /**
+     * 作用：读取 python 侧的模型配置
+     * 参数：无
+     * 返回值：配置 Map；文件缺失返回空 Map
+     * 异常：无
+     */
 
     private Map<String, Object> readPyLlmConfig() {
         Map<String, Object> m = new java.util.HashMap<>();
@@ -196,6 +226,12 @@ public class AdminModelConfigService {
         m.putIfAbsent("name", "stealth/ox-alpha");
         return m;
     }
+    /**
+     * 作用：写入 python 侧的模型配置
+     * 参数：url 接口地址；key API Key；name 模型名称
+     * 返回值：无
+     * 异常：Exception 写文件失败时抛出
+     */
 
     private void savePyLlmConfig(String url, String key, String name) throws Exception {
         Map<String, Object> cur = readPyLlmConfig();

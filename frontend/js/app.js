@@ -1088,6 +1088,20 @@ function renderPlanSheet(text) {
     return sheet.outerHTML;
 }
 
+/* 判定一个 section 是不是"一天"的时间线区块。
+   参数 section：后端 /result 返回的 section 对象，形如 {type:'timeline', title:'第1天', items:[...]}
+   返回值：true = 这一块算作一天；false = 住宿/贴士/交通等附带区块，不占一天
+   为什么必须只认 type：住宿与贴士的标题会被写成「第2天住宿」「第3天贴士」，含“第…天”，
+   用标题正则兜底就会把它们当成天 —— 实测 3 天的行程被渲染成 DAY01~DAY05，多出来的两天全空白。
+   老数据没有 type 时：标题必须以“第N天”开头，且不含住宿/贴士/提醒/费用这类字眼。 */
+function isTimelineDay(section) {                                   // isTimelineDay：section 是否算一天
+    if (!section) return false;                                     // 空对象直接不算
+    if (section.type) return section.type === 'timeline';           // 有 type 就以 type 为准（当前后端都带 type）
+    const title = section.title || '';                              // 老数据：取标题
+    if (/住宿|贴士|提醒|注意|费用|总结/.test(title)) return false;     // 带这些字眼的是附带区块
+    return /第\s*\d+\s*天/.test(title);                            // 只剩“第N天 …”才算一天
+}
+
 /* ============================================================ 结构化行程渲染（阶段三：直接渲染后端 JSON，不再正则猜测） 后端 /result 返回 TripPlanData JSON（含降级 markdown 字段）， 此处直接按 sections 分区块渲染，替代 classifySection/activityIcon 等猜测逻辑。 */
 
 /** 区块类型 -> 图标 / 样式类 */
@@ -1187,8 +1201,8 @@ function renderStructuredPlan(plan) {
     const sections = plan.sections || [];
 
     //提取天数区块（timeline）与其余区块
-    const days = sections.filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
-    const others = sections.filter(s => s.type !== 'timeline' && !/第.+天/.test(s.title || ''));
+    const days = sections.filter(isTimelineDay);  // 只把 timeline 区块算作一天（住宿/贴士不再占一天）
+    const others = sections.filter(s => !isTimelineDay(s));  // 其余区块（住宿/贴士等）单独渲染
 
     //标题头
     let html = '<div class="plan-header">';
@@ -1291,7 +1305,7 @@ function gotoAmap(fallbackUrl, name, city) {
 /** 提取第 dayIdx 天（0基）的地点序列； */
 function dayPlaces(dayIdx) {
     if (!currentPlanData || !currentPlanData.sections) return null;
-    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    const days = (currentPlanData.sections || []).filter(isTimelineDay);  // 只把 timeline 区块算作一天
     const day = days[dayIdx];
     if (!day) return null;
     const places = [];
@@ -1310,7 +1324,7 @@ let dayMapBusy = false;
 let dayMapPlanFp = '';
 function planFingerprint() {
     if (!currentPlanData) return '';
-    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    const days = (currentPlanData.sections || []).filter(isTimelineDay);  // 只把 timeline 区块算作一天
     const titles = days.map(d => d.title || '').join('|');
     return (currentPlanData.title || '') + '#' + titles;
 }
@@ -1391,7 +1405,7 @@ function routePath(n) {
 /** 点击天卡片：切换轨迹显示该天 */
 function selectDay(di) {
     if (!currentPlanData) return;
-    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    const days = (currentPlanData.sections || []).filter(isTimelineDay);  // 只把 timeline 区块算作一天
     if (!days[di]) return;
     const day = days[di];
     const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity));
@@ -1421,7 +1435,7 @@ function selectDay(di) {
 /** 打开某天详情弹窗 */
 function openDayModal(di) {
     if (!currentPlanData) return;
-    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    const days = (currentPlanData.sections || []).filter(isTimelineDay);  // 只把 timeline 区块算作一天
     const day = days[di];
     if (!day) return;
     const items = (day.items || []).filter(it => it && (it.time || it.place || it.activity));
@@ -1917,7 +1931,7 @@ function newSession() {
 
 function findDayIndexOfPlace(name) {
     if (!currentPlanData || !currentPlanData.sections) return -1;
-    const days = (currentPlanData.sections || []).filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
+    const days = (currentPlanData.sections || []).filter(isTimelineDay);  // 只把 timeline 区块算作一天
     for (let i = 0; i < days.length; i++) {
         const items = (days[i].items || []).filter(it => it && (it.place || it.name));
         for (const it of items) {
@@ -1934,8 +1948,8 @@ function buildPrintView() {
     const plan = currentPlanData;
     if (!plan) { box.innerHTML = ''; return; }
     const sections = plan.sections || [];
-    const days = sections.filter(s => s.type === 'timeline' || /第.+天/.test(s.title || ''));
-    const others = sections.filter(s => s.type !== 'timeline' && !/第.+天/.test(s.title || ''));
+    const days = sections.filter(isTimelineDay);  // 只把 timeline 区块算作一天（住宿/贴士不再占一天）
+    const others = sections.filter(s => !isTimelineDay(s));  // 其余区块（住宿/贴士等）单独渲染
 
     let html = '';
     //标题头

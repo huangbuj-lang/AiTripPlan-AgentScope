@@ -6,14 +6,17 @@
     <!-- 输出到控制台-->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>info</level>
+            <level>debug</level>  <!-- 放行 debug，以便单独打开 A2A 传输层日志；其余依赖仍由 root=info 过滤 -->
         </filter>
         <encoder>
-            <Pattern>%date{yyyy} [%level] %msg%n</Pattern>
+            <Pattern>%date{yyyy-MM-dd HH:mm:ss.SSS} [%level] %msg%n</Pattern>  <!-- 完整时间戳：原来只有年份(%date{yyyy})，排障时无法算耗时 -->
             <charset>UTF-8</charset>
         </encoder>
     </appender>
 
+
+    <!-- A2A 传输层探针：只对 agentscope 打开 debug，用于观察 message/send 的请求与响应时机 -->
+    <logger name="io.agentscope" level="debug" />
 
     <root level="info">
         <appender-ref ref="CONSOLE" />

@@ -15,37 +15,60 @@ import java.util.Map;
  * 容量上限 300 会话，超限丢最旧；进程重启即清（与 CallTrace span 同级的内存态观测，
  * 随"观测落库"整体方案一并持久化）。
  */
-public class CandidateBlockStore {
+public class CandidateBlockStore {  // 类声明：候选块进程级存档（静态工具类）
 
-    private static final int MAX_SESSIONS = 300;
+    private static final int MAX_SESSIONS = 300;  // 容量上限：最多存 300 个会话
 
     /** sessionId → 最近一次产出的候选 JSON（LinkedHashMap 保插入序，超限丢最旧） */
-    private static final Map<String, String> BLOCKS = Collections.synchronizedMap(
-            new LinkedHashMap<>(64, 0.75f, false) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
-                    return size() > MAX_SESSIONS;
-                }
-            });
+    private static final Map<String, String> BLOCKS = Collections.synchronizedMap(  // synchronizedMap 包一层保证线程安全；LinkedHashMap 保插入序
+            new LinkedHashMap<>(64, 0.75f, false) {  // accessOrder=false：按插入序淘汰（不是按访问序）
+                /**
+                 * 作用：LRU 淘汰钩子：超过容量上限时移除最久未使用的会话候选
+                 * 参数：eldest 最早写入的条目
+                 * 返回值：true=需要淘汰
+                 * 异常：无
+                 */
+                @Override  // @Override 覆写淘汰钩子
+                protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {  // removeEldestEntry：每次 put 后被调用
+                    return size() > MAX_SESSIONS;  // 超过 300 就淘汰最旧的一条
+                }  // 钩子方法结束
+            });  // 匿名子类结束
+    /**
+     * 作用：私有构造，禁止实例化本工具类
+     * 参数：无
+     * 返回值：无
+     * 异常：无
+     */
 
-    private CandidateBlockStore() {
-    }
+    private CandidateBlockStore() {  // 私有构造：禁止 new
+    }  // 构造器结束
 
-    /** 存档某会话最近一次产出的三域候选 JSON（无会话上下文/空块忽略，防串号与空写） */
-    public static void put(String sessionId, String candidatesJson) {
-        if (sessionId == null || sessionId.isBlank()
-                || candidatesJson == null || candidatesJson.isBlank()) {
-            return;
-        }
-        BLOCKS.put(sessionId, candidatesJson);
-    }
+    /**
+     * 作用：按会话缓存三域候选 JSON（容量上限内 LRU 保留）
+     * 参数：sessionId 会话 ID；candidatesJson 三域候选 JSON
+     * 返回值：无
+     * 异常：无
+     */
+    public static void put(String sessionId, String candidatesJson) {  // put 签名：存档某会话的候选 JSON
+        if (sessionId == null || sessionId.isBlank()  // sessionId 或 JSON 为空
+                || candidatesJson == null || candidatesJson.isBlank()) {  // 续：直接返回不存
+            return;  // return
+        }  // if 结束
+        BLOCKS.put(sessionId, candidatesJson);  // 写入（超限自动淘汰最旧）
+    }  // 方法结束
 
-    /** 读取某会话最近一次候选 JSON；无则返回空串 */
-    public static String get(String sessionId) {
-        if (sessionId == null || sessionId.isBlank()) {
-            return "";
-        }
-        String v = BLOCKS.get(sessionId);
-        return v == null ? "" : v;
-    }
-}
+    /**
+     * 作用：按会话读取三域候选 JSON
+     * 参数：sessionId 会话 ID
+     * 返回值：候选 JSON；无缓存返回 null
+     * 异常：无
+     */
+    public static String get(String sessionId) {  // get 签名：读某会话的候选 JSON
+        if (sessionId == null || sessionId.isBlank()) {  // sessionId 为空
+            return "";  // 返回空串
+        }  // if 结束
+        String v = BLOCKS.get(sessionId);  // 取缓存值
+        return v == null ? "" : v;  // null 归一空串返回
+    }  // 方法结束
+}  // 类结束
+

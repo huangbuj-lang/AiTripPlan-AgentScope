@@ -16,63 +16,119 @@ package utils;
  *   <li>{@code MANAGER_URL}        主管服务（含前端），默认 http://localhost:8091</li>
  * </ul>
  */
-public final class AgentEndpoints {
+public final class AgentEndpoints {  // 类声明：端点集中配置（谁在哪都从这里取）
+    /**
+     * 作用：私有构造，禁止实例化本工具类
+     * 参数：无
+     * 返回值：无
+     * 异常：无
+     */
 
-    private AgentEndpoints() {}
+    private AgentEndpoints() {}  // 私有构造：禁止 new
 
-    /** Nacos 注册/配置中心地址（host:port，不带协议） */
-    public static String nacosAddr() {
-        return Config.get("NACOS_SERVER_ADDR", "localhost:8848");
-    }
+    /**
+     * 作用：读取 Nacos 服务地址
+     * 参数：无
+     * 返回值：Nacos 地址
+     * 异常：无
+     */
+    public static String nacosAddr() {  // nacosAddr：Nacos 服务地址
+        return Config.get("NACOS_SERVER_ADDR", "localhost:8848");  // 读 NACOS_SERVER_ADDR（默认 localhost:8848）
+    }  // 方法结束
 
-    /** Nacos 3.x 控制台地址 */
-    public static String nacosConsole() {
-        return Config.get("NACOS_CONSOLE_URL", "http://localhost:8080");
-    }
+    /**
+     * 作用：读取 Nacos 控制台地址
+     * 参数：无
+     * 返回值：控制台 URL
+     * 异常：无
+     */
+    public static String nacosConsole() {  // nacosConsole：Nacos 控制台地址
+        return Config.get("NACOS_CONSOLE_URL", "http://localhost:8080");  // 读 NACOS_CONSOLE_URL（默认 8080 控制台）
+    }  // 方法结束
 
-    /** 路线Agent（A2A 服务）基础地址 */
-    public static String routeAgent() {
-        return Config.get("AGENT_ROUTE_URL", "http://localhost:8082");
-    }
+    /**
+     * 作用：读取路线子 Agent 的访问地址
+     * 参数：无
+     * 返回值：基础 URL
+     * 异常：无
+     */
+    public static String routeAgent() {  // routeAgent：路线子 Agent 地址
+        return Config.get("AGENT_ROUTE_URL", "http://localhost:8082");  // 读 AGENT_ROUTE_URL（默认 8082）
+    }  // 方法结束
 
-    /** 行程Agent（A2A 服务）基础地址 */
-    public static String tripAgent() {
-        return Config.get("AGENT_TRIP_URL", "http://localhost:8085");
-    }
+    /**
+     * 作用：读取行程子 Agent 的访问地址
+     * 参数：无
+     * 返回值：基础 URL
+     * 异常：无
+     */
+    public static String tripAgent() {  // tripAgent：行程子 Agent 地址
+        return Config.get("AGENT_TRIP_URL", "http://localhost:8085");  // 读 AGENT_TRIP_URL（默认 8085）
+    }  // 方法结束
 
-    /** 主管服务（含前端静态页）基础地址 */
-    public static String manager() {
-        return Config.get("MANAGER_URL", "http://localhost:8091");
-    }
+    /**
+     * 作用：读取主管 Agent 的访问地址
+     * 参数：无
+     * 返回值：基础 URL
+     * 异常：无
+     */
+    public static String manager() {  // manager：主管服务地址
+        return Config.get("MANAGER_URL", "http://localhost:8091");  // 读 MANAGER_URL（默认 8091）
+    }  // 方法结束
 
-    /** 按 agent 名取基础地址（RouteMakingAgent / TripPlannerAgent），未知名字回退主管自身 */
-    public static String forAgent(String agentName) {
-        if ("RouteMakingAgent".equals(agentName)) return routeAgent();
-        if ("TripPlannerAgent".equals(agentName)) return tripAgent();
-        return manager();
-    }
+    /**
+     * 作用：按 Agent 名称取它的访问地址
+     * 参数：agentName Agent 注册名（RouteMakingAgent/TripPlannerAgent）
+     * 返回值：基础 URL；未知名称回落到主管地址
+     * 异常：无
+     */
+    public static String forAgent(String agentName) {  // forAgent：按注册名取地址
+        if ("RouteMakingAgent".equals(agentName)) return routeAgent();  // 路线 Agent → 8082
+        if ("TripPlannerAgent".equals(agentName)) return tripAgent();  // 行程 Agent → 8085
+        return manager();  // 未知 → 主管地址
+    }  // 方法结束
 
-    /** 按中文/英文标签容错取子Agent地址（历史调用点用的是「路线」「行程」这种中文标签） */
-    public static String forAgentLabel(String label) {
-        if (label == null) return manager();
-        if (label.contains("路线") || label.contains("Route")) return routeAgent();
-        if (label.contains("行程") || label.contains("Trip")) return tripAgent();
-        return manager();
-    }
+    /**
+     * 作用：按中文标签取 Agent 的访问地址
+     * 参数：label 中文标签（路线Agent/行程Agent）
+     * 返回值：基础 URL；未知标签回落到主管地址
+     * 异常：无
+     */
+    public static String forAgentLabel(String label) {  // forAgentLabel：按中文标签取地址
+        if (label == null) return manager();  // 标签为空 → 主管地址
+        if (label.contains("路线") || label.contains("Route")) return routeAgent();  // 含“路线/Route” → 路线 Agent
+        if (label.contains("行程") || label.contains("Trip")) return tripAgent();  // 含“行程/Trip” → 行程 Agent
+        return manager();  // 其他 → 主管地址
+    }  // 方法结束
 
-    /** 从基础地址取端口（无端口返回 -1），用于原来只传端口的调用点 */
-    public static int portOf(String baseUrl) {
-        try {
-            java.net.URI u = java.net.URI.create(baseUrl);
-            return u.getPort() > 0 ? u.getPort() : ("https".equals(u.getScheme()) ? 443 : 80);
-        } catch (Exception e) {
-            return -1;
-        }
-    }
+    /**
+     * 作用：从基础 URL 中解析端口
+     * 参数：baseUrl 形如 http://localhost:8085 的地址
+     * 返回值：端口号；解析失败返回 -1
+     * 异常：无
+     */
+    public static int portOf(String baseUrl) {  // portOf：从 URL 解析端口
+        try {  // try
+            java.net.URI u = java.net.URI.create(baseUrl);  // 解析成 URI
+            return u.getPort() > 0 ? u.getPort() : ("https".equals(u.getScheme()) ? 443 : 80);  // 有端口用端口，否则按协议给 443/80
+        } catch (Exception e) {  // 解析失败
+            return -1;  // 返回 -1
+        }  // catch 结束
+    }  // 方法结束
 
-    /** 路线Agent 端口（便捷方法，供只接受 int port 的历史调用点用） */
-    public static int routePort() { return portOf(routeAgent()); }
+    /**
+     * 作用：读取路线子 Agent 的端口
+     * 参数：无
+     * 返回值：端口号；解析失败返回 -1
+     * 异常：无
+     */
+    public static int routePort() { return portOf(routeAgent()); }  // routePort：路线 Agent 端口
 
-    /** 行程Agent 端口（便捷方法） */
-    public static int tripPort() { return portOf(tripAgent()); }
-}
+    /**
+     * 作用：读取行程子 Agent 的端口
+     * 参数：无
+     * 返回值：端口号；解析失败返回 -1
+     * 异常：无
+     */
+    public static int tripPort() { return portOf(tripAgent()); }  // tripPort：行程 Agent 端口
+}  // 类结束

@@ -7,12 +7,19 @@ import utils.NacosModelConfig;
 import utils.AgentRuntimeConfig;
 
 /** 启动类 */
-@SpringBootApplication
-public class RouteMakingAgentApplication {
-    public static void main(String[] args) {
-        NacosModelConfig.start();
-        AgentRuntimeConfig.start();
-        utils.AgentPromptStore.start();
-        SpringApplication.run(RouteMakingAgentApplication.class, args);
-    }
-}
+@SpringBootApplication  // @SpringBootApplication：开启自动配置与组件扫描
+public class RouteMakingAgentApplication {  // 类声明：路线子 Agent 进程启动类
+    /**
+     * 作用：子 Agent 进程启动入口：Spring Boot 引导并注册到 Nacos，供主管通过 A2A 发现调用
+     * 参数：args 命令行参数
+     * 返回值：无
+     * 异常：无（启动失败由 Spring 抛出，进程退出）
+     */
+    public static void main(String[] args) {  // main：进程入口
+        NacosModelConfig.start();  // 先启动 Nacos 模型配置长轮询
+        AgentRuntimeConfig.start();  // 再启动运行时配置
+        utils.AgentPromptStore.start();  // 再启动提示词库
+        SpringApplication.run(RouteMakingAgentApplication.class, args);  // 最后启动 Spring Boot 应用（对外 8082，注册到 Nacos 供主管 A2A 调用）
+    }  // main 结束
+}  // 类结束
+
