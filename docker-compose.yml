@@ -17,7 +17,7 @@ services:
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro   # 只在数据卷为空时执行一次
     ports: ["3307:3306"]                  # 宿主机用 3307，避免和你本机 3306 的 MySQL 冲突
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pchange_me_root"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]   # 口令从环境变量读，不写死
       interval: 5s
       timeout: 3s
       retries: 30
