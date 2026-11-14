@@ -35,3 +35,6 @@ desktop.ini
 node_modules/
 __pycache__/
 *.pyc
+
+# ===== 本地模型凭证（绝不提交，只提交 llm_config.example.json） =====
+data-pipeline/llm_config.json

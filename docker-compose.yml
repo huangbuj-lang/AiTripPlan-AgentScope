@@ -6,10 +6,10 @@ services:
     image: mysql:8.0
     container_name: aitrip-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: change_me_root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_me_root}
       MYSQL_DATABASE: aitripplan          # 自动建库
       MYSQL_USER: trip_user               # 自动建业务账号并授权到 aitripplan
-      MYSQL_PASSWORD: change_me_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change_me_user}
       TZ: Asia/Shanghai
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     volumes:
@@ -51,7 +51,7 @@ services:
       NACOS_SERVER_ADDR: nacos:8848       # 关键：容器里不能用 localhost
       RDS_HOST: mysql:3306                # 代码里 RDS_HOST 带端口，必须写成 host:port
       RDS_USER: trip_user
-      RDS_PASSWORD: change_me_user
+      RDS_PASSWORD: ${MYSQL_PASSWORD:-change_me_user}
       TZ: Asia/Shanghai
     env_file: [.env]                      # DeepSeek / 高德 的 key 从这里注入
     ports: ["8091:8091"]
